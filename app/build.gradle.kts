@@ -47,6 +47,9 @@ android {
     }
 
     packaging {
+        resources {
+            excludes += "META-INF/versions/**/OSGI-INF/MANIFEST.MF"
+        }
         jniLibs {
             useLegacyPackaging = true
         }
@@ -61,4 +64,6 @@ android {
 dependencies {
     implementation("androidx.core:core-ktx:1.15.0")
     implementation("androidx.activity:activity-ktx:1.10.0")
+    implementation("com.github.mwiede:jsch:0.2.26")
+    implementation("org.bouncycastle:bcprov-jdk18on:1.80")
 }

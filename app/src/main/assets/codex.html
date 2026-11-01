@@ -5,74 +5,86 @@
 <meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">
 <title>Codex</title>
 <style>
-:root{--bg:#fff;--side:#f4f5fa;--card:#f6f6f9;--line:#e5e6ee;--tx:#16171d;--mut:#8a8c9a;--acc:#16171d;--acctx:#fff;--ok:#1a9d55;--err:#d23b3b;--add:#e6f6ec;--del:#fdeaea;--r:14px}
-:root{color-scheme:light}
+:root{--bg:#fff;--side:#f4f5fa;--card:#f6f6f9;--line:#e5e6ee;--tx:#16171d;--mut:#8a8c9a;--acc:#16171d;--acctx:#fff;--ok:#1a9d55;--err:#d23b3b;--add:#e6f6ec;--del:#fdeaea;--r:14px;--font-scale:1}
+:root[data-theme="dark"]{color-scheme:dark;--bg:#000;--side:#111;--card:#181818;--line:#303030;--tx:#eee;--mut:#999;--acc:#eee;--acctx:#000;--ok:#50cb86;--err:#f17676;--add:#102a1b;--del:#341718}
+:root:not([data-theme="dark"]){color-scheme:light}
 *{box-sizing:border-box;-webkit-tap-highlight-color:transparent}
+[hidden]{display:none!important}
 html,body{height:100%;margin:0}
-body{font:15px/1.45 -apple-system,"Segoe UI",Roboto,sans-serif;background:var(--bg);color:var(--tx);overflow:hidden}
+body{font:calc(15px * var(--font-scale))/1.45 -apple-system,"Segoe UI",Roboto,sans-serif;background:var(--bg);color:var(--tx);overflow:hidden}
 button{font:inherit;color:inherit;background:none;border:0;cursor:pointer;padding:0}
 svg{width:20px;height:20px;stroke:currentColor;fill:none;stroke-width:1.8;stroke-linecap:round;stroke-linejoin:round;flex:none}
 #app{height:100dvh;display:flex;flex-direction:column;position:relative}
 header{display:flex;align-items:center;gap:6px;padding:8px 10px;padding-top:max(8px,env(safe-area-inset-top));border-bottom:1px solid var(--line)}
-header h1{font-size:15px;font-weight:600;margin:0;flex:1;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;padding-left:4px}
+header h1{font-size:calc(15px * var(--font-scale));font-weight:600;margin:0;flex:1;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;padding-left:4px}
 .ib{width:38px;height:38px;border-radius:10px;display:grid;place-items:center}
 .ib:active,.row:active{background:var(--card)}
-.pill{display:flex;align-items:center;gap:5px;border:1px solid var(--line);border-radius:999px;padding:6px 11px;font-size:13px}
+.pill{display:flex;align-items:center;gap:5px;border:1px solid var(--line);border-radius:999px;padding:6px 11px;font-size:calc(13px * var(--font-scale))}
 main{flex:1;overflow-y:auto;padding:14px 14px 8px;display:flex;flex-direction:column;gap:10px}
 main>*{flex-shrink:0}
 .home{margin:auto;text-align:center}
 .logo{width:56px;height:56px;margin:0 auto 14px;border-radius:18px;background:var(--card);display:grid;place-items:center}
 .logo svg{width:30px;height:30px}
-.home h2{margin:0;font-size:26px;font-weight:600}
-.home .proj{font-size:26px;color:var(--mut);display:inline-flex;align-items:center;gap:4px}
+.home h2{margin:0;font-size:calc(26px * var(--font-scale));font-weight:600}
+.home .proj{font-size:calc(26px * var(--font-scale));color:var(--mut);display:inline-flex;align-items:center;gap:4px}
 .sug{display:flex;flex-wrap:wrap;gap:8px;justify-content:center;margin-top:22px}
-.sug button{border:1px solid #d3d5e0;border-radius:12px;padding:8px 12px;font-size:13px;color:#3a3c48;background:var(--card)}
+.sug button{border:1px solid var(--line);border-radius:12px;padding:8px 12px;font-size:calc(13px * var(--font-scale));color:var(--tx);background:var(--card)}
 .msg.user{align-self:flex-end;background:var(--card);border-radius:var(--r);padding:9px 13px;max-width:86%;white-space:pre-wrap}
 .msg.ai{white-space:pre-wrap}
-.card{border:1px solid var(--line);border-radius:var(--r);overflow:hidden;font-size:13px}
+.card{border:1px solid var(--line);border-radius:var(--r);overflow:hidden;font-size:calc(13px * var(--font-scale))}
 .card .ch{display:flex;align-items:center;gap:8px;padding:8px 11px;background:var(--card);font-weight:500}
 .card .ch span.m{color:var(--mut);font-weight:400;margin-left:auto}
-.card pre{margin:0;padding:9px 11px;font:12px/1.5 ui-monospace,Menlo,monospace;overflow-x:auto;white-space:pre}
-.dl{display:block;padding:0 11px;font:12px/1.6 ui-monospace,Menlo,monospace;white-space:pre}
+.card pre{margin:0;padding:9px 11px;font:calc(12px * var(--font-scale))/1.5 ui-monospace,Menlo,monospace;overflow-x:auto;white-space:pre}
+.dl{display:block;padding:0 11px;font:calc(12px * var(--font-scale))/1.6 ui-monospace,Menlo,monospace;white-space:pre}
 .dl.a{background:var(--add)}.dl.d{background:var(--del)}
 .btns{display:flex;gap:8px;padding:9px 11px}
-.btn{border-radius:10px;padding:8px 14px;font-size:13px;font-weight:600;border:1px solid var(--line)}
-.btn.p{background:var(--acc);color:var(--accx,#fff);border-color:var(--acc)}
+.btn{border-radius:10px;padding:8px 14px;font-size:calc(13px * var(--font-scale));font-weight:600;border:1px solid var(--line)}
+.btn.p{background:var(--acc);color:var(--acctx);border-color:var(--acc)}
 .ok{color:var(--ok)}.er{color:var(--err)}
-.work{display:flex;align-items:center;gap:8px;color:var(--mut);font-size:13px}
+.work{display:flex;align-items:center;gap:8px;color:var(--mut);font-size:calc(13px * var(--font-scale))}
 .spin{width:14px;height:14px;border:2px solid var(--line);border-top-color:var(--tx);border-radius:50%;animation:sp .8s linear infinite}
 @keyframes sp{to{transform:rotate(360deg)}}
 footer{padding:8px 12px;padding-bottom:max(10px,env(safe-area-inset-bottom))}
 .comp{border:1px solid var(--line);border-radius:20px;padding:10px 12px;box-shadow:0 2px 12px rgba(0,0,0,.05)}
 .comp textarea{width:100%;border:0;outline:0;resize:none;background:none;color:inherit;font:inherit;max-height:140px;min-height:24px}
 .crow{display:flex;align-items:center;gap:4px;margin-top:6px}
-.chip{display:flex;align-items:center;gap:3px;color:#4a4c5a;font-size:13px;padding:5px 7px;border-radius:8px;max-width:42vw}
+.chip{display:flex;align-items:center;gap:3px;color:var(--tx);font-size:calc(13px * var(--font-scale));padding:5px 7px;border-radius:8px;max-width:42vw}
 .chip span{overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
 .chip svg{width:14px;height:14px}
-.send{width:36px;height:36px;border-radius:50%;background:var(--acc);color:var(--accx,#fff);display:grid;place-items:center;margin-left:auto}
-.meta{display:flex;gap:4px;padding:6px 6px 0;color:var(--mut);font-size:12px;flex-wrap:wrap}
-.meta .chip{padding:3px 6px;font-size:12px}
+.send{width:36px;height:36px;border-radius:50%;background:var(--acc);color:var(--acctx);display:grid;place-items:center;margin-left:auto}
+.meta{display:flex;gap:4px;padding:6px 6px 0;color:var(--mut);font-size:calc(12px * var(--font-scale));flex-wrap:wrap}
+.meta .chip{padding:3px 6px;font-size:calc(12px * var(--font-scale))}
 #dim{position:absolute;inset:0;background:rgba(0,0,0,.4);opacity:0;pointer-events:none;transition:.2s;z-index:5}
 #dim.on{opacity:1;pointer-events:auto}
 #drawer{position:absolute;top:0;bottom:0;left:0;width:84%;max-width:340px;background:var(--side);z-index:6;transform:translateX(-102%);transition:.25s;display:flex;flex-direction:column;padding:max(10px,env(safe-area-inset-top)) 8px 10px}
 #drawer.on{transform:none}
 .row{display:flex;align-items:center;gap:10px;padding:9px 10px;border-radius:10px;width:100%;text-align:left}
-.row .m{margin-left:auto;color:var(--mut);font-size:12px}
-.badge{margin-left:auto;background:var(--line);border-radius:8px;padding:0 7px;font-size:12px}
-.sec{display:flex;align-items:center;color:var(--mut);font-size:13px;padding:14px 10px 4px}
+.row .m{margin-left:auto;color:var(--mut);font-size:calc(12px * var(--font-scale))}
+.badge{margin-left:auto;background:var(--line);border-radius:8px;padding:0 7px;font-size:calc(12px * var(--font-scale))}
+.sec{display:flex;align-items:center;color:var(--mut);font-size:calc(13px * var(--font-scale));padding:14px 10px 4px}
 .sec .ib{margin-left:auto;width:30px;height:30px}
-.th{padding-left:34px;font-size:14px}
+.th{padding-left:34px;font-size:calc(14px * var(--font-scale))}
 .th.sel{background:var(--card)}
 .proj-h .caret{transition:.15s}
 #sheet{position:absolute;left:0;right:0;bottom:0;background:var(--bg);border-radius:20px 20px 0 0;z-index:7;transform:translateY(105%);transition:.25s;padding:8px 14px max(16px,env(safe-area-inset-bottom));max-height:82dvh;overflow-y:auto;box-shadow:0 -8px 30px rgba(0,0,0,.18)}
 #sheet.on{transform:none}
 #sheet .grab{width:38px;height:4px;border-radius:2px;background:var(--line);margin:0 auto 10px}
-#sheet h3{margin:4px 0 8px;font-size:16px}
+#sheet h3{margin:4px 0 8px;font-size:calc(16px * var(--font-scale))}
 .opt{display:flex;align-items:center;gap:8px;padding:11px 8px;border-radius:10px;width:100%;text-align:left}
-.opt.sel{background:var(--card)}.opt .m{margin-left:auto;color:var(--mut);font-size:12px}
-.fld{display:block;margin:8px 0 2px;font-size:12px;color:var(--mut)}
+.opt.sel{background:var(--card)}.opt .m{margin-left:auto;color:var(--mut);font-size:calc(12px * var(--font-scale))}
+.fld{display:block;margin:8px 0 2px;font-size:calc(12px * var(--font-scale));color:var(--mut)}
 .in{width:100%;border:1px solid var(--line);background:var(--card);color:inherit;border-radius:10px;padding:10px;font:inherit;outline:0}
-.note{font-size:12px;color:var(--mut);margin:8px 0}
+.note{font-size:calc(12px * var(--font-scale));color:var(--mut);margin:8px 0}
+.attachments{display:flex;flex-wrap:wrap;gap:6px;margin-bottom:6px}.attachments:empty{display:none}
+.attachment{display:flex;align-items:center;gap:7px;background:var(--card);border:1px solid var(--line);border-radius:10px;padding:5px 7px;max-width:100%;font-size:calc(12px * var(--font-scale))}
+.attachment img{width:32px;height:32px;object-fit:cover;border-radius:6px}.attachment span{overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.drawer-actions{display:flex;gap:4px}.drawer-actions .row{width:auto;flex:1;font-size:calc(13px * var(--font-scale));padding:9px 7px;gap:6px}
+.settings-row{border-bottom:1px solid var(--line)}.settings-row:last-child{border-bottom:0}
+.settings-row svg{width:17px;height:17px}.muted{color:var(--mut)}.error-note{color:var(--err)}
+.range{width:100%;accent-color:var(--acc)}.form-row{display:flex;gap:10px}.form-row>*{min-width:0;flex:1}
+.msg .attachments{margin:6px 0 0}.msg .attachment{max-width:260px}
+button:focus-visible,input:focus-visible,select:focus-visible,textarea:focus-visible{outline:2px solid var(--tx);outline-offset:2px}
+@media(prefers-reduced-motion:reduce){#dim,#drawer,#sheet{transition:none}.spin{animation:none}}
 </style>
 </head>
 <body>
@@ -86,23 +98,28 @@ footer{padding:8px 12px;padding-bottom:max(10px,env(safe-area-inset-bottom))}
   <main id="main"></main>
   <footer>
     <div class="comp">
+      <div id="attachments" class="attachments"></div>
       <textarea id="inp" rows="1" placeholder="Ask anything…"></textarea>
       <div class="crow">
         <button class="ib" style="width:30px;height:30px" id="plus"><svg viewBox="0 0 24 24"><path d="M12 5v14M5 12h14"/></svg></button>
         <button class="chip" id="cModel"><span></span><svg viewBox="0 0 24 24"><path d="m6 9 6 6 6-6"/></svg></button>
-        <button class="chip" id="cEff" style="display:none"><span></span><svg viewBox="0 0 24 24"><path d="m6 9 6 6 6-6"/></svg></button>
+        <button class="chip" id="cEff"><span>Reasoning</span><svg viewBox="0 0 24 24"><path d="m6 9 6 6 6-6"/></svg></button>
         <button class="send" id="send"><svg viewBox="0 0 24 24"><path d="M12 19V5M5 12l7-7 7 7"/></svg></button>
       </div>
     </div>
     <div class="meta">
-      <button class="chip" id="cEnv" style="display:none"><span></span><svg viewBox="0 0 24 24"><path d="m6 9 6 6 6-6"/></svg></button>
+      <button class="chip" id="cEnv"><span>Local</span><svg viewBox="0 0 24 24"><path d="m6 9 6 6 6-6"/></svg></button>
       <button class="chip" id="cPerm"><span></span><svg viewBox="0 0 24 24"><path d="m6 9 6 6 6-6"/></svg></button>
+      <button class="chip" id="cSearch" hidden>Web search</button>
     </div>
   </footer>
   <div id="dim"></div>
   <aside id="drawer"></aside>
   <div id="sheet"></div>
 </div>
+<input id="filePicker" type="file" multiple hidden>
+<input id="photoPicker" type="file" accept="image/*" multiple hidden>
+<input id="keyPicker" type="file" accept=".pem,.key,text/plain,application/octet-stream" hidden>
 
 <script>
 const $=s=>document.querySelector(s);
@@ -132,6 +149,8 @@ const S={
  provs:[],model:LS('oc_model'),agent:LS('oc_agent')||'build',
  spec:null,specErr:null,health:null
 };
+S.savedProjects=LS('oc_projects')||[];S.attachments=[];S.connections=[];S.connectionID=LS('oc_connection');
+S.efforts=LS('oc_efforts')||{};S.webSearch=!!LS('oc_web_search');S.remoteRuns=new Map();
 if(S.dir)lset('oc_dir',S.dir);
 
 /* ---------- api ---------- */
@@ -165,13 +184,17 @@ async function boot(){
  try{S.spec=await (await fetch('/doc')).json()}catch(e){S.specErr=String(e.message||e)}
  try{S.health=await api('/global/health')}catch(e){}
  if(!S.dir){try{const p=await api('/path');S.dir=p.directory||p.worktree||''}catch(e){}}
- await Promise.allSettled([loadProviders(),loadProjects(),loadSessions()]);
+ await Promise.allSettled([loadProviders(),loadProjects(),loadSessions(),loadConnections()]);
  connectSSE();chips();render();
 }
 async function loadProjects(){
  const dir=S.dir;
- try{const r=await api('/project',{directory:dir});if(dir!==S.dir)return;S.projects=(Array.isArray(r)?r:[]).filter(p=>p.worktree&&p.worktree!=='/')}catch(e){if(dir!==S.dir)return;err('projects: '+e.message)}
- if(S.dir&&!S.projects.some(p=>p.worktree===S.dir))S.projects.unshift({worktree:S.dir});
+ let remote=[];
+ try{remote=await api('/project',{directory:dir})}catch(e){err('projects: '+e.message)}
+ let native=[];if(window.CodexNative)try{native=(await nativeCall('projects')).projects||[]}catch(e){}
+ if(dir!==S.dir)return;
+ const paths=[dir,...S.savedProjects,...native,...(Array.isArray(remote)?remote:[]).map(p=>p.worktree)].filter(p=>p&&p!=='/');
+ S.savedProjects=[...new Set(paths)];lset('oc_projects',S.savedProjects);S.projects=S.savedProjects.map(worktree=>({worktree}));
 }
 async function loadSessions(){
  const dir=S.dir;
@@ -184,7 +207,7 @@ async function loadProviders(){
  const dir=S.dir;
  try{
   const r=await api('/config/providers',{directory:dir});if(dir!==S.dir)return;
-  S.provs=(r.providers||[]).map(p=>({id:p.id,name:p.name||p.id,models:Object.values(p.models||{}).map(m=>({id:m.id,name:m.name||m.id}))}));
+  S.provs=(r.providers||[]).map(p=>({id:p.id,name:p.name||p.id,models:Object.values(p.models||{}).map(m=>({id:m.id,name:m.name||m.id,capabilities:m.capabilities||{},variants:m.variants||{}}))}));
   S.defModel=r.default||{};
   if(!S.model||!allModels().some(m=>m.p===S.model.p&&m.m===S.model.m)){
    S.model=null;const config=await api('/config',{directory:dir});if(dir!==S.dir)return;
@@ -255,11 +278,13 @@ function sched(){if(raf)return;raf=requestAnimationFrame(()=>{raf=0;renderMsgs()
 function resetThread(id=null){
  S.view++;S.revision++;S.sid=id;S.msgs=new Map();S.perms=new Map();S.running=false;
  S.status={type:'idle'};S.lastErr=null;S.pendingUser=null;S.sending=false;setRun();
+ S.attachments=[];renderAttachments();
 }
 async function openSession(id){
  resetThread(id);
  const s=S.sessions.find(x=>x.id===id);$('#title').textContent=s&&s.title||'Thread';
  render();await syncSession();
+ if(window.CodexNative&&S.sid===id)try{const r=await nativeCall('remoteHistory',{sessionID:id});(r.events||[]).forEach(remoteEvent)}catch(e){}
 }
 let syncing=null;
 async function syncSession(){
@@ -289,14 +314,14 @@ setInterval(()=>{if(S.sid&&(S.running||!S.live))syncSession()},5000);
 /* ---------- drawer ---------- */
 const ago=t=>{if(!t)return'';const s=(Date.now()-t)/1000;return s<90?'now':s<5400?Math.round(s/60)+'m':s<129600?Math.round(s/3600)+'h':Math.round(s/86400)+'d'};
 function renderDrawer(){
- let h=`<button class="row" data-a="new">${I.edit}New thread</button><div class="sec">Projects</div><div style="overflow-y:auto;flex:1">`;
+ let h=`<div class="drawer-actions"><button class="row" data-a="new">${I.edit}New thread</button><button class="row" data-a="add">${I.folder}Add project</button></div><div class="sec">Projects</div><div style="overflow-y:auto;flex:1">`;
  S.projects.forEach((p,i)=>{
   const cur=p.worktree===S.dir;
   h+=`<button class="row proj-h" data-a="proj" data-i="${i}">${I.folder}${esc(projName(p.worktree))}</button>`;
   if(cur)S.sessions.forEach(s=>{h+=`<button class="row th ${S.sid===s.id?'sel':''}" data-a="th" data-id="${esc(s.id)}">${esc(s.title||'Untitled')}<span class="m">${ago(s.time&&s.time.updated)}</span></button>`});
   if(cur&&!S.sessions.length)h+='<div class="note" style="padding-left:34px">No threads yet</div>';
  });
- h+='</div><p class="note">Add a folder via the native + FOLDER menu.</p>';
+ h+='</div>';
  $('#drawer').innerHTML=h;
 }
 function drawer(on){$('#drawer').classList.toggle('on',on);$('#dim').classList.toggle('on',on||$('#sheet').classList.contains('on'))}
@@ -304,12 +329,16 @@ $('#menu').onclick=()=>{renderDrawer();drawer(true)};
 $('#drawer').onclick=async e=>{
  const b=e.target.closest('[data-a]');if(!b)return;const a=b.dataset.a;
  if(a==='new'){resetThread();drawer(false);render()}
+ else if(a==='add'){drawer(false);projectSheet()}
  else if(a==='th'){drawer(false);openSession(b.dataset.id)}
  else if(a==='proj'){await setDir(S.projects[+b.dataset.i].worktree);renderDrawer()}
 };
 async function setDir(d){
  if(d===S.dir)return;
  S.dir=d;lset('oc_dir',d);resetThread();S.sessions=[];S.live=false;
+ S.savedProjects=[d,...S.savedProjects.filter(p=>p!==d)];lset('oc_projects',S.savedProjects);
+ history.replaceState(null,'',location.pathname+'#d='+b64e(d));
+ if(window.CodexNative)nativeCall('selectProject',{directory:d}).catch(e=>err(e.message));
  if(S.es)S.es.close();render();
  await Promise.allSettled([loadSessions(),loadProviders(),loadProjects()]);if(S.dir!==d)return;connectSSE();render();
 }
@@ -323,7 +352,7 @@ function options(title,list,cur,cb,sub){
  sheet(`<h3>${title}</h3><div style="max-height:60vh;overflow-y:auto">`+list.map((o,i)=>`<button class="opt ${o===cur?'sel':''}" data-i="${i}">${esc(o)}${sub&&sub[i]?`<span class="m">${esc(sub[i])}</span>`:''}</button>`).join('')+'</div>');
  $('#sheet').onclick=e=>{const b=e.target.closest('.opt');if(!b)return;cb(+b.dataset.i);closeAll();chips()};
 }
-function allModels(){const o=[];S.provs.forEach(p=>p.models.forEach(m=>o.push({p:p.id,pn:p.name,m:m.id,mn:m.name})));return o}
+function allModels(){const o=[];S.provs.forEach(p=>p.models.forEach(m=>o.push({p:p.id,pn:p.name,m:m.id,mn:m.name,capabilities:m.capabilities,variants:m.variants})));return o}
 $('#cModel').onclick=()=>{
  const L=allModels();
  if(!L.length){sheet('<h3>Model</h3><p class="note">No providers returned by the server. Configure a provider in opencode first.</p>');return}
@@ -334,6 +363,11 @@ function chips(){
  const m=S.model&&allModels().find(x=>x.p===S.model.p&&x.m===S.model.m);
  $('#cModel span').textContent=m?m.mn:(S.model?S.model.m:'Default model');
  $('#cPerm span').textContent=S.agent;
+ const keys=Object.keys(m?.variants||{}),eff=S.efforts[modelKey()];
+ $('#cEff span').textContent=keys.includes(eff)?effortLabel(eff,keys):'Reasoning';
+ $('#cEff').classList.toggle('muted',!keys.length);
+ $('#cEnv span').textContent=selectedConnection()?.name||'Local';
+ $('#cSearch').hidden=!S.webSearch;
 }
 
 /* ---------- changes / settings ---------- */
@@ -369,61 +403,196 @@ $('#commit').onclick=async()=>{
   };
  }catch(e){sheet('<h3>Changes</h3><p class="note er">'+esc(e.message)+'</p>')}
 };
-$('#gear').onclick=()=>{
- const rows=NEED.map(([m,p])=>{const ok=specHas(p,m);return `<div class="note" style="margin:2px 0">${S.spec?(ok?'<span class="ok">ok</span>':'<span class="er">MISSING</span>'):'?'} ${m.toUpperCase()} ${esc(p)}</div>`}).join('');
- const perm=S.spec?(specFind(/^\/permission\/\{[^}]+\}\/reply$/,'post')?'POST /permission/{id}/reply':specFind(/\/permissions\//,'post')?'POST /session/{id}/permissions/{pid}':'NONE FOUND'):'unknown';
- sheet(`<h3>Server check</h3>
- <div class="note">Project: ${esc(S.dir||'(server cwd)')}<br>opencode: ${esc((S.health&&S.health.version)||(S.spec&&S.spec.info&&S.spec.info.version)||'?')}<br>/doc: ${S.spec?'loaded':'FAILED '+esc(S.specErr)}<br>SSE: ${S.live?'<span class="ok">live</span>':'<span class="er">not connected (polling)</span>'}<br>Status: ${esc(S.status.type+(S.status.type==='retry'?' '+S.status.attempt+': '+redact(S.status.message):''))}<br>Permission reply: ${esc(perm)}</div>
- ${rows}
- <div class="note">Last errors:</div><pre style="font:11px/1.4 ui-monospace,monospace;white-space:pre-wrap;background:var(--card);padding:8px;border-radius:10px;max-height:20vh;overflow:auto">${esc(S.errors.join('\n')||'none')}</pre>
- <p class="note">Provider keys are stored by opencode.</p>
- <div style="display:flex;gap:8px;flex-wrap:wrap"><button class="btn p" id="pv">Providers</button><button class="btn" id="cp">Copy report</button><button class="btn" id="rl">Reload</button></div>`);
- $('#sheet').onclick=e=>{
-  if(e.target.id==='pv')providerSheet();
-  if(e.target.id==='rl')location.reload();
-  if(e.target.id==='cp'){const t=$('#sheet').innerText;try{navigator.clipboard.writeText(t)}catch(x){}}
- };
+/* ---------- mobile preferences and native services ---------- */
+const nativePending=new Map();
+window.codexNativeResult=(id,result)=>{const p=nativePending.get(id);if(!p)return;clearTimeout(p.timer);nativePending.delete(id);result?.error?p.reject(new Error(result.error)):p.resolve(result)};
+function nativeCall(action,data={}){
+ return new Promise((resolve,reject)=>{
+  if(!window.CodexNative){reject(new Error('This feature is available in the Android app.'));return}
+  const id=crypto.randomUUID?.()||String(Date.now())+Math.random();
+  const timer=setTimeout(()=>{nativePending.delete(id);reject(new Error('The app did not respond. Try again.'))},action==='openFolder'?900000:60000);
+  nativePending.set(id,{resolve,reject,timer});
+  try{window.CodexNative.request(JSON.stringify({id,action,data}))}catch(e){clearTimeout(timer);nativePending.delete(id);reject(e)}
+ });
+}
+function b64e(text){return btoa(String.fromCharCode(...new TextEncoder().encode(text))).replace(/\+/g,'-').replace(/\//g,'_').replace(/=+$/,'')}
+function modelKey(){return S.model?S.model.p+'/'+S.model.m:''}
+function currentModel(){return allModels().find(m=>m.p===S.model?.p&&m.m===S.model?.m)}
+function selectedConnection(){return S.connections.find(c=>c.id===S.connectionID)}
+function effortLabel(key,keys){if(key===keys[0])return 'Minimal';if(key===keys[keys.length-1])return 'Maximum';return ({medium:'Medium',high:'High',xhigh:'Very high',low:'Low'})[key]||key}
+function appearance(){
+ const theme=LS('oc_theme')==='dark'?'dark':'light',scale=Math.max(.8,Math.min(1.4,Number(LS('oc_font_scale'))||1));
+ document.documentElement.dataset.theme=theme;document.documentElement.style.setProperty('--font-scale',scale);
+ if(window.CodexNative)nativeCall('appearance',{theme}).catch(()=>{});
+}
+function appearanceSheet(){
+ sheet(`<h3>Appearance</h3><div class="form-row"><button class="btn ${LS('oc_theme')!=='dark'?'p':''}" data-theme="light">Light</button><button class="btn ${LS('oc_theme')==='dark'?'p':''}" data-theme="dark">Dark</button></div><label class="fld" for="fontScale">Font size <span id="fontValue">${Math.round((Number(LS('oc_font_scale'))||1)*100)}%</span></label><input class="range" id="fontScale" type="range" min="80" max="140" step="5" value="${Math.round((Number(LS('oc_font_scale'))||1)*100)}"><div class="btns"><button class="btn" id="settingsBack">Back</button></div>`);
+ $('#fontScale').oninput=e=>{lset('oc_font_scale',Number(e.target.value)/100);$('#fontValue').textContent=e.target.value+'%';appearance()};
+ $('#sheet').onclick=e=>{const b=e.target.closest('[data-theme]');if(b){lset('oc_theme',b.dataset.theme);appearance();appearanceSheet()}if(e.target.id==='settingsBack')settingsSheet()};
+}
+function settingsSheet(){
+ sheet(`<h3>Settings</h3><button class="opt settings-row" id="pv">Providers<span class="m">${S.provs.length}</span></button><button class="opt settings-row" id="sc">SSH connections<span class="m">${S.connections.length}</span></button><button class="opt settings-row" id="ap">Appearance<span class="m">${LS('oc_theme')==='dark'?'Dark':'Light'}</span></button><button class="opt settings-row" id="wp">Web search<span class="m">${S.webSearch?'On':'Off'}</span></button>`);
+ $('#sheet').onclick=e=>{const b=e.target.closest('button');if(!b)return;if(b.id==='pv')providerSheet();if(b.id==='sc')connectionSheet(true);if(b.id==='ap')appearanceSheet();if(b.id==='wp'){toggleSearch();settingsSheet()}};
+}
+$('#gear').onclick=settingsSheet;
+function projectSheet(){
+ if(window.CodexNative){
+  sheet(`<h3>Add project</h3><button class="opt" id="folderOpen">${I.folder}Open folder</button><label class="fld" for="projectName">New project name</label><input class="in" id="projectName" placeholder="My project"><p class="note error-note" id="projectError"></p><div class="btns"><button class="btn p" id="projectCreate">Create project</button></div>`);
+  $('#sheet').onclick=async e=>{const b=e.target.closest('button');if(!b)return;b.disabled=true;try{
+   if(b.id==='folderOpen'){const r=await nativeCall('openFolder');if(r.cancelled){b.disabled=false;return}await setDir(r.directory);closeAll()}
+   else if(b.id==='projectCreate'){const name=$('#projectName').value.trim();if(!name)throw new Error('Enter a project name.');const r=await nativeCall('createProject',{name});await setDir(r.directory);closeAll()}
+  }catch(x){$('#projectError').textContent=x.message;b.disabled=false}};
+ }else{
+  sheet('<h3>Add project</h3><label class="fld" for="projectPath">Folder path</label><input class="in" id="projectPath" placeholder="Project folder"><p class="note error-note" id="projectError"></p><div class="btns"><button class="btn p" id="projectAdd">Add project</button></div>');
+  $('#sheet').onclick=async e=>{if(e.target.id!=='projectAdd')return;try{const directory=$('#projectPath').value.trim();if(!directory)throw new Error('Enter a folder path.');await api('/path',{directory});await setDir(directory);closeAll()}catch(x){$('#projectError').textContent=redact(x.message)}};
+ }
+}
+$('#cEff').onclick=()=>{
+ const m=currentModel(),keys=Object.keys(m?.variants||{});
+ if(!keys.length){sheet('<h3>Reasoning effort</h3><p class="note">This model does not offer reasoning controls. Choose a reasoning model, or update its provider settings.</p><button class="btn" id="effProvider">Providers</button>');$('#sheet').onclick=e=>{if(e.target.id==='effProvider')providerSheet()};return}
+ options('Reasoning effort',['Default',...keys.map(k=>effortLabel(k,keys))],S.efforts[modelKey()]?effortLabel(S.efforts[modelKey()],keys):'Default',i=>{S.efforts[modelKey()]=i?keys[i-1]:null;lset('oc_efforts',S.efforts)});
 };
+function toggleSearch(){S.webSearch=!S.webSearch;lset('oc_web_search',S.webSearch);chips()}
+$('#cSearch').onclick=toggleSearch;
+$('#plus').onclick=()=>{
+ sheet(`<h3>Add to message</h3><button class="opt" id="attachFiles">${I.file}Files</button><button class="opt" id="attachPhotos">${I.file}Photos</button><button class="opt" id="attachSearch">Web search<span class="m">${S.webSearch?'On':'Off'}</span></button><button class="opt" id="attachSsh">${I.term}SSH server<span class="m">${esc(selectedConnection()?.name||'Local')}</span></button>`);
+ $('#sheet').onclick=e=>{const b=e.target.closest('button');if(!b)return;if(b.id==='attachFiles'){closeAll();$('#filePicker').click()}if(b.id==='attachPhotos'){closeAll();$('#photoPicker').click()}if(b.id==='attachSearch'){toggleSearch();closeAll()}if(b.id==='attachSsh')connectionSheet(false)};
+};
+function attachmentHtml(files,remove){return files.map((f,i)=>`<div class="attachment">${/^data:image\/(png|jpeg|webp|gif);base64,/i.test(f.url)?`<img src="${esc(f.url)}" alt="">`:I.file}<span>${esc(f.filename||'Attachment')}</span>${remove?`<button aria-label="Remove attachment" data-attachment="${i}">×</button>`:''}</div>`).join('')}
+function renderAttachments(){$('#attachments').innerHTML=attachmentHtml(S.attachments,true)}
+$('#attachments').onclick=e=>{const b=e.target.closest('[data-attachment]');if(b){S.attachments.splice(+b.dataset.attachment,1);renderAttachments()}};
+async function addFiles(files){
+ const view=S.view;S.attLoading=true;$('#send').disabled=true;
+ try{for(const file of files){
+  if(file.size>8*1024*1024||S.attachments.reduce((n,f)=>n+f.size,0)+file.size>24*1024*1024)throw new Error('Choose files up to 8 MB each and 24 MB per message.');
+  let mime=file.type;if(!mime||/^text\//.test(mime)||/\.(md|txt|js|ts|tsx|jsx|json|py|kt|java|html|css|sh|yml|yaml|csv)$/i.test(file.name))mime='text/plain';
+  if(mime.startsWith('image/')&&!currentModel()?.capabilities?.input?.image)throw new Error('Choose a model that supports images.');
+  if(mime==='application/pdf'&&!currentModel()?.capabilities?.input?.pdf)throw new Error('Choose a model that supports PDF files.');
+  if(mime!=='text/plain'&&mime!=='application/pdf'&&!/^image\/(png|jpeg|gif|webp)$/.test(mime))throw new Error('Choose a text file, PDF or image.');
+  const raw=await new Promise((resolve,reject)=>{const r=new FileReader();r.onload=()=>resolve(r.result);r.onerror=()=>reject(new Error('Could not read the file.'));r.readAsDataURL(file)});
+  if(view!==S.view)return;S.attachments.push({type:'file',mime,filename:file.name,url:'data:'+mime+';base64,'+String(raw).split(',')[1],size:file.size});
+ }renderAttachments()}catch(x){sheet('<h3>Attachment</h3><p class="note error-note">'+esc(x.message)+'</p>')}
+ finally{S.attLoading=false;$('#send').disabled=false}
+}
+for(const id of ['filePicker','photoPicker'])$('#'+id).onchange=e=>{addFiles([...e.target.files]);e.target.value=''};
 
-function providerSheet(){
- const dir=S.dir;
- const known=S.provs.filter(p=>/router/i.test(p.id)).flatMap(p=>p.models.map(m=>m.id));
- sheet(`<h3>Providers</h3><p class="note">Connected: ${esc(S.provs.map(p=>p.name).join(', ')||'none')}</p>
- <label class="fld" for="pi">Provider ID</label><input class="in" id="pi" value="agentrouter" autocomplete="off" spellcheck="false">
- <label class="fld" for="pu">API base URL</label><input class="in" id="pu" value="https://agentrouter.org/v1" type="url" autocomplete="off" spellcheck="false">
- <label class="fld" for="pf">API format</label><select class="in" id="pf"><option value="@ai-sdk/openai">Responses</option><option value="@ai-sdk/openai-compatible">Chat Completions</option></select>
- <label class="fld" for="pm">Model IDs (comma separated)</label><input class="in" id="pm" value="${esc([...new Set(known)].join(', '))}" autocomplete="off" spellcheck="false">
- <label class="fld" for="pk">API key</label><input class="in" id="pk" type="password" autocomplete="off" autocapitalize="none" spellcheck="false">
- <p class="note">Settings apply to all projects. Enter model IDs available in your account. Leave the key empty to keep existing authentication. A new provider needs your key before it can answer.</p>
- <p class="note er" id="pe" role="status"></p><div class="btns"><button class="btn p" id="ps">Save</button><button class="btn" id="pc">Cancel</button></div>`);
+/* ---------- providers ---------- */
+let providerCatalog=null,providerMeta={};
+async function catalog(){if(!providerCatalog)providerCatalog=(await api('/provider')).all||[];return providerCatalog}
+async function providerSheet(){
+ sheet('<h3>Providers</h3><p class="note">Loading providers…</p>');
+ try{
+  const config=await api('/global/config');providerMeta={};
+  for(const [id,p]of Object.entries(config.provider||{}))providerMeta[id]={id,name:p.name||id,npm:p.npm,baseURL:p.options?.baseURL||'',models:Object.keys(p.models||{})};
+  const ids=[...new Set([...S.provs.map(p=>p.id),...Object.keys(providerMeta)])];
+  sheet('<h3>Providers</h3>'+ids.map(id=>`<button class="opt settings-row" data-provider="${esc(id)}">${esc(S.provs.find(p=>p.id===id)?.name||providerMeta[id]?.name||id)}<span class="m">Edit</span></button>`).join('')+'<div class="btns"><button class="btn p" id="providerAdd">Add provider</button><button class="btn" id="settingsBack">Back</button></div>');
+  $('#sheet').onclick=e=>{const b=e.target.closest('button');if(!b)return;if(b.dataset.provider)providerForm(b.dataset.provider);if(b.id==='providerAdd')providerForm();if(b.id==='settingsBack')settingsSheet()};
+ }catch(x){sheet('<h3>Providers</h3><p class="note error-note">'+esc(redact(x.message))+'</p>')}
+}
+async function providerForm(existing){
+ const dir=S.dir,meta=providerMeta[existing]||{};let modelIDs=meta.models||[];
+ try{const list=await catalog();if(!modelIDs.length){const known=list.find(p=>p.id===(existing||'agentrouter'));modelIDs=known?Object.keys(known.models||{}).filter(id=>/^gpt-/.test(id)).slice(0,4):[]}}catch(x){}
+ const router=!existing||/router/i.test(existing),preset=router?'agentrouter':'custom';
+ sheet(`<h3>${existing?'Edit provider':'Add provider'}</h3><label class="fld" for="providerPreset">Provider</label><select class="in" id="providerPreset"><option value="agentrouter" ${preset==='agentrouter'?'selected':''}>AgentRouter</option><option value="openai">OpenAI</option><option value="custom" ${preset==='custom'?'selected':''}>Custom</option></select>
+ <label class="fld" for="pk">API key</label><input class="in" id="pk" type="password" placeholder="${existing?'Leave empty to keep your key':'Enter your API key'}" autocomplete="off" autocapitalize="none" spellcheck="false">
+ <label class="fld" for="pm">Model IDs</label><input class="in" id="pm" value="${esc(modelIDs.join(', '))}" placeholder="Models available in your account" autocomplete="off" spellcheck="false">
+ <details><summary class="opt">Advanced settings</summary><label class="fld" for="pi">Provider ID</label><input class="in" id="pi" value="${esc(existing||'agentrouter')}" autocomplete="off" spellcheck="false"><label class="fld" for="pu">API base URL</label><input class="in" id="pu" value="${esc(meta.baseURL||(router?'https://agentrouter.org/v1':''))}" type="url" autocomplete="off" spellcheck="false"><label class="fld" for="pf">API format</label><select class="in" id="pf"><option value="@ai-sdk/openai" ${meta.npm!=='@ai-sdk/openai-compatible'?'selected':''}>Responses</option><option value="@ai-sdk/openai-compatible" ${meta.npm==='@ai-sdk/openai-compatible'?'selected':''}>Chat Completions</option></select></details>
+ <p class="note">Keys stay in opencode. Provider settings apply to all projects.</p><p class="note error-note" id="pe" role="status"></p><div class="btns"><button class="btn p" id="ps">Save provider</button><button class="btn" id="pc">Back</button></div>`);
+ $('#providerPreset').onchange=async e=>{const v=e.target.value;if(v==='custom'){$('#sheet details').open=true;return}$('#pi').value=v;$('#pu').value=v==='agentrouter'?'https://agentrouter.org/v1':'https://api.openai.com/v1';$('#pf').value='@ai-sdk/openai';const p=(await catalog()).find(p=>p.id===v);$('#pm').value=p?Object.keys(p.models||{}).filter(id=>/^gpt-/.test(id)).slice(0,4).join(', '):''};
  $('#sheet').onclick=async e=>{
-  if(e.target.id==='pc'){closeAll();return}
-  if(e.target.id!=='ps')return;
-  const save=$('#ps'),error=$('#pe');save.disabled=true;error.textContent='';
-  let key='';
+  if(e.target.id==='pc'){providerSheet();return}if(e.target.id!=='ps')return;
+  const save=$('#ps'),error=$('#pe');save.disabled=true;let key='';
   try{
-   if(dir!==S.dir)throw new Error('Project changed; open Providers again.');
-   const id=$('#pi').value.trim(),url=new URL($('#pu').value.trim()),npm=$('#pf').value;
-   const ids=[...new Set($('#pm').value.split(/[,\n]/).map(v=>v.trim()).filter(Boolean))];
+   if(dir!==S.dir)throw new Error('Project changed. Open the provider again.');
+   const id=$('#pi').value.trim(),url=new URL($('#pu').value.trim()),npm=$('#pf').value,ids=[...new Set($('#pm').value.split(/[,\n]/).map(v=>v.trim()).filter(Boolean))];
    if(!/^[A-Za-z0-9._-]+$/.test(id)||['__proto__','constructor','prototype'].includes(id))throw new Error('Enter a valid provider ID.');
-   if(!['https:','http:'].includes(url.protocol)||url.username||url.password||url.search||url.hash)throw new Error('Enter an API URL without credentials or query parameters.');
-   if(!ids.length||ids.some(v=>/\s/.test(v)||['__proto__','constructor','prototype'].includes(v)))throw new Error('Enter valid model IDs.');
-   const models=Object.fromEntries(ids.map(m=>[m,{name:m}]));
-   const config={provider:{[id]:{name:id,npm,options:{baseURL:url.href.replace(/\/$/,'')},models}}};
-   key=$('#pk').value.trim();$('#pk').value='';
-   if(key&&await api('/auth/'+encodeURIComponent(id),{method:'PUT',body:{type:'api',key}})!==true)throw new Error('opencode did not save authentication.');
-   key='';
-   // 1.19.3 writes PATCH /config to project/config.json, which its loader does not read.
-   await api('/global/config',{method:'PATCH',body:config});
-   if(dir!==S.dir)return;
-   await loadProviders();
-   if(!S.provs.some(p=>p.id===id))throw new Error('Provider was saved but is absent from /config/providers.');
-   S.model={p:id,m:ids[0]};lset('oc_model',S.model);chips();connectSSE();await syncSession();
-   sheet(`<h3>Provider saved</h3><p class="note">${esc(id)} is available in opencode. Select its model in the composer.</p><button class="btn" id="pd">Done</button>`);
-   $('#sheet').onclick=e2=>{if(e2.target.id==='pd')closeAll()};
+   if(!['https:','http:'].includes(url.protocol)||url.username||url.password||url.search||url.hash)throw new Error('Enter an API URL without credentials.');
+   if(!ids.length||ids.some(v=>/\s/.test(v)||['__proto__','constructor','prototype'].includes(v)))throw new Error('Enter model IDs from your provider account.');
+   const list=await catalog(),models={};
+   for(const modelID of ids){
+    const candidates=list.flatMap(p=>Object.values(p.models||{})).filter(m=>m.id===modelID),known=candidates.find(m=>m.capabilities?.reasoning)||candidates[0];
+    const model={name:known?.name||modelID};
+    if(known){model.reasoning=!!known.capabilities.reasoning;model.attachment=!!known.capabilities.attachment;model.limit=known.limit;model.modalities={input:Object.keys(known.capabilities.input).filter(k=>known.capabilities.input[k]),output:Object.keys(known.capabilities.output).filter(k=>known.capabilities.output[k])};
+     if(npm==='@ai-sdk/openai'){const openai=candidates.find(m=>m.api?.npm==='@ai-sdk/openai'&&Object.keys(m.variants||{}).length);if(openai)model.variants=openai.variants}
+    }models[modelID]=model;
+   }
+   const config={provider:{[id]:{name:meta.name||id,npm,options:{baseURL:url.href.replace(/\/$/,'')},models,whitelist:ids}}};
+   key=$('#pk').value.trim();$('#pk').value='';if(key)await api('/auth/'+encodeURIComponent(id),{method:'PUT',body:{type:'api',key}});key='';
+   await api('/global/config',{method:'PATCH',body:config});await loadProviders();
+   if(!S.provs.some(p=>p.id===id))throw new Error('Provider is not available yet. Check its settings and key.');
+   S.model={p:id,m:ids[0]};lset('oc_model',S.model);chips();connectSSE();closeAll();
   }catch(x){key='';if($('#pk'))$('#pk').value='';error.textContent=redact(x.message);save.disabled=false}
  };
 }
+
+/* ---------- SSH connection selection ---------- */
+async function loadConnections(){
+ if(!window.CodexNative){S.connections=[];return}
+ try{S.connections=(await nativeCall('connections')).connections||[];if(S.connectionID&&!selectedConnection()){S.connectionID=null;lset('oc_connection',null)}chips()}catch(x){err(x.message)}
+}
+async function connectionSheet(manage=false){
+ await loadConnections();
+ sheet(`<h3>${manage?'SSH connections':'Run on'}</h3>`+(!manage?`<button class="opt ${!selectedConnection()?'sel':''}" data-connection="">Local<span class="m">This device</span></button>`:'')+S.connections.map(c=>`<button class="opt settings-row ${c.id===S.connectionID?'sel':''}" data-connection="${esc(c.id)}">${I.term}${esc(c.name)}<span class="m">${manage?'Edit':esc(c.host)}</span></button>`).join('')+(!S.connections.length?'<p class="note">No SSH connections yet.</p>':'')+'<div class="btns"><button class="btn p" id="sa">Add connection</button>'+(manage?'<button class="btn" id="settingsBack">Back</button>':'')+'</div>');
+ $('#sheet').onclick=e=>{const b=e.target.closest('button');if(!b)return;if(b.dataset.connection!==undefined){if(manage)connectionForm(S.connections.find(c=>c.id===b.dataset.connection));else{S.connectionID=b.dataset.connection||null;lset('oc_connection',S.connectionID);chips();closeAll()}}if(b.id==='sa')connectionForm();if(b.id==='settingsBack')settingsSheet()};
+}
+$('#cEnv').onclick=()=>connectionSheet(false);
+function connectionForm(c={}){
+ if(!window.CodexNative){sheet('<h3>SSH connections</h3><p class="note">Add and use SSH connections in the Android app.</p>');return}
+ sheet(`<h3>${c.id?'Edit connection':'Add SSH connection'}</h3><label class="fld" for="sn">Name</label><input class="in" id="sn" value="${esc(c.name||'')}" placeholder="My server"><div class="form-row"><label><span class="fld">Host</span><input class="in" id="sh" value="${esc(c.host||'')}" placeholder="server.example.com" autocomplete="off" autocapitalize="none" spellcheck="false"></label><label style="max-width:90px"><span class="fld">Port</span><input class="in" id="sp" type="number" min="1" max="65535" value="${c.port||22}"></label></div><label class="fld" for="su">Username</label><input class="in" id="su" value="${esc(c.user||'')}" autocomplete="off" autocapitalize="none"><label class="fld" for="sd">Working directory</label><input class="in" id="sd" value="${esc(c.directory||'')}" placeholder="Home directory" autocomplete="off" spellcheck="false"><label class="fld" for="sm">Authentication</label><select class="in" id="sm"><option value="password" ${c.auth!=='key'?'selected':''}>Password</option><option value="key" ${c.auth==='key'?'selected':''}>Private key</option></select><div id="passwordFields"><label class="fld" for="sw">Password</label><input class="in" id="sw" type="password" placeholder="${c.id?'Leave empty to keep it':'Password'}" autocomplete="off"></div><div id="keyFields"><label class="fld" for="sk">Private key</label><textarea class="in" id="sk" rows="3" placeholder="Paste a private key or import a file" autocomplete="off" autocapitalize="none" spellcheck="false"></textarea><button class="btn" id="ki" style="margin-top:6px">Import key file</button><label class="fld" for="sx">Key passphrase</label><input class="in" id="sx" type="password" autocomplete="off"></div><p class="note">Credentials are encrypted on this device.</p><p class="note error-note" id="se" role="status"></p><div class="btns"><button class="btn p" id="ss">Connect & save</button>${c.id?'<button class="btn" id="sr">Remove</button>':''}<button class="btn" id="sb">Back</button></div>`);
+ const auth=()=>{$('#passwordFields').hidden=$('#sm').value!=='password';$('#keyFields').hidden=$('#sm').value!=='key'};$('#sm').onchange=auth;auth();
+ $('#keyPicker').onchange=async e=>{const f=e.target.files[0];e.target.value='';if(f&&f.size<=1024*1024&&$('#sk'))$('#sk').value=await f.text()};
+ $('#sheet').onclick=async e=>{
+  if(e.target.id==='ki'){$('#keyPicker').click();return}if(e.target.id==='sb'){connectionSheet(true);return}
+  if(e.target.id==='sr'){await nativeCall('removeConnection',{id:c.id});await loadConnections();connectionSheet(true);return}
+  if(e.target.id!=='ss')return;
+  const b=$('#ss');b.disabled=true;
+  const data={id:c.id||'',name:$('#sn').value.trim(),host:$('#sh').value.trim(),port:Number($('#sp').value),user:$('#su').value.trim(),directory:$('#sd').value.trim(),auth:$('#sm').value,password:$('#sw').value,privateKey:$('#sk').value,passphrase:$('#sx').value,fingerprint:c.fingerprint||''};
+  for(const id of ['sw','sk','sx'])$('#'+id).value='';
+  await saveConnection(data);
+ };
+}
+async function saveConnection(data){
+ try{
+  const r=await nativeCall('saveConnection',data);
+  if(r.requiresTrust){
+   sheet(`<h3>Confirm server key</h3><p class="note">${esc(r.host)} identifies itself with this SSH host key:</p><pre style="white-space:pre-wrap;overflow-wrap:anywhere">${esc(r.fingerprint)}</pre><p class="note">Confirm this fingerprint with your server administrator.</p><div class="btns"><button class="btn p" id="st">Trust & connect</button><button class="btn" id="sb">Back</button></div>`);
+   $('#sheet').onclick=e=>{if(e.target.id==='sb'){connectionForm({});return}if(e.target.id==='st'){e.target.disabled=true;data.fingerprint=r.fingerprint;data.id=r.id;saveConnection(data)}};return;
+  }
+  S.connections=r.connections||[];S.connectionID=r.connection.id;lset('oc_connection',S.connectionID);chips();closeAll();
+ }catch(x){sheet('<h3>SSH connection</h3><p class="note error-note">'+esc(redact(x.message))+'</p><button class="btn" id="sb">Back</button>');$('#sheet').onclick=e=>{if(e.target.id==='sb')connectionSheet(true)}}
+}
+
+/* ---------- live SSH command and file cards ---------- */
+window.addEventListener('codex-remote-event',e=>remoteEvent(e.detail));
+function remoteEvent(e){
+ if(!e?.runID)return;
+ let r=S.remoteRuns.get(e.runID)||{id:e.runID,sessionID:e.sessionID,connectionID:e.connectionID,stdout:'',stderr:'',status:'running'};
+ if(e.type==='ssh.command.started'){r.command=e.command;r.kind='exec'}
+ if(e.type==='ssh.command.delta'){r.kind='exec';const field=e.stream==='stderr'?'stderr':'stdout';r[field]=(r[field]+e.delta).slice(-1024*1024)}
+ if(e.type==='ssh.command.completed'){r.exitCode=e.exitCode;r.status='completed'}
+ if(e.type==='ssh.command.error'){r.status='error';r.stderr=e.message}
+ if(e.type==='ssh.file.updated'){r.kind='write';r.path=e.path;r.patch=e.patch;r.additions=e.additions;r.deletions=e.deletions;r.status='completed'}
+ S.remoteRuns.set(r.id,r);if(S.remoteRuns.size>100)S.remoteRuns.delete(S.remoteRuns.keys().next().value);if(r.sessionID===S.sid)sched();
+}
+function remoteCard(r){
+ const connection=S.connections.find(c=>c.id===r.connectionID)?.name||'SSH';
+ const status=r.status==='completed'?'<span class="m ok">done</span>':r.status==='error'?'<span class="m er">error</span>':'<span class="m"><span class="spin" style="display:inline-block"></span></span>';
+ if(r.kind==='write')return `<div class="card"><div class="ch">${I.file}<span>${esc(r.path)}</span>${status}</div><div style="max-height:240px;overflow:auto">${dl((r.patch||'').split('\n'))}</div></div>`;
+ return `<div class="card"><div class="ch">${I.term}<span>${esc(connection)}</span>${status}</div><pre style="max-height:260px;overflow:auto">$ ${esc(r.command||'Remote command')}\n${esc(redact((r.stdout||'')+(r.stderr?'\n'+r.stderr:'')))}</pre></div>`;
+}
+function remoteToolCard(p){
+ if(!p.tool?.startsWith('mobile_ssh_'))return null;
+ const st=p.state||{},input=st.input||{};let result={};try{result=JSON.parse(st.output||'{}')}catch(x){}
+ const runs=[...S.remoteRuns.values()].filter(r=>r.sessionID===S.sid&&r.connectionID===input.connection_id).reverse();
+ const run=runs.find(r=>r.id===result.runID||(p.tool.endsWith('_ssh_exec')&&r.command===input.command)||(p.tool.endsWith('_ssh_write_file')&&r.path&&(r.path===input.path||r.path.endsWith('/'+input.path))));
+ if(run)S.renderedRemoteRuns?.add(run.id);
+ if(p.tool.endsWith('_ssh_exec'))return remoteCard(st.status==='completed'?{...run,...result,kind:'exec',connectionID:input.connection_id,status:'completed'}:{...run,kind:'exec',command:input.command,connectionID:input.connection_id,status:st.status});
+ if(p.tool.endsWith('_ssh_write_file'))return remoteCard(st.status==='completed'?{...run,...result,kind:'write',status:'completed'}:{...run,kind:'write',path:input.path,status:st.status});
+ return `<div class="card"><div class="ch">${I.file}<span>${esc(p.tool.endsWith('_ssh_read_file')?input.path||'Read remote file':'SSH connections')}</span><span class="m">${esc(st.status||'pending')}</span></div></div>`;
+}
+function readableError(value){const text=redact(value);return /chat\/completions[\s\S]*responses/i.test(text)?'This model needs the Responses API. Open Settings → Providers and change its API format to Responses.':text}
+appearance();
+
 
 /* ---------- render ---------- */
 function render(){
@@ -438,6 +607,7 @@ function render(){
  renderMsgs(true);
 }
 function toolCard(p){
+ const remote=remoteToolCard(p);if(remote)return remote;
  const st=p.state||{},inp=st.input||{},meta=st.metadata||{};
  const status=st.status==='error'?'<span class="m er">error</span>':st.status==='completed'?'<span class="m ok">done</span>':'<span class="m"><span class="spin" style="display:inline-block;vertical-align:middle"></span></span>';
  const head=(ic,t)=>`<div class="ch">${ic}<span>${esc(t)}</span>${status}</div>`;
@@ -471,23 +641,26 @@ function renderMsgs(force){
  const m=$('#main');
  const near=force||m.scrollHeight-m.scrollTop-m.clientHeight<140;
  const list=[...S.msgs.values()].sort((a,b)=>a.info.id<b.info.id?-1:1);
+ S.renderedRemoteRuns=new Set();
  let h='';
  list.forEach(x=>{
   const parts=[...x.parts.values()];
   if(x.info.role==='user'){
    const t=parts.filter(p=>p.type==='text'&&!p.synthetic).map(p=>p.text).join('\n');
-   if(t)h+=`<div class="msg user">${esc(t)}</div>`;
+   const files=parts.filter(p=>p.type==='file');
+   if(t||files.length)h+=`<div class="msg user">${esc(t)}${files.length?'<div class="attachments">'+attachmentHtml(files,false)+'</div>':''}</div>`;
   }else{
    parts.forEach(p=>{
     if(p.type==='text'&&p.text)h+=`<div class="msg ai">${esc(p.text)}</div>`;
     else if(p.type==='reasoning'&&p.text)h+=`<details class="card"><summary class="ch" style="list-style:none">Thinking</summary><pre style="white-space:pre-wrap">${esc(p.text)}</pre></details>`;
     else if(p.type==='tool')h+=toolCard(p);
    });
-   if(x.info.error){const e=x.info.error;h+=`<div class="card"><div class="ch er">Error</div><pre>${esc((e.data&&e.data.message)||e.message||e.name||JSON.stringify(e))}</pre></div>`}
+   if(x.info.error){const e=x.info.error;h+=`<div class="card"><div class="ch er">Error</div><pre style="white-space:pre-wrap">${esc(readableError((e.data&&e.data.message)||e.message||e.name||'Request failed'))}</pre></div>`}
   }
  });
  [...S.perms.values()].forEach(p=>{h+=permCard(p)});
- if(S.lastErr)h+=`<div class="card"><div class="ch er">Error</div><pre>${esc(S.lastErr)}</pre></div>`;
+ for(const r of S.remoteRuns.values())if(r.sessionID===S.sid&&!S.renderedRemoteRuns.has(r.id))h+=remoteCard(r);
+ if(S.lastErr)h+=`<div class="card"><div class="ch er">Error</div><pre style="white-space:pre-wrap">${esc(readableError(S.lastErr))}</pre></div>`;
  if(S.running)h+='<div class="work"><div class="spin"></div>'+esc(S.status.type==='retry'?'Retry '+S.status.attempt+': '+redact(S.status.message):'Working...')+'</div>';
  if(S.pendingUser)h+=`<div class="msg user">${esc(S.pendingUser)}</div>`;
  m.innerHTML=h;
@@ -513,20 +686,37 @@ async function submit(){
  if(S.sending)return;
  if(S.running){
   const sid=S.sid;
+  if(window.CodexNative)nativeCall('cancelRemote',{sessionID:sid}).catch(()=>{});
   try{await api('/session/'+sid+'/abort',{method:'POST',directory:dir});if(view===S.view)await syncSession()}catch(e){if(view===S.view)err('abort: '+e.message)}
   return;
  }
- const v=$('#inp').value.trim();if(!v)return;
+ const v=$('#inp').value.trim();if(S.attLoading||(!v&&!S.attachments.length))return;
+ const files=S.attachments.map(({size,...part})=>part),connection=selectedConnection();
  $('#inp').value='';autosize();S.lastErr=null;S.sending=true;
  try{
   if(!S.sid){
    const s=await api('/session',{method:'POST',body:{},directory:dir});if(view!==S.view||dir!==S.dir)return;
    S.sid=s.id;S.sessions.unshift(s);S.msgs=new Map();$('#title').textContent=s.title||'New thread';
   }
-  const body={parts:[{type:'text',text:v}],agent:S.agent};
+  const body={parts:[...(v?[{type:'text',text:v}]:[]),...files],agent:S.agent,tools:{websearch:S.webSearch}};
   if(S.model)body.model={providerID:S.model.p,modelID:S.model.m};
   const ep='prompt_async',sid=S.sid;
-  S.pendingUser=v;
+  const eff=S.efforts[modelKey()];if(eff&&currentModel()?.variants?.[eff])body.variant=eff;
+  for(const tool of ['ssh_connections','ssh_exec','ssh_read_file','ssh_write_file'])body.tools['mobile_ssh_'+tool]=!!connection;
+  if(connection){
+   await nativeCall('sessionContext',{sessionID:sid,connectionID:connection.id});if(view!==S.view)return;
+   body.system=`Run commands and read or edit files on the selected SSH connection only. connection_id=${connection.id}; session_id=${sid}; working directory=${connection.directory||'home'}. Use mobile_ssh tools and include this session_id in every call. Do not run local shell or file tools. Never expose credentials.`;
+   for(const tool of ['bash','read','write','edit','apply_patch','glob','grep','task'])body.tools[tool]=false;
+   if(S.agent==='plan'){body.tools.mobile_ssh_ssh_exec=false;body.tools.mobile_ssh_ssh_write_file=false}
+  }
+  if(S.webSearch)body.system=(body.system||'')+' Use the websearch tool when web information is needed.';
+  // prompt_async's deprecated tools booleans turn enabled tools into "allow".
+  // Explicit session rules keep remote commands and file writes behind approval.
+  const permission=Object.entries(body.tools).map(([tool,enabled])=>({permission:tool,pattern:'*',action:enabled?(['mobile_ssh_ssh_exec','mobile_ssh_ssh_write_file'].includes(tool)?'ask':'allow'):'deny'}));
+  delete body.tools;
+  await api('/session/'+sid,{method:'PATCH',body:{permission},directory:dir});
+  if(view!==S.view||dir!==S.dir)return;
+  S.attachments=[];renderAttachments();S.pendingUser=v||'Attached files';
   S.running=true;setRun();renderMsgs(true);
   await api('/session/'+sid+'/'+ep,{method:'POST',body,directory:dir});
  }catch(e){if(view!==S.view||dir!==S.dir)return;S.running=false;S.lastErr=e.message;err('send: '+e.message);setRun();render()}

@@ -3,8 +3,6 @@ package space.g2961.opencode
 import android.Manifest
 import android.annotation.SuppressLint
 import androidx.activity.ComponentActivity
-import android.content.ClipData
-import android.content.ClipboardManager
 import android.content.Intent
 import android.content.pm.PackageManager
 import android.graphics.Color
@@ -22,20 +20,31 @@ import android.widget.Button
 import android.widget.FrameLayout
 import android.widget.LinearLayout
 import android.widget.ProgressBar
-import android.widget.ScrollView
 import android.widget.TextView
 import android.widget.Toast
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.core.content.ContextCompat
 import java.io.File
 import java.util.Base64
+import android.webkit.JavascriptInterface
+import android.webkit.ValueCallback
+import org.json.JSONArray
+import org.json.JSONObject
 
 class MainActivity : ComponentActivity(), LocalRuntime.Listener {
 
     private val pickFolder = registerForActivityResult(ActivityResultContracts.OpenDocumentTree()) { uri ->
-        if (uri == null) return@registerForActivityResult
+        if (uri == null) { finishFolderRequest(true); return@registerForActivityResult }
         onFolderPicked(uri)
     }
+    private var fileCallback: ValueCallback<Array<Uri>>? = null
+    private val pickFiles = registerForActivityResult(ActivityResultContracts.StartActivityForResult()) { result ->
+        fileCallback?.onReceiveValue(android.webkit.WebChromeClient.FileChooserParams.parseResult(result.resultCode, result.data))
+        fileCallback = null
+    }
+    private var folderRequest: String? = null
+    @Volatile private var trustedUi = false
+    private lateinit var sshTools: SshToolsServer
 
     private val requestStorage = registerForActivityResult(ActivityResultContracts.RequestMultiplePermissions()) { result ->
         val granted = result.values.all { it }
@@ -49,26 +58,19 @@ class MainActivity : ComponentActivity(), LocalRuntime.Listener {
     private lateinit var runtime: LocalRuntime
     private lateinit var statusScreen: LinearLayout
     private lateinit var statusText: TextView
-    private lateinit var logView: TextView
     private lateinit var progressBar: ProgressBar
     private lateinit var retryButton: Button
     private lateinit var webview: WebView
 
-    private var lastLogLine = ""
-
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
-        runtime = LocalRuntime(this)
-        buildUi()
-        runtime.logHook = { line ->
-            runOnUiThread { updateLogView() }
+        sshTools = SshToolsServer(SshConnectionStore(this)) { event ->
+            runOnUiThread { if (trustedUi) webview.evaluateJavascript("window.dispatchEvent(new CustomEvent('codex-remote-event',{detail:$event}));", null) }
         }
+        sshTools.start()
+        runtime = LocalRuntime(this, sshTools)
+        buildUi()
         startRuntime()
-    }
-
-    private fun updateLogView() {
-        logView.text = runtime.logSnapshot(40)
-        (logView.parent as? ScrollView)?.fullScroll(View.FOCUS_DOWN)
     }
 
     @Deprecated("Deprecated in Java")
@@ -78,6 +80,8 @@ class MainActivity : ComponentActivity(), LocalRuntime.Listener {
 
     override fun onDestroy() {
         runtime.stop()
+        sshTools.stop()
+        fileCallback?.onReceiveValue(null)
         super.onDestroy()
     }
 
@@ -122,33 +126,15 @@ class MainActivity : ComponentActivity(), LocalRuntime.Listener {
             visibility = View.GONE
             setOnClickListener { startRuntime() }
         }
-        val copyButton = Button(this).apply {
-            text = getString(R.string.copy_logs)
-            setOnClickListener { copyLogs() }
-        }
         val buttons = LinearLayout(this).apply {
             orientation = LinearLayout.HORIZONTAL
             gravity = Gravity.CENTER
             addView(retryButton)
-            addView(copyButton)
-        }
-        logView = TextView(this).apply {
-            textSize = 9f
-            setTextColor(Color.parseColor("#6B6F76"))
-            typeface = android.graphics.Typeface.MONOSPACE
-            setPadding(0, dp(8), 0, 0)
-        }
-        val scroll = ScrollView(this).apply {
-            addView(logView)
-            layoutParams = LinearLayout.LayoutParams(
-                ViewGroup.LayoutParams.MATCH_PARENT, 0, 1f
-            )
         }
         statusScreen.addView(logo, LinearLayout.LayoutParams(ViewGroup.LayoutParams.WRAP_CONTENT, ViewGroup.LayoutParams.WRAP_CONTENT))
         statusScreen.addView(progressBar)
         statusScreen.addView(statusText)
         statusScreen.addView(buttons)
-        statusScreen.addView(scroll)
         root.addView(statusScreen, FrameLayout.LayoutParams(
             ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.MATCH_PARENT))
 
@@ -160,54 +146,6 @@ class MainActivity : ComponentActivity(), LocalRuntime.Listener {
         root.addView(webview, FrameLayout.LayoutParams(
             ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.MATCH_PARENT))
 
-        val folderButton = TextView(this).apply {
-            text = "+ FOLDER"
-            textSize = 10f
-            setTextColor(Color.parseColor("#9BE8D8"))
-            setPadding(dp(10), dp(6), dp(10), dp(6))
-            background = android.graphics.drawable.GradientDrawable().apply {
-                setColor(Color.argb(170, 20, 40, 38))
-                cornerRadius = dp(14).toFloat()
-            }
-        }
-        val folderParams = FrameLayout.LayoutParams(
-            ViewGroup.LayoutParams.WRAP_CONTENT, ViewGroup.LayoutParams.WRAP_CONTENT,
-            Gravity.TOP or Gravity.END
-        )
-        folderParams.setMargins(0, dp(36), dp(70), 0)
-        root.addView(folderButton, folderParams)
-        folderButton.setOnClickListener { showProjectMenu() }
-
-        val logsToggle = TextView(this).apply {
-            text = "LOGS"
-            textSize = 10f
-            setTextColor(Color.parseColor("#6B6F76"))
-            setPadding(dp(10), dp(6), dp(10), dp(6))
-            background = android.graphics.drawable.GradientDrawable().apply {
-                setColor(Color.argb(140, 20, 22, 26))
-                cornerRadius = dp(14).toFloat()
-            }
-        }
-        val toggleParams = FrameLayout.LayoutParams(
-            ViewGroup.LayoutParams.WRAP_CONTENT, ViewGroup.LayoutParams.WRAP_CONTENT,
-            Gravity.TOP or Gravity.END
-        )
-        toggleParams.setMargins(0, dp(36), dp(12), 0)
-        root.addView(logsToggle, toggleParams)
-        var showingLogs = false
-        logsToggle.setOnClickListener {
-            showingLogs = !showingLogs
-            if (showingLogs) {
-                updateLogView()
-                webview.visibility = View.GONE
-                statusScreen.visibility = View.VISIBLE
-                progressBar.visibility = View.GONE
-            } else {
-                statusScreen.visibility = View.GONE
-                webview.visibility = View.VISIBLE
-            }
-        }
-
         setContentView(root)
     }
 
@@ -217,10 +155,15 @@ class MainActivity : ComponentActivity(), LocalRuntime.Listener {
             javaScriptEnabled = true
             domStorageEnabled = true
             allowFileAccess = false
-            allowContentAccess = false
+            allowContentAccess = true
             cacheMode = android.webkit.WebSettings.LOAD_DEFAULT
         }
+        wv.addJavascriptInterface(MobileBridge(), "CodexNative")
         wv.webViewClient = object : WebViewClient() {
+            override fun onPageStarted(view: WebView?, url: String?, favicon: android.graphics.Bitmap?) {
+                val u = url?.let { Uri.parse(it) }
+                trustedUi = u != null && u.host == "127.0.0.1" && u.port == runtime.authPort && u.path == "/_ui/index.html"
+            }
             override fun shouldOverrideUrlLoading(view: WebView?, request: WebResourceRequest?): Boolean {
                 val url = request?.url ?: return false
                 if (url.host == "127.0.0.1" || url.host == "localhost") return false
@@ -258,8 +201,11 @@ class MainActivity : ComponentActivity(), LocalRuntime.Listener {
             }
         }
         wv.webChromeClient = object : android.webkit.WebChromeClient() {
-            override fun onConsoleMessage(consoleMessage: android.webkit.ConsoleMessage?): Boolean {
-                runtime.appendLogPublic("[js] ${consoleMessage?.message()} (${consoleMessage?.sourceId()}:${consoleMessage?.lineNumber()})")
+            override fun onShowFileChooser(view: WebView?, callback: ValueCallback<Array<Uri>>?, params: android.webkit.WebChromeClient.FileChooserParams?): Boolean {
+                if (!trustedUi || callback == null || params == null) return false
+                fileCallback?.onReceiveValue(null)
+                fileCallback = callback
+                try { pickFiles.launch(params.createIntent()) } catch (_: Throwable) { callback.onReceiveValue(null); fileCallback = null }
                 return true
             }
         }
@@ -267,25 +213,54 @@ class MainActivity : ComponentActivity(), LocalRuntime.Listener {
 
     private fun appendRuntimeLog(line: String) {
         runtime.appendLogPublic(line)
-        runOnUiThread { updateLogView() }
     }
 
-    private fun showProjectMenu() {
-        val current = ProjectManager.currentDir(this)
-        val options = arrayOf(
-            "Открыть папку телефона…",
-            "Создать новый проект",
-            "Текущий: ${current.absolutePath}"
-        )
-        android.app.AlertDialog.Builder(this)
-            .setTitle("Проект")
-            .setItems(options) { _, which ->
-                when (which) {
-                    0 -> openFolderPicker()
-                    1 -> showCreateProjectDialog()
-                }
-            }
-            .show()
+    private fun nativeResult(id: String, result: JSONObject) {
+        runOnUiThread { if (trustedUi) webview.evaluateJavascript("window.codexNativeResult(${JSONObject.quote(id)},$result);", null) }
+    }
+    private fun finishFolderRequest(cancelled: Boolean = false) {
+        folderRequest?.let { nativeResult(it, JSONObject().put("cancelled", cancelled).put("directory", ProjectManager.currentDir(this).absolutePath)) }
+        folderRequest = null
+    }
+    private inner class MobileBridge {
+        @JavascriptInterface fun request(raw: String) {
+            if (!trustedUi || raw.length > 2 * 1024 * 1024) return
+            Thread {
+                var id = ""
+                try {
+                    val request = JSONObject(raw); id = request.getString("id")
+                    val data = request.optJSONObject("data") ?: JSONObject()
+                    val result = when (request.getString("action")) {
+                        "projects" -> JSONObject().put("projects", JSONArray(ProjectManager.list(this@MainActivity).map { it.absolutePath }))
+                        "createProject" -> {
+                            val dir = ProjectManager.createNew(this@MainActivity, data.getString("name"))
+                            runtime.registerProject(dir.absolutePath)
+                            JSONObject().put("directory", dir.absolutePath)
+                        }
+                        "selectProject" -> {
+                            val dir = File(data.getString("directory"))
+                            require(dir.isDirectory && ProjectManager.canRead(dir))
+                            ProjectManager.setCurrent(this@MainActivity, dir)
+                            JSONObject().put("directory", dir.absolutePath)
+                        }
+                        "openFolder" -> {
+                            folderRequest = id; runOnUiThread { openFolderPicker() }; return@Thread
+                        }
+                        "appearance" -> {
+                            runOnUiThread {
+                                val dark = data.optString("theme") == "dark"
+                                val color = if (dark) Color.BLACK else Color.WHITE
+                                webview.setBackgroundColor(color); window.statusBarColor = color; window.navigationBarColor = color
+                                window.decorView.systemUiVisibility = if (dark) 0 else View.SYSTEM_UI_FLAG_LIGHT_STATUS_BAR or View.SYSTEM_UI_FLAG_LIGHT_NAVIGATION_BAR
+                            }
+                            JSONObject().put("saved", true)
+                        }
+                        else -> sshTools.action(request)
+                    }
+                    nativeResult(id, result)
+                } catch (e: Exception) { if (id.isNotEmpty()) nativeResult(id, JSONObject().put("error", RemoteSsh.safeError(e))) }
+            }.start()
+        }
     }
 
     private fun openFolderPicker() {
@@ -363,21 +338,6 @@ class MainActivity : ComponentActivity(), LocalRuntime.Listener {
         }.start()
     }
 
-    private fun showCreateProjectDialog() {
-        val input = android.widget.EditText(this)
-        input.hint = "имя проекта"
-        android.app.AlertDialog.Builder(this)
-            .setTitle("Новый проект")
-            .setView(input)
-            .setPositiveButton("Создать") { _, _ ->
-                val dir = ProjectManager.createNew(this, input.text.toString())
-                appendRuntimeLog("created project: ${dir.absolutePath}")
-                openProjectDir(dir)
-            }
-            .setNegativeButton("Отмена", null)
-            .show()
-    }
-
     // true: Codex-style UI from assets/codex.html; false: stock opencode web UI
     private val useCodexUi = true
 
@@ -397,6 +357,7 @@ class MainActivity : ComponentActivity(), LocalRuntime.Listener {
         }
         Thread {
             runtime.registerProject(dir.absolutePath)
+            finishFolderRequest()
             runOnUiThread {
                 webview.loadUrl(uiUrl(auth, dir))
                 Toast.makeText(this, dir.absolutePath, Toast.LENGTH_SHORT).show()
@@ -434,11 +395,6 @@ class MainActivity : ComponentActivity(), LocalRuntime.Listener {
         }
     }
 
-    private fun copyLogs() {
-        val cm = getSystemService(ClipboardManager::class.java)
-        cm.setPrimaryClip(ClipData.newPlainText("opencode logs", runtime.logSnapshot()))
-        Toast.makeText(this, R.string.copied, Toast.LENGTH_SHORT).show()
-    }
 
     override fun onState(state: LocalRuntime.State, message: String) {
         runOnUiThread {
@@ -454,16 +410,12 @@ class MainActivity : ComponentActivity(), LocalRuntime.Listener {
                     retryButton.visibility = View.VISIBLE
                     webview.visibility = View.GONE
                     statusScreen.visibility = View.VISIBLE
-                    updateLogView()
                 }
             }
         }
     }
 
-    override fun onLog(line: String) {
-        lastLogLine = line
-        runOnUiThread { updateLogView() }
-    }
+    override fun onLog(line: String) {}
 
     override fun onReady(port: Int, password: String) {
         showWeb(port)

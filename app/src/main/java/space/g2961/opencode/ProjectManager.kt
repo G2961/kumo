@@ -5,6 +5,7 @@ import android.net.Uri
 import android.provider.DocumentsContract
 import android.provider.DocumentsContract.Document
 import java.io.File
+import org.json.JSONArray
 
 object ProjectManager {
 
@@ -25,8 +26,31 @@ object ProjectManager {
     }
 
     fun setCurrent(context: Context, dir: File) {
+        remember(context, dir)
         context.getSharedPreferences(PREFS, Context.MODE_PRIVATE).edit()
             .putString(KEY_CURRENT, dir.absolutePath).apply()
+    }
+
+    @Synchronized fun remember(context: Context, dir: File) {
+        val prefs = context.getSharedPreferences(PREFS, Context.MODE_PRIVATE)
+        val saved = try { JSONArray(prefs.getString("directories", "[]")) } catch (_: Throwable) { JSONArray() }
+        val paths = (0 until saved.length()).map { saved.getString(it) }.toMutableList()
+        if (dir.absolutePath !in paths) paths.add(dir.absolutePath)
+        prefs.edit().putString("directories", JSONArray(paths).toString()).apply()
+    }
+
+    fun list(context: Context): List<File> {
+        val prefs = context.getSharedPreferences(PREFS, Context.MODE_PRIVATE)
+        val saved = try { JSONArray(prefs.getString("directories", "[]")) } catch (_: Throwable) { JSONArray() }
+        val paths = (0 until saved.length()).map { saved.getString(it) }.toMutableList()
+        paths.add(currentDir(context).absolutePath)
+        // Recover folders created by earlier versions, which saved only the current path.
+        for (root in listOf(homeDir(context), projectsRoot(context))) {
+            root.listFiles()?.filter { it.isDirectory && !it.name.startsWith(".") }?.forEach { paths.add(it.absolutePath) }
+        }
+        return paths.distinct().map { File(it) }.filter { it.isDirectory }.also { dirs ->
+            prefs.edit().putString("directories", JSONArray(dirs.map { it.absolutePath }).toString()).apply()
+        }
     }
 
     fun createNew(context: Context, name: String): File {

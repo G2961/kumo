@@ -15,7 +15,7 @@ import java.nio.file.Paths
 import java.util.Base64
 import java.util.concurrent.TimeUnit
 
-class LocalRuntime(private val context: Context) {
+class LocalRuntime(private val context: Context, private val sshTools: SshToolsServer) {
 
     enum class State { PREPARING, STARTING, READY, STOPPED, FAILED }
 
@@ -262,7 +262,14 @@ class LocalRuntime(private val context: Context) {
             env["HTTPS_PROXY"] = "http://127.0.0.1:${proxy.port}"
             env["HTTP_PROXY"] = "http://127.0.0.1:${proxy.port}"
             env["NO_PROXY"] = "localhost,127.0.0.1,::1"
-            env["OPENCODE_CONFIG_CONTENT"] = "{\"shell\":\"/system/bin/sh\"}"
+            env["OPENCODE_ENABLE_EXA"] = "true"
+            env["OPENCODE_CONFIG_CONTENT"] = org.json.JSONObject()
+                .put("shell", "/system/bin/sh")
+                .put("mcp", org.json.JSONObject().put("mobile_ssh", org.json.JSONObject()
+                    .put("type", "remote").put("url", sshTools.url()).put("oauth", false).put("timeout", 900000)
+                    .put("headers", org.json.JSONObject().put("Authorization", "Bearer " + sshTools.token()))))
+                .put("permission", org.json.JSONObject().put("mobile_ssh_ssh_exec", "ask").put("mobile_ssh_ssh_write_file", "ask"))
+                .toString()
         }
     }
 
