@@ -249,11 +249,12 @@ function onEvent(ev){
   if(i.role==='assistant'&&i.error){S.running=false;S.status={type:'idle'};setRun()}sched();
  }else if(t==='message.part.updated'){
   const pt=p.part;if(!pt||pt.sessionID!==S.sid)return;
-  S.revision++;ensureMsg(pt.sessionID,pt.messageID).parts.set(pt.id,pt);sched();
+  S.revision++;const m=ensureMsg(pt.sessionID,pt.messageID),existing=m.parts.get(pt.id);
+  m.parts.set(pt.id,existing?{...existing,...pt,text:pt.text||existing.text||''}:pt);sched();
  }else if(t==='message.part.delta'){
   if(p.sessionID!==S.sid)return;
   S.revision++;const m=ensureMsg(p.sessionID,p.messageID);
-  const pt=m.parts.get(p.partID)||{id:p.partID,messageID:p.messageID,sessionID:p.sessionID,type:'text'};
+  const pt=m.parts.get(p.partID)||{id:p.partID,messageID:p.messageID,sessionID:p.sessionID,type:p.field==='reasoning'?'reasoning':'text'};
   pt[p.field||'text']=(pt[p.field||'text']||'')+p.delta;m.parts.set(p.partID,pt);sched();
  }else if(t==='session.status'){
   if(p.sessionID!==S.sid)return;
@@ -368,12 +369,12 @@ $('#cModel').onclick=()=>{
 };
 $('#cPerm').onclick=()=>options('Agent',['build','plan'],S.agent,i=>{S.agent=['build','plan'][i];lset('oc_agent',S.agent)},['edit & run (asks per server rules)','read only']);
 function chips(){
- const m=S.model&&allModels().find(x=>x.p===S.model.p&&x.m===S.model.m);
+ const m=currentModel();
  $('#cModel span').textContent=m?m.mn:(S.model?S.model.m:'Default model');
  $('#cPerm span').textContent=S.agent;
- const keys=Object.keys(m?.variants||{}),eff=S.efforts[modelKey()];
- $('#cEff span').textContent=keys.includes(eff)?effortLabel(eff,keys):'Reasoning';
- $('#cEff').classList.toggle('muted',!keys.length);
+ const keys=modelEffortKeys(m),eff=S.efforts[modelKey()];
+ $('#cEff span').textContent=eff?effortLabel(eff,keys):'Reasoning';
+ $('#cEff').classList.remove('muted');
  $('#cEnv span').textContent=selectedConnection()?.name||'Local';
  $('#cSearch').hidden=!S.webSearch;
 }
@@ -523,10 +524,52 @@ function nativeCall(action,data={}){
  });
 }
 function b64e(text){return btoa(String.fromCharCode(...new TextEncoder().encode(text))).replace(/\+/g,'-').replace(/\//g,'_').replace(/=+$/,'')}
-function modelKey(){return S.model?S.model.p+'/'+S.model.m:''}
-function currentModel(){return allModels().find(m=>m.p===S.model?.p&&m.m===S.model?.m)}
+function currentModel(){return allModels().find(m=>m.p===S.model?.p&&m.m===S.model?.m)||allModels().find(m=>m.p===(S.defModel?.p||S.defModel?.providerID)&&m.m===(S.defModel?.m||S.defModel?.modelID))||allModels()[0]}
+function modelKey(){const m=currentModel();return m?m.p+'/'+m.m:''}
 function selectedConnection(){return S.connections.find(c=>c.id===S.connectionID)}
-function effortLabel(key,keys){if(key===keys[0])return 'Minimal';if(key===keys[keys.length-1])return 'Maximum';return ({medium:'Medium',high:'High',xhigh:'Very high',low:'Low'})[key]||key}
+function modelSupportsXhigh(m){
+ if(!m)return false;
+ if(m.variants&&('xhigh' in m.variants))return true;
+ const id=String(m.m||m.id||'').toLowerCase();
+ if(/(?:gpt-5|gpt-6|o1|o3|o4|deepseek|qwen|minimax|mimo)/i.test(id))return true;
+ if(providerCatalog){
+  const found=providerCatalog.flatMap(p=>Object.values(p.models||{})).find(x=>String(x.id||'').toLowerCase()===id);
+  if(found?.variants&&'xhigh' in found.variants)return true;
+ }
+ return false;
+}
+function defaultReasoningVariants(supportsXhigh){
+ const v={none:{reasoningEffort:'none'},low:{reasoningEffort:'low'},medium:{reasoningEffort:'medium'},high:{reasoningEffort:'high'}};
+ if(supportsXhigh)v.xhigh={reasoningEffort:'xhigh'};
+ return v;
+}
+function modelEffortKeys(m){
+ if(m?.variants&&Object.keys(m.variants).length>0)return Object.keys(m.variants);
+ return ['none','low','medium','high',...(modelSupportsXhigh(m)?['xhigh']:[])];
+}
+function effortLabel(key,keys){
+ const map={none:'None',minimal:'Minimal',low:'Low',medium:'Medium',high:'High',xhigh:'Very high',max:'Maximum'};
+ if(map[key])return map[key];
+ if(keys&&key===keys[0])return 'Minimal';
+ if(keys&&key===keys[keys.length-1])return 'Maximum';
+ return key;
+}
+async function ensureModelVariants(providerID,modelID){
+ if(!providerID||!modelID)return;
+ const prov=S.provs.find(p=>p.id===providerID);
+ const mod=prov?.models?.find(m=>m.id===modelID);
+ if(mod?.variants&&Object.keys(mod.variants).length>0)return mod.variants;
+ const variants=defaultReasoningVariants(modelSupportsXhigh(mod||{m:modelID}));
+ try{
+  await api('/global/config',{method:'PATCH',body:{provider:{[providerID]:{models:{[modelID]:{variants}}}}}});
+  if(mod)mod.variants=variants;
+  await loadProviders();
+  return variants;
+ }catch(e){
+  console.warn('ensureModelVariants failed:',e);
+  return variants;
+ }
+}
 function appearance(){
  const theme=LS('oc_theme')==='dark'?'dark':'light',scale=Math.max(.8,Math.min(1.4,Number(LS('oc_font_scale'))||1));
  document.documentElement.dataset.theme=theme;document.documentElement.style.setProperty('--font-scale',scale);
@@ -555,9 +598,20 @@ function projectSheet(){
  }
 }
 $('#cEff').onclick=()=>{
- const m=currentModel(),keys=Object.keys(m?.variants||{});
- if(!keys.length){sheet('<h3>Reasoning effort</h3><p class="note">This model does not offer reasoning controls. Choose a reasoning model, or update its provider settings.</p><button class="btn" id="effProvider">Providers</button>');$('#sheet').onclick=e=>{if(e.target.id==='effProvider')providerSheet()};return}
- options('Reasoning effort',['Default',...keys.map(k=>effortLabel(k,keys))],S.efforts[modelKey()]?effortLabel(S.efforts[modelKey()],keys):'Default',i=>{S.efforts[modelKey()]=i?keys[i-1]:null;lset('oc_efforts',S.efforts)});
+ const m=currentModel(),keys=modelEffortKeys(m);
+ const currentEff=S.efforts[modelKey()];
+ const labels=['Default',...keys.map(k=>effortLabel(k,keys))];
+ const currentLabel=currentEff&&keys.includes(currentEff)?effortLabel(currentEff,keys):'Default';
+ options('Reasoning effort',labels,currentLabel,async i=>{
+  const chosen=i?keys[i-1]:null;
+  S.efforts[modelKey()]=chosen;
+  lset('oc_efforts',S.efforts);
+  chips();
+  if(chosen&&(!m?.variants||!Object.keys(m.variants).length)){
+   await ensureModelVariants(m?.p||S.model?.p,m?.m||S.model?.m);
+   chips();
+  }
+ });
 };
 function toggleSearch(){S.webSearch=!S.webSearch;lset('oc_web_search',S.webSearch);chips()}
 $('#cSearch').onclick=toggleSearch;
@@ -619,9 +673,17 @@ async function providerForm(existing){
    for(const modelID of ids){
     const candidates=list.flatMap(p=>Object.values(p.models||{})).filter(m=>m.id===modelID),known=candidates.find(m=>m.capabilities?.reasoning)||candidates[0];
     const model={name:known?.name||modelID};
-    if(known){model.reasoning=!!known.capabilities.reasoning;model.attachment=!!known.capabilities.attachment;model.limit=known.limit;model.modalities={input:Object.keys(known.capabilities.input).filter(k=>known.capabilities.input[k]),output:Object.keys(known.capabilities.output).filter(k=>known.capabilities.output[k])};
-     if(npm==='@ai-sdk/openai'){const openai=candidates.find(m=>m.api?.npm==='@ai-sdk/openai'&&Object.keys(m.variants||{}).length);if(openai)model.variants=openai.variants}
-    }models[modelID]=model;
+    if(known){
+     model.reasoning=!!known.capabilities?.reasoning;model.attachment=!!known.capabilities?.attachment;model.limit=known.limit;
+     model.modalities={input:Object.keys(known.capabilities?.input||{}).filter(k=>known.capabilities.input[k]),output:Object.keys(known.capabilities?.output||{}).filter(k=>known.capabilities.output[k])};
+     if(known.variants&&Object.keys(known.variants).length)model.variants=known.variants;
+     else if(npm==='@ai-sdk/openai'){const openai=candidates.find(m=>m.api?.npm==='@ai-sdk/openai'&&Object.keys(m.variants||{}).length);if(openai)model.variants=openai.variants}
+    }
+    if(!model.variants||!Object.keys(model.variants).length){
+     const xh=modelSupportsXhigh({m:modelID,variants:known?.variants});
+     model.variants=defaultReasoningVariants(xh);
+    }
+    models[modelID]=model;
    }
    const config={provider:{[id]:{name:meta.name||id,npm,options:{baseURL:url.href.replace(/\/$/,'')},models,whitelist:ids}}};
    key=$('#pk').value.trim();$('#pk').value='';if(key)await api('/auth/'+encodeURIComponent(id),{method:'PUT',body:{type:'api',key}});key='';
@@ -753,6 +815,7 @@ function renderMsgs(force){
  if(!S.sid)return;
  const m=$('#main');
  const near=force||m.scrollHeight-m.scrollTop-m.clientHeight<140;
+ const openDetails=new Set([...m.querySelectorAll('details[open]')].map(d=>d.dataset.part||d.dataset.historyKey||''));
  const list=[...S.msgs.values()].sort((a,b)=>a.info.id<b.info.id?-1:1);
  S.renderedRemoteRuns=new Set();
  let h='';
@@ -765,7 +828,11 @@ function renderMsgs(force){
   }else{
    parts.forEach(p=>{
     if(p.type==='text'&&p.text)h+=`<div class="msg ai">${esc(p.text)}</div>`;
-    else if(p.type==='reasoning'&&p.text)h+=`<details class="card"><summary class="ch" style="list-style:none">Thinking</summary><pre style="white-space:pre-wrap">${esc(p.text)}</pre></details>`;
+    else if(p.type==='reasoning'){
+     const openAttr=openDetails.has(p.id)?' open':'';
+     const rText=p.text||(S.running?'Thinking…':'Thought process');
+     h+=`<details class="card thinking-card" data-part="${esc(p.id||'')}"${openAttr}><summary class="ch" style="list-style:none;cursor:pointer">Thinking</summary><pre style="white-space:pre-wrap">${esc(rText)}</pre></details>`;
+    }
     else if(p.type==='tool')h+=toolCard(p);
    });
    if(x.info.error){const e=x.info.error;h+=`<div class="card"><div class="ch er">Error</div><pre style="white-space:pre-wrap">${esc(readableError((e.data&&e.data.message)||e.message||e.name||'Request failed'))}</pre></div>`}
@@ -825,7 +892,11 @@ async function submit(){
   const body={parts:[...(v?[{type:'text',text:v}]:[]),...files],agent:S.agent,tools:{websearch:S.webSearch}};
   if(S.model)body.model={providerID:S.model.p,modelID:S.model.m};
   const ep='prompt_async',sid=S.sid;
-  const eff=S.efforts[modelKey()];if(eff&&currentModel()?.variants?.[eff])body.variant=eff;
+  const eff=S.efforts[modelKey()];
+  if(eff){
+   await ensureModelVariants(S.model?.p||currentModel()?.p,S.model?.m||currentModel()?.m);
+   body.variant=eff;
+  }
   for(const tool of ['ssh_connections','ssh_exec','ssh_read_file','ssh_write_file'])body.tools['mobile_ssh_'+tool]=!!connection;
   if(connection){
    await nativeCall('sessionContext',{sessionID:sid,connectionID:connection.id});if(view!==S.view)return;
