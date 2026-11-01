@@ -106,7 +106,8 @@ footer{padding:8px 12px;padding-bottom:max(10px,env(safe-area-inset-bottom))}
 
 <script>
 const $=s=>document.querySelector(s);
-const esc=s=>String(s==null?'':s).replace(/[&<>]/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;'}[c]));
+const redact=s=>String(s==null?'':s).replace(/\b(?:Bearer|Basic)\s+[^\s"']+/gi,'[redacted]').replace(/\bsk-[\w-]+/g,'[redacted]');
+const esc=s=>String(s==null?'':s).replace(/[&<>"']/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
 const I={
  edit:'<svg viewBox="0 0 24 24"><path d="M12 20h9M16.5 3.5a2.1 2.1 0 0 1 3 3L7 19l-4 1 1-4z"/></svg>',
  folder:'<svg viewBox="0 0 24 24"><path d="M3 7a2 2 0 0 1 2-2h4l2 2h8a2 2 0 0 1 2 2v8a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2z"/></svg>',
@@ -127,7 +128,7 @@ const S={
  dir:dirFromHash()||LS('oc_dir')||'',
  projects:[],sessions:[],sid:null,
  msgs:new Map(),perms:new Map(),
- running:false,live:false,errors:[],
+ running:false,live:false,errors:[],status:{type:'idle'},view:0,revision:0,sending:false,
  provs:[],model:LS('oc_model'),agent:LS('oc_agent')||'build',
  spec:null,specErr:null,health:null
 };
@@ -136,10 +137,11 @@ if(S.dir)lset('oc_dir',S.dir);
 /* ---------- api ---------- */
 async function api(path,o={}){
  const u=new URL(path,location.origin);
- if(S.dir)u.searchParams.set('directory',S.dir);
+ const dir=o.directory===undefined?S.dir:o.directory;
+ if(dir&&!path.startsWith('/auth/')&&!path.startsWith('/global/'))u.searchParams.set('directory',dir);
  const r=await fetch(u,{method:o.method||'GET',headers:o.body?{'Content-Type':'application/json'}:{},body:o.body?JSON.stringify(o.body):undefined});
  const t=await r.text();
- if(!r.ok)throw new Error((o.method||'GET')+' '+path+' -> '+r.status+' '+t.slice(0,200));
+ if(!r.ok)throw new Error((o.method||'GET')+' '+path+' -> '+r.status+(path.startsWith('/auth/')||path==='/config'?'':' '+redact(t).slice(0,200)));
  if(!t)return null;
  try{return JSON.parse(t)}catch(e){return t}
 }
@@ -167,33 +169,42 @@ async function boot(){
  connectSSE();chips();render();
 }
 async function loadProjects(){
- try{const r=await api('/project');S.projects=(Array.isArray(r)?r:[]).filter(p=>p.worktree&&p.worktree!=='/')}catch(e){err('projects: '+e.message)}
+ const dir=S.dir;
+ try{const r=await api('/project',{directory:dir});if(dir!==S.dir)return;S.projects=(Array.isArray(r)?r:[]).filter(p=>p.worktree&&p.worktree!=='/')}catch(e){if(dir!==S.dir)return;err('projects: '+e.message)}
  if(S.dir&&!S.projects.some(p=>p.worktree===S.dir))S.projects.unshift({worktree:S.dir});
 }
 async function loadSessions(){
+ const dir=S.dir;
  try{
-  const r=await api('/session');
+  const r=await api('/session',{directory:dir});if(dir!==S.dir)return;
   S.sessions=(Array.isArray(r)?r:[]).filter(s=>!s.parentID).sort((a,b)=>((b.time&&b.time.updated)||0)-((a.time&&a.time.updated)||0));
- }catch(e){S.sessions=[];err('sessions: '+e.message)}
+ }catch(e){if(dir!==S.dir)return;S.sessions=[];err('sessions: '+e.message)}
 }
 async function loadProviders(){
+ const dir=S.dir;
  try{
-  const r=await api('/config/providers');
+  const r=await api('/config/providers',{directory:dir});if(dir!==S.dir)return;
   S.provs=(r.providers||[]).map(p=>({id:p.id,name:p.name||p.id,models:Object.values(p.models||{}).map(m=>({id:m.id,name:m.name||m.id}))}));
   S.defModel=r.default||{};
-  if(!S.model){const k=Object.keys(S.defModel)[0];if(k)S.model={p:k,m:S.defModel[k]}}
- }catch(e){err('providers: '+e.message)}
+  if(!S.model||!allModels().some(m=>m.p===S.model.p&&m.m===S.model.m)){
+   S.model=null;const config=await api('/config',{directory:dir});if(dir!==S.dir)return;
+   const configured=allModels().find(m=>config.model===m.p+'/'+m.m);
+   if(configured)S.model={p:configured.p,m:configured.m};
+   lset('oc_model',S.model);
+  }
+  chips();
+ }catch(e){if(dir===S.dir)err('providers: '+e.message)}
 }
-function err(m){S.errors.push(m);console.log('[codex-ui] '+m);if(S.errors.length>30)S.errors.shift()}
-const projName=d=>(d||'').split('/').filter(Boolean).pop()||d||'(server cwd)';
+function err(m){m=redact(m);S.errors.push(m);console.log('[codex-ui] '+m);if(S.errors.length>30)S.errors.shift()}
+const projName=d=>(d||'').split(/[\\/]/).filter(Boolean).pop()||d||'(server cwd)';
 
 /* ---------- SSE ---------- */
 function connectSSE(){
  if(S.es)S.es.close();
  const es=new EventSource('/event'+(S.dir?'?directory='+encodeURIComponent(S.dir):''));
- es.onopen=()=>{const was=S.live;S.live=true;if(!was&&S.sid)loadMessages()};
+ es.onopen=()=>{if(es!==S.es)return;S.live=true;if(S.sid)syncSession()};
  es.onmessage=e=>{try{onEvent(JSON.parse(e.data))}catch(x){}};
- es.onerror=()=>{S.live=false};
+ es.onerror=()=>{if(es===S.es)S.live=false};
  S.es=es;
 }
 function ensureMsg(sid,id){
@@ -205,63 +216,75 @@ function onEvent(ev){
  const t=ev.type,p=ev.properties||ev.payload&&ev.payload.properties||{};
  if(t==='message.updated'){
   const i=p.info;if(!i||i.sessionID!==S.sid)return;
-  ensureMsg(i.sessionID,i.id).info=i;if(i.role==='user')S.pendingUser=null;sched();
+  S.revision++;ensureMsg(i.sessionID,i.id).info=i;if(i.role==='user')S.pendingUser=null;
+  if(i.role==='assistant'&&i.error){S.running=false;S.status={type:'idle'};setRun()}sched();
  }else if(t==='message.part.updated'){
   const pt=p.part;if(!pt||pt.sessionID!==S.sid)return;
-  ensureMsg(pt.sessionID,pt.messageID).parts.set(pt.id,pt);sched();
+  S.revision++;ensureMsg(pt.sessionID,pt.messageID).parts.set(pt.id,pt);sched();
  }else if(t==='message.part.delta'){
   if(p.sessionID!==S.sid)return;
-  const m=ensureMsg(p.sessionID,p.messageID);
+  S.revision++;const m=ensureMsg(p.sessionID,p.messageID);
   const pt=m.parts.get(p.partID)||{id:p.partID,messageID:p.messageID,sessionID:p.sessionID,type:'text'};
   pt[p.field||'text']=(pt[p.field||'text']||'')+p.delta;m.parts.set(p.partID,pt);sched();
  }else if(t==='session.status'){
   if(p.sessionID!==S.sid)return;
-  S.running=!!(p.status&&p.status.type&&p.status.type!=='idle');setRun();sched();
+  S.revision++;S.status=p.status||{type:'idle'};S.running=S.status.type!=='idle';setRun();sched();
  }else if(t==='session.idle'){
-  if(p.sessionID!==S.sid)return;S.running=false;setRun();sched();loadSessions().then(()=>{});
+  if(p.sessionID!==S.sid)return;S.revision++;S.status={type:'idle'};S.running=false;setRun();sched();loadSessions().then(()=>{});syncSession();
  }else if(t==='session.updated'){
   const i=p.info;if(!i)return;const s=S.sessions.find(x=>x.id===i.id);
   if(s){Object.assign(s,i);if(i.id===S.sid)$('#title').textContent=i.title||'Thread'}
  }else if(t==='session.error'){
   if(p.sessionID&&p.sessionID!==S.sid)return;
-  const e=p.error;err('session.error: '+JSON.stringify(e||p).slice(0,300));
-  S.running=false;setRun();S.lastErr=e&&(e.data&&e.data.message||e.message||e.name)||'session error';sched();
- }else if(t==='permission.updated'||t==='permission.asked'){
-  if(p.sessionID!==S.sid)return;S.perms.set(p.id,p);sched();
+  const e=p.error;S.lastErr=redact(e&&(e.data&&e.data.message||e.message||e.name)||'session error');err('session.error: '+S.lastErr);
+  S.revision++;S.status={type:'idle'};S.running=false;setRun();sched();
+ }else if(t==='permission.asked'){
+  if(p.sessionID!==S.sid)return;S.revision++;S.perms.set(p.id,p);sched();
  }else if(t==='permission.replied'){
-  S.perms.delete(p.requestID||p.permissionID||p.id);sched();
+  if(p.sessionID!==S.sid)return;S.revision++;S.perms.delete(p.requestID);sched();
+ }else if(t==='message.removed'){
+  if(p.sessionID!==S.sid)return;S.revision++;S.msgs.delete(p.messageID);sched();
+ }else if(t==='message.part.removed'){
+  if(p.sessionID!==S.sid)return;S.revision++;S.msgs.get(p.messageID)?.parts.delete(p.partID);sched();
  }
 }
 let raf=0;
 function sched(){if(raf)return;raf=requestAnimationFrame(()=>{raf=0;renderMsgs()})}
 
 /* ---------- sessions ---------- */
-async function openSession(id){
- S.sid=id;S.msgs=new Map();S.perms=new Map();S.running=false;S.lastErr=null;S.pendingUser=null;
- const s=S.sessions.find(x=>x.id===id);$('#title').textContent=s&&s.title||'Thread';
- render();await loadMessages();
- try{
-  const pl=await api('/permission');
-  (Array.isArray(pl)?pl:[]).filter(x=>x.sessionID===id).forEach(x=>S.perms.set(x.id,x));
- }catch(e){}
- renderMsgs();
+function resetThread(id=null){
+ S.view++;S.revision++;S.sid=id;S.msgs=new Map();S.perms=new Map();S.running=false;
+ S.status={type:'idle'};S.lastErr=null;S.pendingUser=null;S.sending=false;setRun();
 }
-async function loadMessages(){
- if(!S.sid)return;
+async function openSession(id){
+ resetThread(id);
+ const s=S.sessions.find(x=>x.id===id);$('#title').textContent=s&&s.title||'Thread';
+ render();await syncSession();
+}
+let syncing=null;
+async function syncSession(){
+ if(!S.sid||S.sending||syncing===S.view)return;
+ const sid=S.sid,dir=S.dir,view=S.view,revision=S.revision;syncing=view;
  try{
-  const r=await api('/session/'+S.sid+'/message');
+  const [messages,statuses,permissions]=await Promise.allSettled([
+   api('/session/'+sid+'/message',{directory:dir}),api('/session/status',{directory:dir}),api('/permission',{directory:dir})]);
+  if(view!==S.view||sid!==S.sid||dir!==S.dir||revision!==S.revision||S.sending)return;
+  if(messages.status!=='fulfilled')throw messages.reason;
+  const r=messages.value;
   const nm=new Map();
   (Array.isArray(r)?r:[]).forEach(x=>{
    const m={info:x.info,parts:new Map()};(x.parts||[]).forEach(p=>m.parts.set(p.id,p));nm.set(x.info.id,m);
   });
   S.msgs=nm;
   if(S.pendingUser&&[...nm.values()].some(m=>m.info.role==='user'&&[...m.parts.values()].some(p=>p.text===S.pendingUser)))S.pendingUser=null;
-  const last=[...nm.values()].filter(m=>m.info.role==='assistant').pop();
-  if(last&&last.info.time&&!last.info.time.completed&&!last.info.error)S.running=true;
+  if(statuses.status==='fulfilled'){S.status=statuses.value[sid]||{type:'idle'};S.running=S.status.type!=='idle'}
+  if(permissions.status==='fulfilled')S.perms=new Map((permissions.value||[]).filter(p=>p.sessionID===sid).map(p=>[p.id,p]));
   setRun();renderMsgs();
- }catch(e){err('messages: '+e.message)}
+ }catch(e){if(view===S.view)err('messages: '+e.message)}
+ finally{if(syncing===view)syncing=null}
 }
-setInterval(()=>{if(S.running&&!S.live)loadMessages()},2500);
+const loadMessages=()=>syncSession();
+setInterval(()=>{if(S.sid&&(S.running||!S.live))syncSession()},5000);
 
 /* ---------- drawer ---------- */
 const ago=t=>{if(!t)return'';const s=(Date.now()-t)/1000;return s<90?'now':s<5400?Math.round(s/60)+'m':s<129600?Math.round(s/3600)+'h':Math.round(s/86400)+'d'};
@@ -280,14 +303,15 @@ function drawer(on){$('#drawer').classList.toggle('on',on);$('#dim').classList.t
 $('#menu').onclick=()=>{renderDrawer();drawer(true)};
 $('#drawer').onclick=async e=>{
  const b=e.target.closest('[data-a]');if(!b)return;const a=b.dataset.a;
- if(a==='new'){S.sid=null;S.msgs=new Map();drawer(false);render()}
+ if(a==='new'){resetThread();drawer(false);render()}
  else if(a==='th'){drawer(false);openSession(b.dataset.id)}
  else if(a==='proj'){await setDir(S.projects[+b.dataset.i].worktree);renderDrawer()}
 };
 async function setDir(d){
  if(d===S.dir)return;
- S.dir=d;lset('oc_dir',d);S.sid=null;S.msgs=new Map();S.perms=new Map();S.running=false;
- await loadSessions();connectSSE();render();
+ S.dir=d;lset('oc_dir',d);resetThread();S.sessions=[];S.live=false;
+ if(S.es)S.es.close();render();
+ await Promise.allSettled([loadSessions(),loadProviders(),loadProjects()]);if(S.dir!==d)return;connectSSE();render();
 }
 window.addEventListener('hashchange',()=>{const d=dirFromHash();if(d)setDir(d).then(loadProjects)});
 
@@ -322,12 +346,25 @@ function diffLines(o,n){
 function dl(lines){return lines.map(l=>`<span class="dl ${l[0]==='+'?'a':l[0]==='-'?'d':''}">${esc(l)||' '}</span>`).join('')}
 $('#commit').onclick=async()=>{
  if(!S.sid){sheet('<h3>Changes</h3><p class="note">Open a thread first.</p>');return}
+ const sid=S.sid,dir=S.dir,view=S.view;
  try{
-  const r=await api('/session/'+S.sid+'/diff');
+  let r=await api('/session/'+sid+'/diff',{directory:dir});if(view!==S.view||sid!==S.sid)return;
+  let fromTools=false;
+  if(!Array.isArray(r)||!r.length){
+   r=[];fromTools=true;
+   for(const m of S.msgs.values())for(const p of m.parts.values()){
+    const st=p.state||{},meta=st.metadata||{};if(p.type!=='tool'||st.status!=='completed')continue;
+    if(Array.isArray(meta.files)&&meta.files.some(f=>typeof f.patch==='string')){
+     meta.files.filter(f=>typeof f.patch==='string').forEach(f=>r.push({file:f.relativePath||f.filePath,patch:f.patch,additions:f.additions,deletions:f.deletions}));
+    }else if(typeof meta.diff==='string'&&meta.diff){
+     const input=st.input||{};r.push({file:input.filePath||input.path||st.title||p.tool,patch:meta.diff});
+    }
+   }
+  }
   if(!Array.isArray(r)||!r.length){sheet('<h3>Changes</h3><p class="note">No file changes in this thread.</p>');return}
-  sheet('<h3>Changes</h3><div style="max-height:60vh;overflow-y:auto">'+r.map((d,i)=>`<button class="opt" data-i="${i}">${I.file}${esc(d.file)}<span class="m"><span class="ok">+${d.additions||0}</span> <span class="er">-${d.deletions||0}</span></span></button>`).join('')+'</div>');
+  sheet('<h3>Changes</h3>'+(fromTools?'<p class="note">Changes reported by tools</p>':'')+'<div style="max-height:60vh;overflow-y:auto">'+r.map((d,i)=>`<button class="opt" data-i="${i}">${I.file}${esc(d.file)}<span class="m"><span class="ok">+${d.additions||0}</span> <span class="er">-${d.deletions||0}</span></span></button>`).join('')+'</div>');
   $('#sheet').onclick=e=>{const b=e.target.closest('.opt');if(!b)return;const d=r[b.dataset.i];
-   sheet(`<h3>${esc(d.file)}</h3><div class="card" style="max-height:60vh;overflow:auto">${dl(diffLines(d.before,d.after))}</div><div class="btns"><button class="btn" id="bk">Back</button></div>`);
+   sheet(`<h3>${esc(d.file||'Changes')}</h3><div class="card" style="max-height:60vh;overflow:auto">${dl(typeof d.patch==='string'?d.patch.split('\n'):[])}</div><div class="btns"><button class="btn" id="bk">Back</button></div>`);
    $('#sheet').onclick=e2=>{if(e2.target.id==='bk')$('#commit').onclick()};
   };
  }catch(e){sheet('<h3>Changes</h3><p class="note er">'+esc(e.message)+'</p>')}
@@ -410,7 +447,7 @@ function renderMsgs(force){
  });
  [...S.perms.values()].forEach(p=>{h+=permCard(p)});
  if(S.lastErr)h+=`<div class="card"><div class="ch er">Error</div><pre>${esc(S.lastErr)}</pre></div>`;
- if(S.running)h+='<div class="work"><div class="spin"></div>Working...</div>';
+ if(S.running)h+='<div class="work"><div class="spin"></div>'+esc(S.status.type==='retry'?'Retry '+S.status.attempt+': '+redact(S.status.message):'Working...')+'</div>';
  if(S.pendingUser)h+=`<div class="msg user">${esc(S.pendingUser)}</div>`;
  m.innerHTML=h;
  if(near)m.scrollTop=m.scrollHeight;
@@ -431,24 +468,28 @@ async function replyPerm(p,r){
 /* ---------- send ---------- */
 function setRun(){$('#send').innerHTML=S.running?I.stop:I.up}
 async function submit(){
+ const dir=S.dir,view=S.view;
+ if(S.sending)return;
  if(S.running){
-  try{await api('/session/'+S.sid+'/abort',{method:'POST'})}catch(e){err('abort: '+e.message)}
+  const sid=S.sid;
+  try{await api('/session/'+sid+'/abort',{method:'POST',directory:dir});if(view===S.view)await syncSession()}catch(e){if(view===S.view)err('abort: '+e.message)}
   return;
  }
  const v=$('#inp').value.trim();if(!v)return;
- $('#inp').value='';autosize();S.lastErr=null;
+ $('#inp').value='';autosize();S.lastErr=null;S.sending=true;
  try{
   if(!S.sid){
-   const s=await api('/session',{method:'POST',body:{}});
+   const s=await api('/session',{method:'POST',body:{},directory:dir});if(view!==S.view||dir!==S.dir)return;
    S.sid=s.id;S.sessions.unshift(s);S.msgs=new Map();$('#title').textContent=s.title||'New thread';
   }
   const body={parts:[{type:'text',text:v}],agent:S.agent};
   if(S.model)body.model={providerID:S.model.p,modelID:S.model.m};
-  const ep=(!S.spec||specHas('/session/{}/prompt_async','post'))?'prompt_async':'message';
+  const ep='prompt_async',sid=S.sid;
   S.pendingUser=v;
   S.running=true;setRun();renderMsgs(true);
-  api('/session/'+S.sid+'/'+ep,{method:'POST',body}).then(()=>{if(ep==='message')loadMessages()}).catch(e=>{S.running=false;S.lastErr=e.message;err('send: '+e.message);setRun();renderMsgs()});
- }catch(e){S.running=false;S.lastErr=e.message;err('send: '+e.message);setRun();render()}
+  await api('/session/'+sid+'/'+ep,{method:'POST',body,directory:dir});
+ }catch(e){if(view!==S.view||dir!==S.dir)return;S.running=false;S.lastErr=e.message;err('send: '+e.message);setRun();render()}
+ finally{if(view===S.view)S.sending=false}
 }
 $('#send').onclick=submit;
 $('#inp').addEventListener('keydown',e=>{if(e.key==='Enter'&&!e.shiftKey&&matchMedia('(hover:hover)').matches){e.preventDefault();submit()}});

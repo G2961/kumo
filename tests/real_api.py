@@ -10,6 +10,7 @@ import json
 from collections import Counter
 from pathlib import Path
 from urllib.parse import urlparse
+from uuid import uuid4
 
 from playwright.async_api import async_playwright
 
@@ -19,6 +20,7 @@ async def run(args):
     project = str(Path(args.project).resolve())
     encoded = base64.urlsafe_b64encode(project.encode()).decode().rstrip("=")
     result = {"mode": args.mode, "server": args.server, "checks": []}
+    proof = 'proof-' + uuid4().hex[:8] + '.txt'
     async with async_playwright() as pw:
         browser = await pw.chromium.launch()
         page = await browser.new_page(viewport={"width": 390, "height": 800})
@@ -74,15 +76,27 @@ async def run(args):
 
         try:
             await send("Reply with exactly CODEX_REAL_OK. Do not use tools.")
-            await page.wait_for_function("!S.running && (document.querySelector('.msg.ai') || S.lastErr)",
+            await page.wait_for_function("S.status.type==='retry'" if args.mode=='retry' else "!S.running && (document.querySelector('.msg.ai') || S.lastErr)",
                                          timeout=args.timeout * 1000)
             text = await page.locator(".msg.ai").all_text_contents()
             result["replyContainsMarker"] = any("CODEX_REAL_OK" in t for t in text)
             result["sessionID"] = await page.evaluate("S.sid")
             result["workingVisible"] = await page.locator(".work").count() > 0
             result["errorNames"] = await page.evaluate("[...S.msgs.values()].map(m=>m.info.error?.name).filter(Boolean)")
-            assert result["replyContainsMarker"], "No model answer marker"
-            result["checks"].append("real_prompt_answer_and_idle")
+            if args.mode == 'retry':
+                assert 'Retry' in await page.locator('.work').inner_text()
+                result['retryAttempt'] = await page.evaluate('S.status.attempt')
+                async with page.expect_response(lambda r: urlparse(r.url).path.endswith('/abort')) as aborted:
+                    await page.click('#send')
+                assert (await aborted.value).status == 200
+                await page.wait_for_function('!S.running', timeout=15000)
+                await page.evaluate('id=>openSession(id)', result['sessionID'])
+                assert not await page.evaluate('S.running')
+                result['workingVisible'] = await page.locator('.work').count() > 0
+                result['checks'].append('real_retry_label_abort_and_reopen')
+            else:
+                assert result["replyContainsMarker"], "No model answer marker"
+                result["checks"].append("real_prompt_answer_and_idle")
 
             if args.mode == "suite":
                 await page.evaluate("""async () => {
@@ -92,7 +106,7 @@ async def run(args):
                   S.sessions.unshift(s); await openSession(s.id);
                 }""")
                 await send("Use the bash tool to run echo CODEX_COMMAND_OK. Then use the write tool "
-                           "to create proof.txt in the current project directory containing exactly "
+                           f"to create {proof} in the current project directory containing exactly "
                            "CODEX_DIFF_OK followed by a newline. Do not use shell redirection to write it. "
                            "Do not read or change any other files. Finally reply CODEX_TOOL_OK.")
                 approvals = 0
@@ -105,14 +119,14 @@ async def run(args):
                     await asyncio.sleep(0.5)
                 assert not await page.evaluate("S.running"), "Tool prompt remained busy"
                 assert approvals >= 1, "No real permission was requested"
-                assert "CODEX_DIFF_OK" in (Path(project) / "proof.txt").read_text()
+                assert "CODEX_DIFF_OK" in (Path(project) / proof).read_text()
                 assert await page.locator(".card").filter(has_text="CODEX_COMMAND_OK").count()
                 result["approvals"] = approvals
                 result["checks"].append("real_tool_command_and_approve")
                 await page.click("#commit")
-                await page.locator("#sheet .opt").filter(has_text="proof.txt").click()
+                await page.locator("#sheet .opt").filter(has_text=proof).click()
                 assert "CODEX_DIFF_OK" in await page.locator("#sheet").inner_text()
-                result["checks"].append("real_snapshot_patch_rendered")
+                result["checks"].append("real_tool_patch_rendered")
                 await page.click("#dim", position={"x": 380, "y": 30})
 
                 await send("Use the bash tool to run echo CODEX_DENY_CHECK. Do not use any other "
@@ -132,6 +146,15 @@ async def run(args):
                 assert not await page.evaluate("S.running || S.perms.size || S.pendingUser || S.lastErr")
                 await page.evaluate("id=>openSession(id)", sid)
                 result["checks"].append("abort_reopen_and_new_thread_state")
+                first_sid = result['sessionID']
+                await page.evaluate("async ([a,b])=>Promise.all([openSession(a),openSession(b)])", [first_sid, sid])
+                assert await page.evaluate("[...S.msgs.values()].every(m=>m.info.sessionID===S.sid)")
+                result["checks"].append("concurrent_session_switch")
+                await page.evaluate("S.model={p:'codex-missing-provider',m:'missing-model'}")
+                await send("Reply OK.")
+                await page.wait_for_function("!S.running && (S.lastErr || [...S.msgs.values()].some(m=>m.info.error))", timeout=30000)
+                assert await page.locator('.work').count() == 0
+                result["checks"].append("real_session_error_stops_working")
 
             elif args.mode == "provider":
                 await page.click("#gear")
@@ -184,7 +207,7 @@ if __name__ == "__main__":
     p.add_argument("--project", required=True)
     p.add_argument("--provider", default="opencode")
     p.add_argument("--model", default="big-pickle")
-    p.add_argument("--mode", choices=["baseline", "suite", "provider"], default="baseline")
+    p.add_argument("--mode", choices=["baseline", "suite", "provider", "retry"], default="baseline")
     p.add_argument("--router-model", default="gpt-5.6-sol")
     p.add_argument("--timeout", type=int, default=90)
     p.add_argument("--report")

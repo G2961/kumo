@@ -30,3 +30,27 @@ python tests/real_api.py --server http://127.0.0.1:58074 --project <isolated-git
 
 Зависимости: `pip install -r tests/requirements.txt`,
 `python -m playwright install chromium --only-shell`.
+
+## После исправлений клиента, шаг 4
+
+`tests/fixed-client.json`: PASS, восемь проверок: ответ модели, команда,
+две настоящие Approve, отображение реального patch, Deny,
+abort/reopen/New thread, одновременное открытие двух сессий,
+`session.error` для намеренно несуществующей модели. Последняя ошибка
+ожидается тестом и не является отказом рабочего AgentRouter.
+
+В этом запуске настоящий `/session/{id}/diff` возвращал `[]`, несмотря
+на выполненный apply_patch. Из его настоящего `state.metadata.files`
+получены `filePath,relativePath,patch,additions,deletions`. Changes отображает
+эти реальные патчи, когда snapshot-дифф отсутствует; клиент не вычисляет
+несуществующие `before/after`. Причина пустого snapshot-диффа на ПК
+не установлена. На Android git в `LocalRuntime.kt` — заглушка `exit 128`,
+поэтому полагаться только на git snapshots там также нельзя.
+
+`tests/retry-abort.json`: PASS. Big Pickle реально перешёл в retry attempt 1,
+UI показал Retry, POST abort вернул 200, повторное открытие показало idle.
+Ответ Big Pickle не получен; PASS относится к отображению retry и отмене.
+
+В Kotlin добавлены только сообщения `[net]` о DNS/CONNECT без заголовков,
+паролей и содержимого трафика. Их компиляция проверяется CI; исполнение
+на Android и причина TLS/сетевых проблем телефона здесь не проверены.

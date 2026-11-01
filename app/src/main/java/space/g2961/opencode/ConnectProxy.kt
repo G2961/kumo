@@ -14,7 +14,7 @@ import java.util.concurrent.ConcurrentHashMap
 import java.util.concurrent.ExecutorService
 import java.util.concurrent.Executors
 
-class ConnectProxy {
+class ConnectProxy(private val log: (String) -> Unit = {}) {
 
     @Volatile var port: Int = 0
         private set
@@ -107,13 +107,17 @@ class ConnectProxy {
     }
 
     private fun tunnel(client: Socket, host: String, port: Int) {
+        log("CONNECT $host:$port requested")
         val upstream = try {
-            val addr = InetAddress.getAllByName(host).firstOrNull() ?: throw IOException("dns fail $host")
+            val addresses = InetAddress.getAllByName(host)
+            log("DNS $host: ${addresses.size} addresses")
+            val addr = addresses.firstOrNull() ?: throw IOException("dns fail $host")
             Socket().apply {
                 connect(InetSocketAddress(addr, port), 15000)
                 tcpNoDelay = true
             }
         } catch (e: Exception) {
+            log("CONNECT $host:$port failed: ${e.javaClass.simpleName}")
             try {
                 client.getOutputStream().write("HTTP/1.1 502 Bad Gateway\r\n\r\n".toByteArray())
                 client.close()
@@ -122,6 +126,7 @@ class ConnectProxy {
             return
         }
         try {
+            log("CONNECT $host:$port established")
             client.getOutputStream().write("HTTP/1.1 200 Connection established\r\n\r\n".toByteArray())
             client.getOutputStream().flush()
             open.add(upstream)

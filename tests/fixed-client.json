@@ -1,0 +1,432 @@
+{
+  "mode": "suite",
+  "server": "http://127.0.0.1:58074",
+  "checks": [
+    "health_1.19.3",
+    "real_prompt_answer_and_idle",
+    "real_tool_command_and_approve",
+    "real_tool_patch_rendered",
+    "real_permission_deny",
+    "abort_reopen_and_new_thread_state",
+    "concurrent_session_switch",
+    "real_session_error_stops_working"
+  ],
+  "model": {
+    "providerID": "AgentRouter-gpt-responses-gateway",
+    "modelID": "gpt-5.6-sol"
+  },
+  "replyContainsMarker": true,
+  "sessionID": "ses_e69b700f7ffe1z8nn3sfwvGECr",
+  "workingVisible": false,
+  "errorNames": [],
+  "approvals": 2,
+  "events": {
+    "server.connected": 1,
+    "session.created": 2,
+    "session.updated": 16,
+    "message.updated": 27,
+    "message.part.updated": 36,
+    "session.status": 18,
+    "session.diff": 8,
+    "message.part.delta": 8,
+    "session.idle": 5,
+    "permission.asked": 3,
+    "server.heartbeat": 2,
+    "permission.replied": 3,
+    "file.edited": 1,
+    "file.watcher.updated": 1,
+    "session.error": 2
+  },
+  "eventShapes": {
+    "server.connected": [],
+    "session.created": [
+      "sessionID",
+      "info"
+    ],
+    "session.updated": [
+      "sessionID",
+      "info"
+    ],
+    "message.updated": [
+      "sessionID",
+      "info"
+    ],
+    "message.part.updated": [
+      "sessionID",
+      "part",
+      "time"
+    ],
+    "session.status": [
+      "sessionID",
+      "status"
+    ],
+    "session.diff": [
+      "sessionID",
+      "diff"
+    ],
+    "message.part.delta": [
+      "sessionID",
+      "messageID",
+      "partID",
+      "field",
+      "delta"
+    ],
+    "session.idle": [
+      "sessionID"
+    ],
+    "permission.asked": [
+      "id",
+      "sessionID",
+      "permission",
+      "patterns",
+      "metadata",
+      "always",
+      "tool"
+    ],
+    "server.heartbeat": [],
+    "permission.replied": [
+      "sessionID",
+      "requestID",
+      "reply"
+    ],
+    "file.edited": [
+      "file"
+    ],
+    "file.watcher.updated": [
+      "file",
+      "event"
+    ],
+    "session.error": [
+      "sessionID",
+      "error"
+    ]
+  },
+  "sessionErrors": [
+    "UnknownError",
+    "UnknownError"
+  ],
+  "statuses": [
+    "busy",
+    "idle"
+  ],
+  "retryIndicators": [],
+  "requests": [
+    {
+      "path": "/_ui/index.html",
+      "method": "GET",
+      "status": 200
+    },
+    {
+      "path": "/doc",
+      "method": "GET",
+      "status": 200
+    },
+    {
+      "path": "/global/health",
+      "method": "GET",
+      "status": 200
+    },
+    {
+      "path": "/config/providers",
+      "method": "GET",
+      "status": 200
+    },
+    {
+      "path": "/project",
+      "method": "GET",
+      "status": 200
+    },
+    {
+      "path": "/session",
+      "method": "GET",
+      "status": 200
+    },
+    {
+      "path": "/config",
+      "method": "GET",
+      "status": 200
+    },
+    {
+      "path": "/event",
+      "method": "GET",
+      "status": 200
+    },
+    {
+      "path": "/session",
+      "method": "POST",
+      "status": 200
+    },
+    {
+      "path": "/session/ses_e69b700f7ffe1z8nn3sfwvGECr/prompt_async",
+      "method": "POST",
+      "status": 204
+    },
+    {
+      "path": "/session",
+      "method": "GET",
+      "status": 200
+    },
+    {
+      "path": "/session/ses_e69b700f7ffe1z8nn3sfwvGECr/message",
+      "method": "GET",
+      "status": 200
+    },
+    {
+      "path": "/session/status",
+      "method": "GET",
+      "status": 200
+    },
+    {
+      "path": "/permission",
+      "method": "GET",
+      "status": 200
+    },
+    {
+      "path": "/session",
+      "method": "POST",
+      "status": 200
+    },
+    {
+      "path": "/session/ses_e69b6f1adffe2xEXEaqIxPDaW2/message",
+      "method": "GET",
+      "status": 200
+    },
+    {
+      "path": "/session/status",
+      "method": "GET",
+      "status": 200
+    },
+    {
+      "path": "/permission",
+      "method": "GET",
+      "status": 200
+    },
+    {
+      "path": "/session/ses_e69b6f1adffe2xEXEaqIxPDaW2/prompt_async",
+      "method": "POST",
+      "status": 204
+    },
+    {
+      "path": "/session/ses_e69b6f1adffe2xEXEaqIxPDaW2/message",
+      "method": "GET",
+      "status": 200
+    },
+    {
+      "path": "/session/status",
+      "method": "GET",
+      "status": 200
+    },
+    {
+      "path": "/permission",
+      "method": "GET",
+      "status": 200
+    },
+    {
+      "path": "/session/ses_e69b6f1adffe2xEXEaqIxPDaW2/message",
+      "method": "GET",
+      "status": 200
+    },
+    {
+      "path": "/session/status",
+      "method": "GET",
+      "status": 200
+    },
+    {
+      "path": "/permission",
+      "method": "GET",
+      "status": 200
+    },
+    {
+      "path": "/permission/per_1964920ea001ZAPtYoLmc8B3Or/reply",
+      "method": "POST",
+      "status": 200
+    },
+    {
+      "path": "/session/ses_e69b6f1adffe2xEXEaqIxPDaW2/message",
+      "method": "GET",
+      "status": 200
+    },
+    {
+      "path": "/session/status",
+      "method": "GET",
+      "status": 200
+    },
+    {
+      "path": "/permission",
+      "method": "GET",
+      "status": 200
+    },
+    {
+      "path": "/permission/per_1964938b2001MzaynRxMrcbQq1/reply",
+      "method": "POST",
+      "status": 200
+    },
+    {
+      "path": "/session",
+      "method": "GET",
+      "status": 200
+    },
+    {
+      "path": "/session/ses_e69b6f1adffe2xEXEaqIxPDaW2/message",
+      "method": "GET",
+      "status": 200
+    },
+    {
+      "path": "/session/status",
+      "method": "GET",
+      "status": 200
+    },
+    {
+      "path": "/permission",
+      "method": "GET",
+      "status": 200
+    },
+    {
+      "path": "/session/ses_e69b6f1adffe2xEXEaqIxPDaW2/diff",
+      "method": "GET",
+      "status": 200
+    },
+    {
+      "path": "/session/ses_e69b6f1adffe2xEXEaqIxPDaW2/prompt_async",
+      "method": "POST",
+      "status": 204
+    },
+    {
+      "path": "/session/ses_e69b6f1adffe2xEXEaqIxPDaW2/message",
+      "method": "GET",
+      "status": 200
+    },
+    {
+      "path": "/session/status",
+      "method": "GET",
+      "status": 200
+    },
+    {
+      "path": "/permission",
+      "method": "GET",
+      "status": 200
+    },
+    {
+      "path": "/permission/per_196495a0e001SwcSEELfgRfwnD/reply",
+      "method": "POST",
+      "status": 200
+    },
+    {
+      "path": "/session",
+      "method": "GET",
+      "status": 200
+    },
+    {
+      "path": "/session/ses_e69b6f1adffe2xEXEaqIxPDaW2/message",
+      "method": "GET",
+      "status": 200
+    },
+    {
+      "path": "/session/status",
+      "method": "GET",
+      "status": 200
+    },
+    {
+      "path": "/permission",
+      "method": "GET",
+      "status": 200
+    },
+    {
+      "path": "/session/ses_e69b6f1adffe2xEXEaqIxPDaW2/abort",
+      "method": "POST",
+      "status": 200
+    },
+    {
+      "path": "/session/ses_e69b6f1adffe2xEXEaqIxPDaW2/message",
+      "method": "GET",
+      "status": 200
+    },
+    {
+      "path": "/session/status",
+      "method": "GET",
+      "status": 200
+    },
+    {
+      "path": "/permission",
+      "method": "GET",
+      "status": 200
+    },
+    {
+      "path": "/session",
+      "method": "GET",
+      "status": 200
+    },
+    {
+      "path": "/session/ses_e69b6f1adffe2xEXEaqIxPDaW2/message",
+      "method": "GET",
+      "status": 200
+    },
+    {
+      "path": "/session/status",
+      "method": "GET",
+      "status": 200
+    },
+    {
+      "path": "/permission",
+      "method": "GET",
+      "status": 200
+    },
+    {
+      "path": "/session/ses_e69b700f7ffe1z8nn3sfwvGECr/message",
+      "method": "GET",
+      "status": 200
+    },
+    {
+      "path": "/session/status",
+      "method": "GET",
+      "status": 200
+    },
+    {
+      "path": "/permission",
+      "method": "GET",
+      "status": 200
+    },
+    {
+      "path": "/session/ses_e69b6f1adffe2xEXEaqIxPDaW2/message",
+      "method": "GET",
+      "status": 200
+    },
+    {
+      "path": "/session/status",
+      "method": "GET",
+      "status": 200
+    },
+    {
+      "path": "/permission",
+      "method": "GET",
+      "status": 200
+    },
+    {
+      "path": "/session/ses_e69b6f1adffe2xEXEaqIxPDaW2/prompt_async",
+      "method": "POST",
+      "status": 204
+    },
+    {
+      "path": "/session",
+      "method": "GET",
+      "status": 200
+    },
+    {
+      "path": "/session/ses_e69b6f1adffe2xEXEaqIxPDaW2/message",
+      "method": "GET",
+      "status": 200
+    },
+    {
+      "path": "/session/status",
+      "method": "GET",
+      "status": 200
+    },
+    {
+      "path": "/permission",
+      "method": "GET",
+      "status": 200
+    }
+  ],
+  "pageErrors": [],
+  "pass": true
+}
