@@ -1,0 +1,9 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <string name="app_name">OpenCode</string>
+    <string name="starting">Starting opencode…</string>
+    <string name="retry">Retry</string>
+    <string name="copy_logs">Copy logs</string>
+    <string name="copied">Logs copied</string>
+    <string name="failed">Failed: %1$s</string>
+</resources>

@@ -1,0 +1,463 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">
+<title>Codex</title>
+<style>
+:root{--bg:#fff;--side:#f4f5fa;--card:#f6f6f9;--line:#e5e6ee;--tx:#16171d;--mut:#8a8c9a;--acc:#16171d;--acctx:#fff;--ok:#1a9d55;--err:#d23b3b;--add:#e6f6ec;--del:#fdeaea;--r:14px}
+:root{color-scheme:light}
+*{box-sizing:border-box;-webkit-tap-highlight-color:transparent}
+html,body{height:100%;margin:0}
+body{font:15px/1.45 -apple-system,"Segoe UI",Roboto,sans-serif;background:var(--bg);color:var(--tx);overflow:hidden}
+button{font:inherit;color:inherit;background:none;border:0;cursor:pointer;padding:0}
+svg{width:20px;height:20px;stroke:currentColor;fill:none;stroke-width:1.8;stroke-linecap:round;stroke-linejoin:round;flex:none}
+#app{height:100dvh;display:flex;flex-direction:column;position:relative}
+header{display:flex;align-items:center;gap:6px;padding:8px 10px;padding-top:max(8px,env(safe-area-inset-top));border-bottom:1px solid var(--line)}
+header h1{font-size:15px;font-weight:600;margin:0;flex:1;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;padding-left:4px}
+.ib{width:38px;height:38px;border-radius:10px;display:grid;place-items:center}
+.ib:active,.row:active{background:var(--card)}
+.pill{display:flex;align-items:center;gap:5px;border:1px solid var(--line);border-radius:999px;padding:6px 11px;font-size:13px}
+main{flex:1;overflow-y:auto;padding:14px 14px 8px;display:flex;flex-direction:column;gap:10px}
+main>*{flex-shrink:0}
+.home{margin:auto;text-align:center}
+.logo{width:56px;height:56px;margin:0 auto 14px;border-radius:18px;background:var(--card);display:grid;place-items:center}
+.logo svg{width:30px;height:30px}
+.home h2{margin:0;font-size:26px;font-weight:600}
+.home .proj{font-size:26px;color:var(--mut);display:inline-flex;align-items:center;gap:4px}
+.sug{display:flex;flex-wrap:wrap;gap:8px;justify-content:center;margin-top:22px}
+.sug button{border:1px solid #d3d5e0;border-radius:12px;padding:8px 12px;font-size:13px;color:#3a3c48;background:var(--card)}
+.msg.user{align-self:flex-end;background:var(--card);border-radius:var(--r);padding:9px 13px;max-width:86%;white-space:pre-wrap}
+.msg.ai{white-space:pre-wrap}
+.card{border:1px solid var(--line);border-radius:var(--r);overflow:hidden;font-size:13px}
+.card .ch{display:flex;align-items:center;gap:8px;padding:8px 11px;background:var(--card);font-weight:500}
+.card .ch span.m{color:var(--mut);font-weight:400;margin-left:auto}
+.card pre{margin:0;padding:9px 11px;font:12px/1.5 ui-monospace,Menlo,monospace;overflow-x:auto;white-space:pre}
+.dl{display:block;padding:0 11px;font:12px/1.6 ui-monospace,Menlo,monospace;white-space:pre}
+.dl.a{background:var(--add)}.dl.d{background:var(--del)}
+.btns{display:flex;gap:8px;padding:9px 11px}
+.btn{border-radius:10px;padding:8px 14px;font-size:13px;font-weight:600;border:1px solid var(--line)}
+.btn.p{background:var(--acc);color:var(--accx,#fff);border-color:var(--acc)}
+.ok{color:var(--ok)}.er{color:var(--err)}
+.work{display:flex;align-items:center;gap:8px;color:var(--mut);font-size:13px}
+.spin{width:14px;height:14px;border:2px solid var(--line);border-top-color:var(--tx);border-radius:50%;animation:sp .8s linear infinite}
+@keyframes sp{to{transform:rotate(360deg)}}
+footer{padding:8px 12px;padding-bottom:max(10px,env(safe-area-inset-bottom))}
+.comp{border:1px solid var(--line);border-radius:20px;padding:10px 12px;box-shadow:0 2px 12px rgba(0,0,0,.05)}
+.comp textarea{width:100%;border:0;outline:0;resize:none;background:none;color:inherit;font:inherit;max-height:140px;min-height:24px}
+.crow{display:flex;align-items:center;gap:4px;margin-top:6px}
+.chip{display:flex;align-items:center;gap:3px;color:#4a4c5a;font-size:13px;padding:5px 7px;border-radius:8px;max-width:42vw}
+.chip span{overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.chip svg{width:14px;height:14px}
+.send{width:36px;height:36px;border-radius:50%;background:var(--acc);color:var(--accx,#fff);display:grid;place-items:center;margin-left:auto}
+.meta{display:flex;gap:4px;padding:6px 6px 0;color:var(--mut);font-size:12px;flex-wrap:wrap}
+.meta .chip{padding:3px 6px;font-size:12px}
+#dim{position:absolute;inset:0;background:rgba(0,0,0,.4);opacity:0;pointer-events:none;transition:.2s;z-index:5}
+#dim.on{opacity:1;pointer-events:auto}
+#drawer{position:absolute;top:0;bottom:0;left:0;width:84%;max-width:340px;background:var(--side);z-index:6;transform:translateX(-102%);transition:.25s;display:flex;flex-direction:column;padding:max(10px,env(safe-area-inset-top)) 8px 10px}
+#drawer.on{transform:none}
+.row{display:flex;align-items:center;gap:10px;padding:9px 10px;border-radius:10px;width:100%;text-align:left}
+.row .m{margin-left:auto;color:var(--mut);font-size:12px}
+.badge{margin-left:auto;background:var(--line);border-radius:8px;padding:0 7px;font-size:12px}
+.sec{display:flex;align-items:center;color:var(--mut);font-size:13px;padding:14px 10px 4px}
+.sec .ib{margin-left:auto;width:30px;height:30px}
+.th{padding-left:34px;font-size:14px}
+.th.sel{background:var(--card)}
+.proj-h .caret{transition:.15s}
+#sheet{position:absolute;left:0;right:0;bottom:0;background:var(--bg);border-radius:20px 20px 0 0;z-index:7;transform:translateY(105%);transition:.25s;padding:8px 14px max(16px,env(safe-area-inset-bottom));max-height:82dvh;overflow-y:auto;box-shadow:0 -8px 30px rgba(0,0,0,.18)}
+#sheet.on{transform:none}
+#sheet .grab{width:38px;height:4px;border-radius:2px;background:var(--line);margin:0 auto 10px}
+#sheet h3{margin:4px 0 8px;font-size:16px}
+.opt{display:flex;align-items:center;gap:8px;padding:11px 8px;border-radius:10px;width:100%;text-align:left}
+.opt.sel{background:var(--card)}.opt .m{margin-left:auto;color:var(--mut);font-size:12px}
+.fld{display:block;margin:8px 0 2px;font-size:12px;color:var(--mut)}
+.in{width:100%;border:1px solid var(--line);background:var(--card);color:inherit;border-radius:10px;padding:10px;font:inherit;outline:0}
+.note{font-size:12px;color:var(--mut);margin:8px 0}
+</style>
+</head>
+<body>
+<div id="app">
+  <header>
+    <button class="ib" id="menu" aria-label="menu"><svg viewBox="0 0 24 24"><rect x="3" y="4" width="18" height="16" rx="3"/><path d="M9 4v16"/></svg></button>
+    <h1 id="title">New thread</h1>
+    <button class="pill" id="commit"><svg viewBox="0 0 24 24" style="width:16px;height:16px"><circle cx="12" cy="12" r="3"/><path d="M3 12h6M15 12h6"/></svg>Changes</button>
+    <button class="ib" id="gear" aria-label="settings"><svg viewBox="0 0 24 24"><circle cx="12" cy="12" r="3"/><path d="M19.4 15a1.7 1.7 0 0 0 .3 1.8l.1.1a2 2 0 1 1-2.8 2.8l-.1-.1a1.7 1.7 0 0 0-1.8-.3 1.7 1.7 0 0 0-1 1.5V21a2 2 0 1 1-4 0v-.1a1.7 1.7 0 0 0-1.1-1.5 1.7 1.7 0 0 0-1.8.3l-.1.1a2 2 0 1 1-2.8-2.8l.1-.1a1.7 1.7 0 0 0 .3-1.8 1.7 1.7 0 0 0-1.5-1H3a2 2 0 1 1 0-4h.1a1.7 1.7 0 0 0 1.5-1.1 1.7 1.7 0 0 0-.3-1.8l-.1-.1a2 2 0 1 1 2.8-2.8l.1.1a1.7 1.7 0 0 0 1.8.3H9a1.7 1.7 0 0 0 1-1.5V3a2 2 0 1 1 4 0v.1a1.7 1.7 0 0 0 1 1.5 1.7 1.7 0 0 0 1.8-.3l.1-.1a2 2 0 1 1 2.8 2.8l-.1.1a1.7 1.7 0 0 0-.3 1.8V9a1.7 1.7 0 0 0 1.5 1H21a2 2 0 1 1 0 4h-.1a1.7 1.7 0 0 0-1.5 1z"/></svg></button>
+  </header>
+  <main id="main"></main>
+  <footer>
+    <div class="comp">
+      <textarea id="inp" rows="1" placeholder="Ask anything…"></textarea>
+      <div class="crow">
+        <button class="ib" style="width:30px;height:30px" id="plus"><svg viewBox="0 0 24 24"><path d="M12 5v14M5 12h14"/></svg></button>
+        <button class="chip" id="cModel"><span></span><svg viewBox="0 0 24 24"><path d="m6 9 6 6 6-6"/></svg></button>
+        <button class="chip" id="cEff" style="display:none"><span></span><svg viewBox="0 0 24 24"><path d="m6 9 6 6 6-6"/></svg></button>
+        <button class="send" id="send"><svg viewBox="0 0 24 24"><path d="M12 19V5M5 12l7-7 7 7"/></svg></button>
+      </div>
+    </div>
+    <div class="meta">
+      <button class="chip" id="cEnv" style="display:none"><span></span><svg viewBox="0 0 24 24"><path d="m6 9 6 6 6-6"/></svg></button>
+      <button class="chip" id="cPerm"><span></span><svg viewBox="0 0 24 24"><path d="m6 9 6 6 6-6"/></svg></button>
+    </div>
+  </footer>
+  <div id="dim"></div>
+  <aside id="drawer"></aside>
+  <div id="sheet"></div>
+</div>
+
+<script>
+const $=s=>document.querySelector(s);
+const esc=s=>String(s==null?'':s).replace(/[&<>]/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;'}[c]));
+const I={
+ edit:'<svg viewBox="0 0 24 24"><path d="M12 20h9M16.5 3.5a2.1 2.1 0 0 1 3 3L7 19l-4 1 1-4z"/></svg>',
+ folder:'<svg viewBox="0 0 24 24"><path d="M3 7a2 2 0 0 1 2-2h4l2 2h8a2 2 0 0 1 2 2v8a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2z"/></svg>',
+ term:'<svg viewBox="0 0 24 24"><path d="m5 8 4 4-4 4M12 16h7"/></svg>',
+ file:'<svg viewBox="0 0 24 24"><path d="M14 3H7a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h10a2 2 0 0 0 2-2V8z"/><path d="M14 3v5h5"/></svg>',
+ down:'<svg viewBox="0 0 24 24" style="width:14px;height:14px"><path d="m6 9 6 6 6-6"/></svg>',
+ stop:'<svg viewBox="0 0 24 24"><rect x="6" y="6" width="12" height="12" rx="2" fill="currentColor"/></svg>',
+ up:'<svg viewBox="0 0 24 24"><path d="M12 19V5M5 12l7-7 7 7"/></svg>',
+ bot:'<svg viewBox="0 0 24 24"><path d="M12 3a4 4 0 0 1 4 3 4 4 0 0 1 3 6 4 4 0 0 1-3 6 4 4 0 0 1-8 0 4 4 0 0 1-3-6 4 4 0 0 1 3-6 4 4 0 0 1 4-3z"/><path d="m9 11 2 2-2 2M13 15h3"/></svg>'
+};
+const LS=k=>{try{return JSON.parse(localStorage.getItem(k))}catch(e){return null}};
+const lset=(k,v)=>{try{localStorage.setItem(k,JSON.stringify(v))}catch(e){}};
+const b64d=s=>{s=s.replace(/-/g,'+').replace(/_/g,'/');while(s.length%4)s+='=';return new TextDecoder().decode(Uint8Array.from(atob(s),c=>c.charCodeAt(0)))};
+const dirFromHash=()=>{const m=location.hash.match(/[#&]d=([^&]+)/);if(!m)return null;try{return b64d(m[1])}catch(e){return null}};
+
+/* ---------- state ---------- */
+const S={
+ dir:dirFromHash()||LS('oc_dir')||'',
+ projects:[],sessions:[],sid:null,
+ msgs:new Map(),perms:new Map(),
+ running:false,live:false,errors:[],
+ provs:[],model:LS('oc_model'),agent:LS('oc_agent')||'build',
+ spec:null,specErr:null,health:null
+};
+if(S.dir)lset('oc_dir',S.dir);
+
+/* ---------- api ---------- */
+async function api(path,o={}){
+ const u=new URL(path,location.origin);
+ if(S.dir)u.searchParams.set('directory',S.dir);
+ const r=await fetch(u,{method:o.method||'GET',headers:o.body?{'Content-Type':'application/json'}:{},body:o.body?JSON.stringify(o.body):undefined});
+ const t=await r.text();
+ if(!r.ok)throw new Error((o.method||'GET')+' '+path+' -> '+r.status+' '+t.slice(0,200));
+ if(!t)return null;
+ try{return JSON.parse(t)}catch(e){return t}
+}
+const norm=p=>p.replace(/\{[^}]*\}/g,'{}');
+function specHas(path,m){
+ const P=S.spec&&S.spec.paths;if(!P)return false;
+ return Object.keys(P).some(k=>norm(k)===norm(path)&&(!m||P[k][m.toLowerCase()]));
+}
+function specFind(re,m){
+ const P=S.spec&&S.spec.paths;if(!P)return null;
+ return Object.keys(P).find(k=>re.test(k)&&(!m||P[k][m]))||null;
+}
+const NEED=[
+ ['get','/session'],['post','/session'],['get','/session/{}/message'],
+ ['post','/session/{}/prompt_async'],['post','/session/{}/abort'],
+ ['get','/event'],['get','/config/providers'],['get','/project'],['get','/session/{}/diff']
+];
+
+/* ---------- boot ---------- */
+async function boot(){
+ try{S.spec=await (await fetch('/doc')).json()}catch(e){S.specErr=String(e.message||e)}
+ try{S.health=await api('/global/health')}catch(e){}
+ if(!S.dir){try{const p=await api('/path');S.dir=p.directory||p.worktree||''}catch(e){}}
+ await Promise.allSettled([loadProviders(),loadProjects(),loadSessions()]);
+ connectSSE();chips();render();
+}
+async function loadProjects(){
+ try{const r=await api('/project');S.projects=(Array.isArray(r)?r:[]).filter(p=>p.worktree&&p.worktree!=='/')}catch(e){err('projects: '+e.message)}
+ if(S.dir&&!S.projects.some(p=>p.worktree===S.dir))S.projects.unshift({worktree:S.dir});
+}
+async function loadSessions(){
+ try{
+  const r=await api('/session');
+  S.sessions=(Array.isArray(r)?r:[]).filter(s=>!s.parentID).sort((a,b)=>((b.time&&b.time.updated)||0)-((a.time&&a.time.updated)||0));
+ }catch(e){S.sessions=[];err('sessions: '+e.message)}
+}
+async function loadProviders(){
+ try{
+  const r=await api('/config/providers');
+  S.provs=(r.providers||[]).map(p=>({id:p.id,name:p.name||p.id,models:Object.values(p.models||{}).map(m=>({id:m.id,name:m.name||m.id}))}));
+  S.defModel=r.default||{};
+  if(!S.model){const k=Object.keys(S.defModel)[0];if(k)S.model={p:k,m:S.defModel[k]}}
+ }catch(e){err('providers: '+e.message)}
+}
+function err(m){S.errors.push(m);console.log('[codex-ui] '+m);if(S.errors.length>30)S.errors.shift()}
+const projName=d=>(d||'').split('/').filter(Boolean).pop()||d||'(server cwd)';
+
+/* ---------- SSE ---------- */
+function connectSSE(){
+ if(S.es)S.es.close();
+ const es=new EventSource('/event'+(S.dir?'?directory='+encodeURIComponent(S.dir):''));
+ es.onopen=()=>{const was=S.live;S.live=true;if(!was&&S.sid)loadMessages()};
+ es.onmessage=e=>{try{onEvent(JSON.parse(e.data))}catch(x){}};
+ es.onerror=()=>{S.live=false};
+ S.es=es;
+}
+function ensureMsg(sid,id){
+ let m=S.msgs.get(id);
+ if(!m){m={info:{id,sessionID:sid,role:'assistant'},parts:new Map()};S.msgs.set(id,m)}
+ return m;
+}
+function onEvent(ev){
+ const t=ev.type,p=ev.properties||ev.payload&&ev.payload.properties||{};
+ if(t==='message.updated'){
+  const i=p.info;if(!i||i.sessionID!==S.sid)return;
+  ensureMsg(i.sessionID,i.id).info=i;if(i.role==='user')S.pendingUser=null;sched();
+ }else if(t==='message.part.updated'){
+  const pt=p.part;if(!pt||pt.sessionID!==S.sid)return;
+  ensureMsg(pt.sessionID,pt.messageID).parts.set(pt.id,pt);sched();
+ }else if(t==='message.part.delta'){
+  if(p.sessionID!==S.sid)return;
+  const m=ensureMsg(p.sessionID,p.messageID);
+  const pt=m.parts.get(p.partID)||{id:p.partID,messageID:p.messageID,sessionID:p.sessionID,type:'text'};
+  pt[p.field||'text']=(pt[p.field||'text']||'')+p.delta;m.parts.set(p.partID,pt);sched();
+ }else if(t==='session.status'){
+  if(p.sessionID!==S.sid)return;
+  S.running=!!(p.status&&p.status.type&&p.status.type!=='idle');setRun();sched();
+ }else if(t==='session.idle'){
+  if(p.sessionID!==S.sid)return;S.running=false;setRun();sched();loadSessions().then(()=>{});
+ }else if(t==='session.updated'){
+  const i=p.info;if(!i)return;const s=S.sessions.find(x=>x.id===i.id);
+  if(s){Object.assign(s,i);if(i.id===S.sid)$('#title').textContent=i.title||'Thread'}
+ }else if(t==='session.error'){
+  if(p.sessionID&&p.sessionID!==S.sid)return;
+  const e=p.error;err('session.error: '+JSON.stringify(e||p).slice(0,300));
+  S.running=false;setRun();S.lastErr=e&&(e.data&&e.data.message||e.message||e.name)||'session error';sched();
+ }else if(t==='permission.updated'||t==='permission.asked'){
+  if(p.sessionID!==S.sid)return;S.perms.set(p.id,p);sched();
+ }else if(t==='permission.replied'){
+  S.perms.delete(p.requestID||p.permissionID||p.id);sched();
+ }
+}
+let raf=0;
+function sched(){if(raf)return;raf=requestAnimationFrame(()=>{raf=0;renderMsgs()})}
+
+/* ---------- sessions ---------- */
+async function openSession(id){
+ S.sid=id;S.msgs=new Map();S.perms=new Map();S.running=false;S.lastErr=null;S.pendingUser=null;
+ const s=S.sessions.find(x=>x.id===id);$('#title').textContent=s&&s.title||'Thread';
+ render();await loadMessages();
+ try{
+  const pl=await api('/permission');
+  (Array.isArray(pl)?pl:[]).filter(x=>x.sessionID===id).forEach(x=>S.perms.set(x.id,x));
+ }catch(e){}
+ renderMsgs();
+}
+async function loadMessages(){
+ if(!S.sid)return;
+ try{
+  const r=await api('/session/'+S.sid+'/message');
+  const nm=new Map();
+  (Array.isArray(r)?r:[]).forEach(x=>{
+   const m={info:x.info,parts:new Map()};(x.parts||[]).forEach(p=>m.parts.set(p.id,p));nm.set(x.info.id,m);
+  });
+  S.msgs=nm;
+  if(S.pendingUser&&[...nm.values()].some(m=>m.info.role==='user'&&[...m.parts.values()].some(p=>p.text===S.pendingUser)))S.pendingUser=null;
+  const last=[...nm.values()].filter(m=>m.info.role==='assistant').pop();
+  if(last&&last.info.time&&!last.info.time.completed&&!last.info.error)S.running=true;
+  setRun();renderMsgs();
+ }catch(e){err('messages: '+e.message)}
+}
+setInterval(()=>{if(S.running&&!S.live)loadMessages()},2500);
+
+/* ---------- drawer ---------- */
+const ago=t=>{if(!t)return'';const s=(Date.now()-t)/1000;return s<90?'now':s<5400?Math.round(s/60)+'m':s<129600?Math.round(s/3600)+'h':Math.round(s/86400)+'d'};
+function renderDrawer(){
+ let h=`<button class="row" data-a="new">${I.edit}New thread</button><div class="sec">Projects</div><div style="overflow-y:auto;flex:1">`;
+ S.projects.forEach((p,i)=>{
+  const cur=p.worktree===S.dir;
+  h+=`<button class="row proj-h" data-a="proj" data-i="${i}">${I.folder}${esc(projName(p.worktree))}</button>`;
+  if(cur)S.sessions.forEach(s=>{h+=`<button class="row th ${S.sid===s.id?'sel':''}" data-a="th" data-id="${esc(s.id)}">${esc(s.title||'Untitled')}<span class="m">${ago(s.time&&s.time.updated)}</span></button>`});
+  if(cur&&!S.sessions.length)h+='<div class="note" style="padding-left:34px">No threads yet</div>';
+ });
+ h+='</div><p class="note">Add a folder via the native + FOLDER menu.</p>';
+ $('#drawer').innerHTML=h;
+}
+function drawer(on){$('#drawer').classList.toggle('on',on);$('#dim').classList.toggle('on',on||$('#sheet').classList.contains('on'))}
+$('#menu').onclick=()=>{renderDrawer();drawer(true)};
+$('#drawer').onclick=async e=>{
+ const b=e.target.closest('[data-a]');if(!b)return;const a=b.dataset.a;
+ if(a==='new'){S.sid=null;S.msgs=new Map();drawer(false);render()}
+ else if(a==='th'){drawer(false);openSession(b.dataset.id)}
+ else if(a==='proj'){await setDir(S.projects[+b.dataset.i].worktree);renderDrawer()}
+};
+async function setDir(d){
+ if(d===S.dir)return;
+ S.dir=d;lset('oc_dir',d);S.sid=null;S.msgs=new Map();S.perms=new Map();S.running=false;
+ await loadSessions();connectSSE();render();
+}
+window.addEventListener('hashchange',()=>{const d=dirFromHash();if(d)setDir(d).then(loadProjects)});
+
+/* ---------- sheet ---------- */
+function sheet(html){$('#sheet').innerHTML='<div class="grab"></div>'+html;$('#sheet').classList.add('on');$('#dim').classList.add('on')}
+function closeAll(){$('#sheet').classList.remove('on');$('#drawer').classList.remove('on');$('#dim').classList.remove('on')}
+$('#dim').onclick=closeAll;
+function options(title,list,cur,cb,sub){
+ sheet(`<h3>${title}</h3><div style="max-height:60vh;overflow-y:auto">`+list.map((o,i)=>`<button class="opt ${o===cur?'sel':''}" data-i="${i}">${esc(o)}${sub&&sub[i]?`<span class="m">${esc(sub[i])}</span>`:''}</button>`).join('')+'</div>');
+ $('#sheet').onclick=e=>{const b=e.target.closest('.opt');if(!b)return;cb(+b.dataset.i);closeAll();chips()};
+}
+function allModels(){const o=[];S.provs.forEach(p=>p.models.forEach(m=>o.push({p:p.id,pn:p.name,m:m.id,mn:m.name})));return o}
+$('#cModel').onclick=()=>{
+ const L=allModels();
+ if(!L.length){sheet('<h3>Model</h3><p class="note">No providers returned by the server. Configure a provider in opencode first.</p>');return}
+ options('Model',L.map(x=>x.mn),S.model&&(L.find(x=>x.p===S.model.p&&x.m===S.model.m)||{}).mn,i=>{S.model={p:L[i].p,m:L[i].m};lset('oc_model',S.model)},L.map(x=>x.pn));
+};
+$('#cPerm').onclick=()=>options('Agent',['build','plan'],S.agent,i=>{S.agent=['build','plan'][i];lset('oc_agent',S.agent)},['edit & run (asks per server rules)','read only']);
+function chips(){
+ const m=S.model&&allModels().find(x=>x.p===S.model.p&&x.m===S.model.m);
+ $('#cModel span').textContent=m?m.mn:(S.model?S.model.m:'Default model');
+ $('#cPerm span').textContent=S.agent;
+}
+
+/* ---------- changes / settings ---------- */
+function diffLines(o,n){
+ const a=(o==null?[]:String(o).split('\n')),b=String(n==null?'':n).split('\n'),sa=new Set(a),sb=new Set(b),out=[];
+ a.forEach(l=>{if(!sb.has(l))out.push('-'+l)});
+ b.forEach(l=>out.push((sa.has(l)?' ':'+')+l));
+ return out.slice(0,200);
+}
+function dl(lines){return lines.map(l=>`<span class="dl ${l[0]==='+'?'a':l[0]==='-'?'d':''}">${esc(l)||' '}</span>`).join('')}
+$('#commit').onclick=async()=>{
+ if(!S.sid){sheet('<h3>Changes</h3><p class="note">Open a thread first.</p>');return}
+ try{
+  const r=await api('/session/'+S.sid+'/diff');
+  if(!Array.isArray(r)||!r.length){sheet('<h3>Changes</h3><p class="note">No file changes in this thread.</p>');return}
+  sheet('<h3>Changes</h3><div style="max-height:60vh;overflow-y:auto">'+r.map((d,i)=>`<button class="opt" data-i="${i}">${I.file}${esc(d.file)}<span class="m"><span class="ok">+${d.additions||0}</span> <span class="er">-${d.deletions||0}</span></span></button>`).join('')+'</div>');
+  $('#sheet').onclick=e=>{const b=e.target.closest('.opt');if(!b)return;const d=r[b.dataset.i];
+   sheet(`<h3>${esc(d.file)}</h3><div class="card" style="max-height:60vh;overflow:auto">${dl(diffLines(d.before,d.after))}</div><div class="btns"><button class="btn" id="bk">Back</button></div>`);
+   $('#sheet').onclick=e2=>{if(e2.target.id==='bk')$('#commit').onclick()};
+  };
+ }catch(e){sheet('<h3>Changes</h3><p class="note er">'+esc(e.message)+'</p>')}
+};
+$('#gear').onclick=()=>{
+ const rows=NEED.map(([m,p])=>{const ok=specHas(p,m);return `<div class="note" style="margin:2px 0">${S.spec?(ok?'<span class="ok">ok</span>':'<span class="er">MISSING</span>'):'?'} ${m.toUpperCase()} ${esc(p)}</div>`}).join('');
+ const perm=S.spec?(specFind(/^\/permission\/\{[^}]+\}\/reply$/,'post')?'POST /permission/{id}/reply':specFind(/\/permissions\//,'post')?'POST /session/{id}/permissions/{pid}':'NONE FOUND'):'unknown';
+ sheet(`<h3>Server check</h3>
+ <div class="note">Project: ${esc(S.dir||'(server cwd)')}<br>opencode: ${esc((S.health&&S.health.version)||(S.spec&&S.spec.info&&S.spec.info.version)||'?')}<br>/doc: ${S.spec?'loaded':'FAILED '+esc(S.specErr)}<br>SSE: ${S.live?'<span class="ok">live</span>':'<span class="er">not connected (polling)</span>'}<br>Permission reply: ${esc(perm)}</div>
+ ${rows}
+ <div class="note">Last errors:</div><pre style="font:11px/1.4 ui-monospace,monospace;white-space:pre-wrap;background:var(--card);padding:8px;border-radius:10px;max-height:20vh;overflow:auto">${esc(S.errors.join('\n')||'none')}</pre>
+ <p class="note">Providers and keys are configured in opencode itself, not here.</p>
+ <div style="display:flex;gap:8px"><button class="btn p" id="cp">Copy report</button><button class="btn" id="rl">Reload</button></div>`);
+ $('#sheet').onclick=e=>{
+  if(e.target.id==='rl')location.reload();
+  if(e.target.id==='cp'){const t=$('#sheet').innerText;try{navigator.clipboard.writeText(t)}catch(x){}}
+ };
+};
+
+/* ---------- render ---------- */
+function render(){
+ const m=$('#main');
+ if(!S.sid){
+  $('#title').textContent='New thread';
+  m.innerHTML=`<div class="home"><div class="logo">${I.bot}</div><h2>Let's build</h2><div class="proj">${esc(projName(S.dir))}</div>
+  <div class="sug"><button>Explain this project</button><button>Write tests</button><button>Fix the build</button><button>Add dark mode</button></div></div>`;
+  m.querySelectorAll('.sug button').forEach(b=>b.onclick=()=>{$('#inp').value=b.textContent;$('#inp').focus()});
+  return;
+ }
+ renderMsgs(true);
+}
+function toolCard(p){
+ const st=p.state||{},inp=st.input||{},meta=st.metadata||{};
+ const status=st.status==='error'?'<span class="m er">error</span>':st.status==='completed'?'<span class="m ok">done</span>':'<span class="m"><span class="spin" style="display:inline-block;vertical-align:middle"></span></span>';
+ const head=(ic,t)=>`<div class="ch">${ic}<span>${esc(t)}</span>${status}</div>`;
+ const box='max-height:220px;overflow:auto';
+ const tool=p.tool;
+ if(tool==='bash'){
+  const out=st.output||meta.output||st.error||'';
+  return `<div class="card">${head(I.term,st.title||'Ran command')}<pre style="${box}">$ ${esc(inp.command||'')}\n${esc(String(out).slice(0,4000))}</pre></div>`;
+ }
+ if(tool==='edit'||tool==='write'||tool==='patch'||tool==='apply_patch'||tool==='multiedit'){
+  const file=inp.filePath||inp.path||meta.filepath||st.title||tool;
+  let lines=[];
+  if(typeof meta.diff==='string'&&meta.diff)lines=meta.diff.split('\n').filter(l=>!/^(---|\+\+\+|Index:|=+$|@@)/.test(l));
+  else if(inp.oldString!=null||inp.newString!=null)lines=diffLines(inp.oldString,inp.newString);
+  else if(inp.content!=null)lines=String(inp.content).split('\n').slice(0,200).map(l=>'+'+l);
+  const a=lines.filter(l=>l[0]==='+').length,d=lines.filter(l=>l[0]==='-').length;
+  const stat=st.status==='error'?'<span class="m er">error</span>':`<span class="m"><span class="ok">+${a}</span> <span class="er">-${d}</span></span>`;
+  return `<div class="card"><div class="ch">${I.file}<span>${esc(String(file).split('/').slice(-2).join('/'))}</span>${stat}</div><div style="${box}">${dl(lines)}</div>${st.status==='error'?`<pre>${esc(st.error||'')}</pre>`:''}</div>`;
+ }
+ const brief=inp.filePath||inp.pattern||inp.path||inp.url||inp.description||inp.query||'';
+ return `<div class="card"><div class="ch">${I.file}<span>${esc(st.title||tool)}${brief?' &middot; '+esc(String(brief).slice(0,60)):''}</span>${status}</div>${st.status==='error'?`<pre>${esc(st.error||'')}</pre>`:''}</div>`;
+}
+function permCard(p){
+ const pats=p.patterns||(p.pattern?[].concat(p.pattern):[]);
+ const cmd=p.metadata&&(p.metadata.command||p.metadata.filepath)||'';
+ const title=p.title||((p.permission||p.type||'permission')+(pats.length?' '+pats.join(', '):''));
+ return `<div class="card" data-pid="${esc(p.id)}"><div class="ch">${I.term}<span>Approve?</span></div><pre>${esc(title)}${cmd&&title.indexOf(cmd)<0?'\n$ '+esc(cmd):''}</pre><div class="btns"><button class="btn p" data-r="once">Approve</button><button class="btn" data-r="always">Always</button><button class="btn" data-r="reject">Deny</button></div></div>`;
+}
+function renderMsgs(force){
+ if(!S.sid)return;
+ const m=$('#main');
+ const near=force||m.scrollHeight-m.scrollTop-m.clientHeight<140;
+ const list=[...S.msgs.values()].sort((a,b)=>a.info.id<b.info.id?-1:1);
+ let h='';
+ list.forEach(x=>{
+  const parts=[...x.parts.values()];
+  if(x.info.role==='user'){
+   const t=parts.filter(p=>p.type==='text'&&!p.synthetic).map(p=>p.text).join('\n');
+   if(t)h+=`<div class="msg user">${esc(t)}</div>`;
+  }else{
+   parts.forEach(p=>{
+    if(p.type==='text'&&p.text)h+=`<div class="msg ai">${esc(p.text)}</div>`;
+    else if(p.type==='reasoning'&&p.text)h+=`<details class="card"><summary class="ch" style="list-style:none">Thinking</summary><pre style="white-space:pre-wrap">${esc(p.text)}</pre></details>`;
+    else if(p.type==='tool')h+=toolCard(p);
+   });
+   if(x.info.error){const e=x.info.error;h+=`<div class="card"><div class="ch er">Error</div><pre>${esc((e.data&&e.data.message)||e.message||e.name||JSON.stringify(e))}</pre></div>`}
+  }
+ });
+ [...S.perms.values()].forEach(p=>{h+=permCard(p)});
+ if(S.lastErr)h+=`<div class="card"><div class="ch er">Error</div><pre>${esc(S.lastErr)}</pre></div>`;
+ if(S.running)h+='<div class="work"><div class="spin"></div>Working...</div>';
+ if(S.pendingUser)h+=`<div class="msg user">${esc(S.pendingUser)}</div>`;
+ m.innerHTML=h;
+ if(near)m.scrollTop=m.scrollHeight;
+}
+$('#main').onclick=async e=>{
+ const b=e.target.closest('[data-r]');if(!b)return;
+ const c=b.closest('[data-pid]'),p=S.perms.get(c.dataset.pid);if(!p)return;
+ b.disabled=true;
+ try{await replyPerm(p,b.dataset.r)}catch(x){err('permission: '+x.message);b.disabled=false;S.lastErr=x.message;renderMsgs()}
+};
+async function replyPerm(p,r){
+ const nu=specFind(/^\/permission\/\{[^}]+\}\/reply$/,'post');
+ if(nu)await api(nu.replace(/\{[^}]+\}/,encodeURIComponent(p.id)),{method:'POST',body:{reply:r}});
+ else await api('/session/'+encodeURIComponent(p.sessionID)+'/permissions/'+encodeURIComponent(p.id),{method:'POST',body:{response:r}});
+ S.perms.delete(p.id);renderMsgs();
+}
+
+/* ---------- send ---------- */
+function setRun(){$('#send').innerHTML=S.running?I.stop:I.up}
+async function submit(){
+ if(S.running){
+  try{await api('/session/'+S.sid+'/abort',{method:'POST'})}catch(e){err('abort: '+e.message)}
+  return;
+ }
+ const v=$('#inp').value.trim();if(!v)return;
+ $('#inp').value='';autosize();S.lastErr=null;
+ try{
+  if(!S.sid){
+   const s=await api('/session',{method:'POST',body:{}});
+   S.sid=s.id;S.sessions.unshift(s);S.msgs=new Map();$('#title').textContent=s.title||'New thread';
+  }
+  const body={parts:[{type:'text',text:v}],agent:S.agent};
+  if(S.model)body.model={providerID:S.model.p,modelID:S.model.m};
+  const ep=(!S.spec||specHas('/session/{}/prompt_async','post'))?'prompt_async':'message';
+  S.pendingUser=v;
+  S.running=true;setRun();renderMsgs(true);
+  api('/session/'+S.sid+'/'+ep,{method:'POST',body}).then(()=>{if(ep==='message')loadMessages()}).catch(e=>{S.running=false;S.lastErr=e.message;err('send: '+e.message);setRun();renderMsgs()});
+ }catch(e){S.running=false;S.lastErr=e.message;err('send: '+e.message);setRun();render()}
+}
+$('#send').onclick=submit;
+$('#inp').addEventListener('keydown',e=>{if(e.key==='Enter'&&!e.shiftKey&&matchMedia('(hover:hover)').matches){e.preventDefault();submit()}});
+function autosize(){const i=$('#inp');i.style.height='auto';i.style.height=Math.min(i.scrollHeight,140)+'px'}
+$('#inp').addEventListener('input',autosize);
+window.addEventListener('error',e=>err('js: '+e.message));
+window.addEventListener('unhandledrejection',e=>err('promise: '+(e.reason&&e.reason.message||e.reason)));
+
+chips();setRun();render();boot();
+</script>
+</body>
+</html>
