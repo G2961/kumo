@@ -70,9 +70,28 @@ footer{padding:8px 12px;padding-bottom:max(10px,env(safe-area-inset-bottom))}
 .badge{margin-left:auto;background:var(--line);border-radius:8px;padding:0 7px;font-size:calc(12px * var(--font-scale))}
 .sec{display:flex;align-items:center;color:var(--mut);font-size:calc(13px * var(--font-scale));padding:14px 10px 4px}
 .sec .ib{margin-left:auto;width:30px;height:30px}
-.th{padding-left:34px;font-size:calc(14px * var(--font-scale))}
-.th.sel{background:var(--card)}
-.proj-h .caret{transition:.15s}
+.drawer-header{flex:none}
+.drawer-projects{overflow-y:auto;flex:1;-webkit-overflow-scrolling:touch}
+.proj-group{border-radius:10px;overflow:hidden;margin-bottom:2px}
+.proj-h{cursor:pointer;user-select:none;-webkit-user-select:none;display:flex;align-items:center;gap:8px;padding:9px 10px;border-radius:10px;width:100%}
+.proj-h:active{background:var(--card)}
+.proj-h.active-proj{font-weight:600}
+.proj-title{min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;flex:1}
+.proj-h .caret{transition:transform .2s ease;display:inline-flex;align-items:center;padding:2px}
+.proj-h .caret.open{transform:rotate(180deg)}
+.active-badge{font-size:calc(10px * var(--font-scale));background:var(--line);border-radius:4px;padding:1px 5px;color:var(--mut);flex:none;margin-left:4px;font-weight:400}
+.ib-sm{width:28px;height:28px;border-radius:6px;display:grid;place-items:center;color:var(--mut);flex:none;margin-left:2px}
+.ib-sm:active{background:var(--card);color:var(--tx)}
+.proj-body{display:grid;grid-template-rows:0fr;transition:grid-template-rows .25s ease;overflow:hidden}
+.proj-body.open{grid-template-rows:1fr}
+.proj-inner{min-height:0;overflow:hidden}
+.th{padding-left:34px;padding-right:10px;font-size:calc(13px * var(--font-scale));width:100%;text-align:left;display:flex;align-items:center;gap:6px}
+.th .th-title{min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;flex:1}
+.th.sel{background:var(--card);font-weight:500}
+.skeleton-row{padding:8px 34px;display:flex;flex-direction:column;gap:6px}
+.sk-line{height:11px;background:var(--line);border-radius:6px;width:75%;animation:sk-pulse 1.2s ease-in-out infinite}
+.sk-line.short{width:45%}
+@keyframes sk-pulse{0%,100%{opacity:.35}50%{opacity:.8}}
 #sheet{position:absolute;left:0;right:0;bottom:0;background:var(--bg);border-radius:20px 20px 0 0;z-index:7;transform:translateY(105%);transition:.25s;padding:8px 14px max(16px,env(safe-area-inset-bottom));max-height:82dvh;overflow-y:auto;box-shadow:0 -8px 30px rgba(0,0,0,.18)}
 #sheet.on{transform:none}
 #sheet .grab{width:38px;height:4px;border-radius:2px;background:var(--line);margin:0 auto 10px}
@@ -139,6 +158,7 @@ const I={
  file:'<svg viewBox="0 0 24 24"><path d="M14 3H7a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h10a2 2 0 0 0 2-2V8z"/><path d="M14 3v5h5"/></svg>',
  down:'<svg viewBox="0 0 24 24" style="width:14px;height:14px"><path d="m6 9 6 6 6-6"/></svg>',
  stop:'<svg viewBox="0 0 24 24"><rect x="6" y="6" width="12" height="12" rx="2" fill="currentColor"/></svg>',
+ plus:'<svg viewBox="0 0 24 24" style="width:16px;height:16px"><path d="M12 5v14M5 12h14"/></svg>',
  up:'<svg viewBox="0 0 24 24"><path d="M12 19V5M5 12l7-7 7 7"/></svg>',
  bot:'<svg viewBox="0 0 24 24"><path d="M12 3a4 4 0 0 1 4 3 4 4 0 0 1 3 6 4 4 0 0 1-3 6 4 4 0 0 1-8 0 4 4 0 0 1-3-6 4 4 0 0 1 3-6 4 4 0 0 1 4-3z"/><path d="m9 11 2 2-2 2M13 15h3"/></svg>'
 };
@@ -160,6 +180,8 @@ S.savedProjects=LS('oc_projects')||[];S.attachments=[];S.connections=[];S.connec
 S.changeHints=new Map();S.historyErrors=new Map();S.historyFiles=new Map();
 S.localPolicies=LS('oc_local_policies')||{};
 S.efforts=LS('oc_efforts')||{};S.webSearch=!!LS('oc_web_search');S.remoteRuns=new Map();
+S.expandedFolders=new Set([S.dir].filter(Boolean));
+S.folderSessions=new Map();S.folderLoading=new Set();S.sessionFirstMsg=new Map();
 if(S.dir)lset('oc_dir',S.dir);
 
 /* ---------- api ---------- */
@@ -196,21 +218,33 @@ async function boot(){
  await Promise.allSettled([loadProviders(),loadProjects(),loadSessions(),loadConnections()]);
  connectSSE();chips();render();
 }
+const normPath=p=>(p||'').replace(/\\/g,'/').replace(/\/+$/,'').toLowerCase();
+function sortProjects(list){
+ return [...list].sort((a,b)=>projName(a.worktree).localeCompare(projName(b.worktree),undefined,{numeric:true,sensitivity:'base'}));
+}
 async function loadProjects(){
  const dir=S.dir;
  let remote=[];
  try{remote=await api('/project',{directory:dir})}catch(e){err('projects: '+e.message)}
  let native=[];if(window.CodexNative)try{native=(await nativeCall('projects')).projects||[]}catch(e){}
  if(dir!==S.dir)return;
- const paths=[dir,...S.savedProjects,...native,...(Array.isArray(remote)?remote:[]).map(p=>p.worktree)].filter(p=>p&&p!=='/');
- S.savedProjects=[...new Set(paths)];lset('oc_projects',S.savedProjects);S.projects=S.savedProjects.map(worktree=>({worktree}));
+ const seen=new Set(S.savedProjects.map(normPath));
+ for(const p of [dir,...native,...(Array.isArray(remote)?remote:[]).map(x=>x.worktree)]){
+  const n=normPath(p);
+  if(p&&p!=='/'&&!seen.has(n)){S.savedProjects.push(p);seen.add(n)}
+ }
+ lset('oc_projects',S.savedProjects);
+ S.projects=sortProjects(S.savedProjects.map(worktree=>({worktree})));
 }
-async function loadSessions(){
- const dir=S.dir;
+async function loadSessions(dir=S.dir){
  try{
-  const r=await api('/session',{directory:dir});if(dir!==S.dir)return;
-  S.sessions=(Array.isArray(r)?r:[]).filter(s=>!s.parentID).sort((a,b)=>((b.time&&b.time.updated)||0)-((a.time&&a.time.updated)||0));
- }catch(e){if(dir!==S.dir)return;S.sessions=[];err('sessions: '+e.message)}
+  const r=await api('/session',{directory:dir});
+  const list=(Array.isArray(r)?r:[]).filter(s=>!s.parentID).sort((a,b)=>((b.time&&b.time.updated)||0)-((a.time&&a.time.updated)||0));
+  S.folderSessions.set(dir,list);
+  if(dir===S.dir)S.sessions=list;
+  renderFolderSessions(dir);
+  resolveDefaultTitles(dir,list);
+ }catch(e){if(dir===S.dir)S.sessions=[];err('sessions: '+e.message)}
 }
 async function loadProviders(){
  const dir=S.dir;
@@ -266,7 +300,12 @@ function onEvent(ev){
   if(p.sessionID!==S.sid)return;S.revision++;S.status={type:'idle'};S.running=false;setRun();sched();loadSessions().then(()=>{});syncSession();
  }else if(t==='session.updated'){
   const i=p.info;if(!i)return;const s=S.sessions.find(x=>x.id===i.id);
-  if(s){Object.assign(s,i);if(i.id===S.sid)$('#title').textContent=i.title||'Thread'}
+  if(s){
+   Object.assign(s,i);
+   if(i.id===S.sid)$('#title').textContent=displaySessionTitle(s);
+   const thTitle=$(`#drawer [data-sid="${CSS.escape(i.id)}"] .th-title`);
+   if(thTitle)thTitle.textContent=displaySessionTitle(s);
+  }
  }else if(t==='session.error'){
   if(p.sessionID&&p.sessionID!==S.sid)return;
   const e=p.error;S.lastErr=redact(e&&(e.data&&e.data.message||e.message||e.name)||'session error');err('session.error: '+S.lastErr);
@@ -293,7 +332,8 @@ function resetThread(id=null){
 }
 async function openSession(id){
  resetThread(id);
- const s=S.sessions.find(x=>x.id===id);$('#title').textContent=s&&s.title||'Thread';
+ const s=S.sessions.find(x=>x.id===id)||([...S.folderSessions.values()].flatMap(v=>v).find(x=>x.id===id));
+ $('#title').textContent=s?displaySessionTitle(s):'Thread';
  render();await syncSession();
  if(window.CodexNative&&S.sid===id)try{const r=await nativeCall('remoteHistory',{sessionID:id});(r.events||[]).forEach(remoteEvent)}catch(e){}
 }
@@ -325,16 +365,99 @@ setInterval(()=>{if(S.sid&&(S.running||!S.live))syncSession()},5000);
 
 /* ---------- drawer ---------- */
 const ago=t=>{if(!t)return'';const s=(Date.now()-t)/1000;return s<90?'now':s<5400?Math.round(s/60)+'m':s<129600?Math.round(s/3600)+'h':Math.round(s/86400)+'d'};
+function isDefaultTitle(t){
+ if(!t)return true;
+ if(/^(?:New session|Child session|Untitled|New thread|Новая сессия)(?:[\s–-].*)?$/i.test(t))return true;
+ if(/^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}/.test(t))return true;
+ return false;
+}
+function displaySessionTitle(s){
+ if(!s)return 'New thread';
+ if(S.sessionFirstMsg.has(s.id))return S.sessionFirstMsg.get(s.id);
+ if(s.title&&!isDefaultTitle(s.title))return s.title;
+ return 'New thread';
+}
+const resolvingSessions=new Set();
+async function resolveDefaultTitles(dir,list){
+ for(const s of (list||[]).slice(0,15)){
+  if(isDefaultTitle(s.title)&&!S.sessionFirstMsg.has(s.id)&&!resolvingSessions.has(s.id)){
+   resolvingSessions.add(s.id);
+   try{
+    const msgs=await api('/session/'+encodeURIComponent(s.id)+'/message',{directory:dir});
+    if(Array.isArray(msgs)){
+     const userMsg=msgs.find(m=>m.info&&m.info.role==='user');
+     const userText=userMsg?.parts?[...userMsg.parts].filter(p=>p.type==='text'&&!p.synthetic).map(p=>p.text).join(' ').trim():'';
+     if(userText){
+      const clean=userText.slice(0,50).trim();
+      S.sessionFirstMsg.set(s.id,clean);
+      s.title=clean;
+      api('/session/'+encodeURIComponent(s.id),{method:'PATCH',body:{title:clean},directory:dir}).catch(()=>{});
+      const thTitle=$(`#drawer [data-sid="${CSS.escape(s.id)}"] .th-title`);
+      if(thTitle)thTitle.textContent=clean;
+      if(s.id===S.sid)$('#title').textContent=clean;
+     }
+    }
+   }catch(e){}finally{resolvingSessions.delete(s.id)}
+  }
+ }
+}
+async function loadFolderSessions(dir){
+ if(S.folderLoading.has(dir))return;
+ const inner=$(`.proj-inner[data-dir="${CSS.escape(dir)}"]`);
+ if(!S.folderSessions.has(dir)&&inner){
+  inner.innerHTML='<div class="skeleton-row"><div class="sk-line"></div><div class="sk-line short"></div></div>';
+ }
+ S.folderLoading.add(dir);
+ try{
+  const r=await api('/session',{directory:dir});
+  const list=(Array.isArray(r)?r:[]).filter(s=>!s.parentID).sort((a,b)=>((b.time&&b.time.updated)||0)-((a.time&&a.time.updated)||0));
+  S.folderSessions.set(dir,list);
+  if(dir===S.dir)S.sessions=list;
+  renderFolderSessions(dir);
+  resolveDefaultTitles(dir,list);
+ }catch(e){
+  if(inner)inner.innerHTML=`<div class="note er" style="padding-left:34px">${esc(e.message)}</div>`;
+ }finally{
+  S.folderLoading.delete(dir);
+ }
+}
+function renderFolderSessions(dir){
+ const inner=$(`#drawer .proj-inner[data-dir="${CSS.escape(dir)}"]`);
+ if(!inner)return;
+ const list=S.folderSessions.get(dir);
+ if(!list){
+  inner.innerHTML='<div class="skeleton-row"><div class="sk-line"></div><div class="sk-line short"></div></div>';
+  return;
+ }
+ if(!list.length){
+  inner.innerHTML='<div class="note" style="padding-left:34px">No threads yet</div>';
+  return;
+ }
+ let h='';
+ list.forEach(s=>{
+  const isSel=(dir===S.dir&&S.sid===s.id);
+  const title=displaySessionTitle(s);
+  h+=`<button class="row th ${isSel?'sel':''}" data-a="th" data-dir="${esc(dir)}" data-id="${esc(s.id)}" data-sid="${esc(s.id)}"><span class="th-title">${esc(title)}</span><span class="m">${ago(s.time&&s.time.updated)}</span></button>`;
+ });
+ inner.innerHTML=h;
+}
 function renderDrawer(){
- let h=`<div class="drawer-actions"><button class="row" data-a="new">${I.edit}New thread</button><button class="row" data-a="add">${I.folder}Add project</button></div><div class="sec">Projects</div><div style="overflow-y:auto;flex:1">`;
- S.projects.forEach((p,i)=>{
-  const cur=p.worktree===S.dir;
-  h+=`<button class="row proj-h" data-a="proj" data-i="${i}">${I.folder}${esc(projName(p.worktree))}</button>`;
-  if(cur)S.sessions.forEach(s=>{h+=`<button class="row th ${S.sid===s.id?'sel':''}" data-a="th" data-id="${esc(s.id)}">${esc(s.title||'Untitled')}<span class="m">${ago(s.time&&s.time.updated)}</span></button>`});
-  if(cur&&!S.sessions.length)h+='<div class="note" style="padding-left:34px">No threads yet</div>';
+ const st=$('#drawerProjects')?.scrollTop||0;
+ let h=`<div class="drawer-header"><div class="drawer-actions"><button class="row" data-a="new">${I.edit}New thread</button><button class="row" data-a="add">${I.folder}Add project</button></div><div class="sec">Projects</div></div><div id="drawerProjects" class="drawer-projects">`;
+ S.projects.forEach(p=>{
+  const isCur=p.worktree===S.dir;
+  const isOpen=S.expandedFolders.has(p.worktree);
+  h+=`<div class="proj-group" data-dir="${esc(p.worktree)}"><div class="row proj-h ${isCur?'active-proj':''}" data-a="folder" data-dir="${esc(p.worktree)}">${I.folder}<span class="proj-title" title="${esc(p.worktree)}">${esc(projName(p.worktree))}</span>${isCur?'<span class="active-badge">Active</span>':''}<span class="caret m ${isOpen?'open':''}">${I.down}</span><button class="ib-sm" data-a="new-in-dir" data-dir="${esc(p.worktree)}" aria-label="New thread in this folder" title="New thread in ${esc(projName(p.worktree))}">${I.plus}</button></div><div class="proj-body ${isOpen?'open':''}" data-dir="${esc(p.worktree)}"><div class="proj-inner" data-dir="${esc(p.worktree)}"></div></div></div>`;
  });
  h+='</div>';
  $('#drawer').innerHTML=h;
+ if($('#drawerProjects'))$('#drawerProjects').scrollTop=st;
+ S.projects.forEach(p=>{
+  if(S.expandedFolders.has(p.worktree)){
+   if(S.folderSessions.has(p.worktree))renderFolderSessions(p.worktree);
+   else loadFolderSessions(p.worktree);
+  }
+ });
 }
 function drawer(on){$('#drawer').classList.toggle('on',on);$('#dim').classList.toggle('on',on||$('#sheet').classList.contains('on'))}
 $('#menu').onclick=()=>{renderDrawer();drawer(true)};
@@ -342,17 +465,56 @@ $('#drawer').onclick=async e=>{
  const b=e.target.closest('[data-a]');if(!b)return;const a=b.dataset.a;
  if(a==='new'){resetThread();drawer(false);render()}
  else if(a==='add'){drawer(false);projectSheet()}
- else if(a==='th'){drawer(false);openSession(b.dataset.id)}
- else if(a==='proj'){await setDir(S.projects[+b.dataset.i].worktree);renderDrawer()}
+ else if(a==='folder'){
+  const dir=b.dataset.dir;if(!dir)return;
+  const isOpen=!S.expandedFolders.has(dir);
+  if(isOpen)S.expandedFolders.add(dir);else S.expandedFolders.delete(dir);
+  const group=$(`.proj-group[data-dir="${CSS.escape(dir)}"]`);
+  if(group){
+   const caret=group.querySelector('.caret');if(caret)caret.classList.toggle('open',isOpen);
+   const body=group.querySelector('.proj-body');if(body)body.classList.toggle('open',isOpen);
+   if(isOpen){
+    if(S.folderSessions.has(dir))renderFolderSessions(dir);
+    else loadFolderSessions(dir);
+   }
+  }
+ }
+ else if(a==='new-in-dir'){
+  const dir=b.dataset.dir;drawer(false);
+  if(dir&&dir!==S.dir)await setDir(dir);
+  resetThread();render();
+ }
+ else if(a==='th'){
+  const dir=b.dataset.dir,sid=b.dataset.id;drawer(false);
+  if(dir&&dir!==S.dir)await setDir(dir,sid);
+  else openSession(sid);
+ }
 };
-async function setDir(d){
- if(d===S.dir)return;
- S.dir=d;lset('oc_dir',d);resetThread();S.sessions=[];S.live=false;
- S.savedProjects=[d,...S.savedProjects.filter(p=>p!==d)];lset('oc_projects',S.savedProjects);
+async function setDir(d,targetSid){
+ if(!d)return;
+ const changed=(d!==S.dir);
+ S.dir=d;lset('oc_dir',d);S.live=false;
+ S.expandedFolders.add(d);
+ if(targetSid){
+  S.sid=targetSid;
+  const s=S.folderSessions.get(d)?.find(x=>x.id===targetSid)||S.sessions.find(x=>x.id===targetSid);
+  if(s)$('#title').textContent=displaySessionTitle(s);
+ }
+ if(!S.savedProjects.includes(d)){
+  S.savedProjects.push(d);
+  lset('oc_projects',S.savedProjects);
+  S.projects=sortProjects(S.savedProjects.map(worktree=>({worktree})));
+ }
  history.replaceState(null,'',location.pathname+'#d='+b64e(d));
  if(window.CodexNative)await nativeCall('selectProject',{directory:d}).catch(e=>err(e.message));
- if(S.es)S.es.close();render();
- await Promise.allSettled([loadSessions(),loadProviders(),loadProjects()]);if(S.dir!==d)return;connectSSE();render();
+ if(S.es)S.es.close();
+ if(changed&&!targetSid)resetThread();
+ render();
+ await Promise.allSettled([loadSessions(d),loadProviders(),loadProjects()]);
+ if(S.dir!==d)return;
+ connectSSE();
+ if(targetSid)await openSession(targetSid);
+ else render();
 }
 window.addEventListener('hashchange',()=>{const d=dirFromHash();if(d)setDir(d).then(loadProjects)});
 
@@ -915,7 +1077,17 @@ async function submit(){
   if(!S.sid){
    const s=await api('/session',{method:'POST',body:{},directory:dir});if(view!==S.view||dir!==S.dir)return;
    S.sid=s.id;S.sessions.unshift(s);S.msgs=new Map();$('#title').textContent=s.title||'New thread';
+   const list=S.folderSessions.get(dir)||[];
+   if(!list.some(x=>x.id===s.id))list.unshift(s);
+   S.folderSessions.set(dir,list);
   }
+  const cleanTitle=(v||'New thread').slice(0,50).trim();
+  S.sessionFirstMsg.set(S.sid,cleanTitle);
+  $('#title').textContent=cleanTitle;
+  api('/session/'+encodeURIComponent(S.sid),{method:'PATCH',body:{title:cleanTitle},directory:dir}).then(upd=>{
+   const s=S.sessions.find(x=>x.id===S.sid);if(s)s.title=upd?.title||cleanTitle;
+   renderFolderSessions(dir);
+  }).catch(()=>{});
   const body={parts:[...(v?[{type:'text',text:v}]:[]),...files],agent:S.agent,tools:{websearch:S.webSearch}};
   if(S.model)body.model={providerID:S.model.p,modelID:S.model.m};
   const ep='prompt_async',sid=S.sid;
