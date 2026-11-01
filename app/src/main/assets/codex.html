@@ -39,6 +39,9 @@ main>*{flex-shrink:0}
 .dl.a{background:var(--add)}.dl.d{background:var(--del)}
 .change-card summary{cursor:pointer;list-style:none}.change-card summary::-webkit-details-marker{display:none}
 .change-card summary>span:first-of-type{min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;flex:1}
+.thinking-card summary{cursor:pointer;list-style:none}.thinking-card summary::-webkit-details-marker{display:none}
+.thinking-card summary .caret{transition:transform .2s;display:inline-flex;align-items:center}
+.thinking-card[open] summary .caret{transform:rotate(180deg)}
 .change-preview{max-height:48dvh;overflow:auto}.change-turn{margin:12px 0}.change-turn h4{font-size:13px;margin:8px 0;color:var(--mut);font-weight:500;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
 .change-card{margin:6px 0}.change-card .counts{white-space:nowrap;margin-left:auto}.change-source{font-size:11px;color:var(--mut)}
 .btns{display:flex;gap:8px;padding:9px 11px}
@@ -811,6 +814,23 @@ function permCard(p){
  const title=p.title||((p.permission||p.type||'permission')+(pats.length?' '+pats.join(', '):''));
  return `<div class="card" data-pid="${esc(p.id)}"><div class="ch">${I.term}<span>Approve?</span></div><pre>${esc(title)}${cmd&&title.indexOf(cmd)<0?'\n$ '+esc(cmd):''}</pre><div class="btns"><button class="btn p" data-r="once">Approve</button><button class="btn" data-r="always">Always</button><button class="btn" data-r="reject">Deny</button></div></div>`;
 }
+function splitThoughts(text){
+ let thoughts='',clean=String(text||'');
+ const thinkRegex=/<(?:think|thought)>([\s\S]*?)<\/(?:think|thought)>/gi;
+ let m;
+ while((m=thinkRegex.exec(clean))!==null){
+  thoughts+=(thoughts?'\n\n':'')+m[1].trim();
+ }
+ clean=clean.replace(/<(?:think|thought)>[\s\S]*?<\/(?:think|thought)>/gi,'').trim();
+ if(S.running){
+  const openTag=/<(?:think|thought)>([\s\S]*)$/i.exec(clean);
+  if(openTag){
+   thoughts+=(thoughts?'\n\n':'')+openTag[1].trim();
+   clean=clean.slice(0,openTag.index).trim();
+  }
+ }
+ return {thoughts:thoughts.trim(),text:clean};
+}
 function renderMsgs(force){
  if(!S.sid)return;
  const m=$('#main');
@@ -827,13 +847,20 @@ function renderMsgs(force){
    if(t||files.length)h+=`<div class="msg user">${esc(t)}${files.length?'<div class="attachments">'+attachmentHtml(files,false)+'</div>':''}</div>`;
   }else{
    parts.forEach(p=>{
-    if(p.type==='text'&&p.text)h+=`<div class="msg ai">${esc(p.text)}</div>`;
-    else if(p.type==='reasoning'){
-     const openAttr=openDetails.has(p.id)?' open':'';
-     const rText=p.text||(S.running?'Thinking…':'Thought process');
-     h+=`<details class="card thinking-card" data-part="${esc(p.id||'')}"${openAttr}><summary class="ch" style="list-style:none;cursor:pointer">Thinking</summary><pre style="white-space:pre-wrap">${esc(rText)}</pre></details>`;
-    }
-    else if(p.type==='tool')h+=toolCard(p);
+    if(p.type==='text'&&p.text){
+     const {thoughts,text}=splitThoughts(p.text);
+     if(thoughts){
+      const openAttr=openDetails.has(p.id+'_think')?' open':'';
+      h+=`<details class="card thinking-card" data-part="${esc(p.id+'_think')}"${openAttr}><summary class="ch"><span>Thinking</span><span class="caret m">${I.down}</span></summary><pre style="white-space:pre-wrap">${esc(thoughts)}</pre></details>`;
+     }
+     if(text)h+=`<div class="msg ai">${esc(text)}</div>`;
+    }else if(p.type==='reasoning'){
+     const rText=(p.text||'').trim();
+     if(rText||(S.running&&p.time&&!p.time.end)){
+      const openAttr=openDetails.has(p.id)?' open':'';
+      h+=`<details class="card thinking-card" data-part="${esc(p.id||'')}"${openAttr}><summary class="ch"><span>Thinking</span><span class="caret m">${I.down}</span></summary><pre style="white-space:pre-wrap">${esc(rText||'Thinking…')}</pre></details>`;
+     }
+    }else if(p.type==='tool')h+=toolCard(p);
    });
    if(x.info.error){const e=x.info.error;h+=`<div class="card"><div class="ch er">Error</div><pre style="white-space:pre-wrap">${esc(readableError((e.data&&e.data.message)||e.message||e.name||'Request failed'))}</pre></div>`}
   }

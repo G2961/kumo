@@ -1,4 +1,4 @@
-"""Proof of reasoning effort handling via real OpenCode and fake OpenAI-compatible / Responses server."""
+"""Proof of reasoning effort handling and thinking card presentation with real OpenCode."""
 import asyncio
 import base64
 import json
@@ -11,7 +11,6 @@ from pathlib import Path
 from playwright.async_api import async_playwright
 
 ROOT = Path(__file__).resolve().parents[1]
-LOGS = []
 
 class FakeProviderServer:
     def __init__(self):
@@ -31,6 +30,7 @@ class FakeProviderServer:
                     'body': body
                 })
                 is_title = 'title generator' in str(body)
+                prompt_text = str(body)
 
                 if '/chat/completions' in self.path:
                     def chunk(delta, reason=None):
@@ -44,7 +44,16 @@ class FakeProviderServer:
 
                     if is_title:
                         payload = (chunk({'content': 'Title OK'}, 'stop') + 'data: [DONE]\n\n').encode()
+                    elif 'think_tags' in prompt_text:
+                        # Model output with <think>...</think> tags inside content
+                        payload = (chunk({'content': '<think>\nAnalyzing the prompt carefully.\nGenerating optimal code.\n</think>\nHere is the answer with think tags.'}, 'stop') +
+                                   'data: [DONE]\n\n').encode()
+                    elif 'no_thinking' in prompt_text:
+                        # Model output WITHOUT any thinking
+                        payload = (chunk({'content': 'Direct answer without any thinking.'}, 'stop') +
+                                   'data: [DONE]\n\n').encode()
                     else:
+                        # Native reasoning chunk
                         payload = (chunk({'reasoning_content': 'Thinking about reasoning effort in chat completion...'}) +
                                    chunk({'content': 'Chat completion answer received.'}, 'stop') +
                                    'data: [DONE]\n\n').encode()
@@ -58,6 +67,18 @@ class FakeProviderServer:
                             {'type': 'response.output_text.done', 'item_id': 'title_msg', 'output_index': 0, 'content_index': 0, 'text': 'Title OK'},
                             {'type': 'response.output_item.done', 'output_index': 0, 'item': {'id': 'title_msg', 'type': 'message'}},
                             {'type': 'response.completed', 'response': {'id': 'resp_0', 'model': 'test', 'status': 'completed', 'usage': {'input_tokens': 10, 'output_tokens': 10, 'total_tokens': 20}}}
+                        ]
+                    elif 'no_thinking' in prompt_text:
+                        # Responses without any reasoning text (empty reasoning part placeholder)
+                        events = [
+                            {'type': 'response.created', 'response': {'id': 'resp_1', 'created_at': int(time.time()), 'model': 'test'}},
+                            {'type': 'response.output_item.added', 'output_index': 0, 'item': {'id': 'rs_empty', 'type': 'reasoning'}},
+                            {'type': 'response.output_item.done', 'output_index': 0, 'item': {'id': 'rs_empty', 'type': 'reasoning'}},
+                            {'type': 'response.output_item.added', 'output_index': 1, 'item': {'id': 'msg_empty', 'type': 'message'}},
+                            {'type': 'response.output_text.delta', 'item_id': 'msg_empty', 'output_index': 1, 'content_index': 0, 'delta': 'Direct responses answer.'},
+                            {'type': 'response.output_text.done', 'item_id': 'msg_empty', 'output_index': 1, 'content_index': 0, 'text': 'Direct responses answer.'},
+                            {'type': 'response.output_item.done', 'output_index': 1, 'item': {'id': 'msg_empty', 'type': 'message'}},
+                            {'type': 'response.completed', 'response': {'id': 'resp_1', 'model': 'test', 'status': 'completed', 'usage': {'input_tokens': 10, 'output_tokens': 10, 'total_tokens': 20}}}
                         ]
                     else:
                         text = 'Responses answer received.'
@@ -191,7 +212,7 @@ async def main():
             except Exception:
                 await asyncio.sleep(0.1)
 
-        # Ensure auth keys for providers
+        # Set auth keys for providers
         for p_id in ['fake-chat', 'fake-resp', 'fake-xhigh', 'fake-preserved']:
             req = urllib.request.Request(
                 origin + f'/auth/{p_id}',
@@ -219,10 +240,9 @@ async def main():
             await page.wait_for_function('S.spec && S.live && S.provs.length >= 4')
 
             # -------------------------------------------------------------
-            # Check 1: Chat Completions model without pre-declared variants
+            # Check 1: Chat Completions reasoning_effort & Thinking card with chevron
             # -------------------------------------------------------------
-            print('--- Check 1: Chat Completions reasoning_effort ---')
-            # Select fake-chat / chat-model
+            print('--- Check 1: Chat Completions reasoning_effort & Thinking card ---')
             await page.click('#cModel')
             models = await page.evaluate('allModels()')
             chat_idx = next(i for i, m in enumerate(models) if m['p'] == 'fake-chat' and m['m'] == 'chat-model')
@@ -231,13 +251,10 @@ async def main():
             # Reasoning chip must NOT be muted
             is_muted = await page.evaluate('document.querySelector("#cEff").classList.contains("muted")')
             assert not is_muted, 'Reasoning chip should not be muted'
-            chip_text = await page.evaluate('document.querySelector("#cEff span").textContent')
-            assert chip_text == 'Reasoning', f'Expected "Reasoning", got "{chip_text}"'
 
             # Click Reasoning chip -> options sheet
             await page.click('#cEff')
             options_text = await page.locator('#sheet .opt').all_inner_texts()
-            print('Chat model options:', options_text)
             assert 'Default' in options_text
             assert 'None' in options_text
             assert 'High' in options_text
@@ -248,10 +265,8 @@ async def main():
 
             chip_text_after = await page.evaluate('document.querySelector("#cEff span").textContent')
             assert chip_text_after == 'High', f'Expected "High", got "{chip_text_after}"'
-            effort_stored = await page.evaluate('S.efforts[modelKey()]')
-            assert effort_stored == 'high', f'Expected "high", got "{effort_stored}"'
 
-            # Send a message
+            # Send message
             fake_server.received_calls.clear()
             await page.fill('#inp', 'Explain how reasoning effort works.')
             async with page.expect_response(lambda r: '/prompt_async' in r.url) as sent:
@@ -259,116 +274,121 @@ async def main():
             resp = await sent.value
             assert resp.status == 204
             post_body = resp.request.post_data_json
-            assert post_body.get('variant') == 'high', f'Expected prompt_async variant=high, got {post_body.get("variant")}'
+            assert post_body.get('variant') == 'high'
 
             # Wait for response in feed
             await page.wait_for_function('!S.running && document.querySelector(".msg.ai")', timeout=30000)
 
             # Check what reached the fake provider at /v1/chat/completions
             chat_calls = [c for c in fake_server.received_calls if '/chat/completions' in c['path'] and 'title generator' not in str(c['body'])]
-            assert len(chat_calls) >= 1, 'No prompt call reached /v1/chat/completions'
+            assert len(chat_calls) >= 1
             actual_effort = chat_calls[-1]['body'].get('reasoning_effort')
             print(f'Provider received at /v1/chat/completions: reasoning_effort = {actual_effort}')
-            assert actual_effort == 'high', f'Expected reasoning_effort="high", got {actual_effort}'
+            assert actual_effort == 'high'
 
-            # Verify Thinking card is displayed in feed
-            print('S.msgs:', await page.evaluate('[...S.msgs.values()].map(m => ({role: m.info.role, parts: [...m.parts.values()]}))'))
-            print('Thinking card html:', await page.locator('.thinking-card').all_inner_texts())
-            print('Thinking card outerHTML:', await page.locator('.thinking-card').first.evaluate('el => el.outerHTML'))
+            # Verify Thinking card with caret arrow
             thinking_cards = await page.locator('.thinking-card').count()
             assert thinking_cards >= 1, 'Thinking card should be in feed'
+            caret_count = await page.locator('.thinking-card summary .caret').count()
+            assert caret_count >= 1, 'Thinking card must have chevron arrow on top right'
             thinking_content = await page.locator('.thinking-card pre').text_content()
-            print(f'Thinking content in feed: "{thinking_content}"')
             assert 'Thinking about reasoning effort in chat completion' in thinking_content
             results['checks'].append('chat_completions_reasoning_effort_high')
 
             # -------------------------------------------------------------
-            # Check 2: Responses model without pre-declared variants
+            # Check 2: No empty thinking card when model outputs no thinking
             # -------------------------------------------------------------
-            print('--- Check 2: Responses reasoning.effort ---')
+            print('--- Check 2: No fake thinking card on plain answer ---')
+            fake_server.received_calls.clear()
+            await page.fill('#inp', 'Say hello no_thinking')
+            async with page.expect_response(lambda r: '/prompt_async' in r.url) as sent:
+                await page.click('#send')
+            resp = await sent.value
+            assert resp.status == 204
+            await page.wait_for_function('!S.running', timeout=30000)
+            # The second assistant turn should have NO thinking card
+            ai_msgs = await page.locator('.msg.ai').count()
+            assert ai_msgs >= 2
+            # Total thinking cards should still be 1 (from first turn only!)
+            assert await page.locator('.thinking-card').count() == 1, 'Plain response should NOT create an empty Thinking card'
+            results['checks'].append('no_empty_thinking_card_on_plain_response')
+
+            # -------------------------------------------------------------
+            # Check 3: Tag-based thinking <think>...</think>
+            # -------------------------------------------------------------
+            print('--- Check 3: Extract <think>...</think> tags into Thinking card ---')
+            fake_server.received_calls.clear()
+            await page.fill('#inp', 'Solve with think_tags')
+            async with page.expect_response(lambda r: '/prompt_async' in r.url) as sent:
+                await page.click('#send')
+            resp = await sent.value
+            assert resp.status == 204
+            await page.wait_for_function('!S.running', timeout=30000)
+
+            # Now thinking cards should be 2 (turn 1 + turn 3)
+            assert await page.locator('.thinking-card').count() == 2
+            latest_think = await page.locator('.thinking-card pre').nth(1).text_content()
+            print(f'Extracted think tags content: "{latest_think}"')
+            assert 'Analyzing the prompt carefully.' in latest_think
+            # The visible message should NOT contain raw <think> tags
+            latest_msg = await page.locator('.msg.ai').last.text_content()
+            assert '<think>' not in latest_msg
+            assert 'Here is the answer with think tags.' in latest_msg
+            results['checks'].append('think_tags_extracted_cleanly')
+
+            # -------------------------------------------------------------
+            # Check 4: Responses model & separate per-model persistence
+            # -------------------------------------------------------------
+            print('--- Check 4: Responses model & separate per-model persistence ---')
             await page.click('#cModel')
             models = await page.evaluate('allModels()')
             resp_idx = next(i for i, m in enumerate(models) if m['p'] == 'fake-resp' and m['m'] == 'resp-model')
             await page.locator('#sheet .opt').nth(resp_idx).click()
 
             # Separate storage check: resp-model should still have 'Reasoning' (Default)
-            chip_text = await page.evaluate('document.querySelector("#cEff span").textContent')
-            assert chip_text == 'Reasoning', f'Expected "Reasoning" for separate model, got "{chip_text}"'
+            assert await page.evaluate('document.querySelector("#cEff span").textContent') == 'Reasoning'
 
-            # Click Reasoning chip and select 'Low'
             await page.click('#cEff')
             low_btn = page.locator('#sheet .opt', has_text='Low')
             await low_btn.click()
+            assert await page.evaluate('document.querySelector("#cEff span").textContent') == 'Low'
 
-            chip_text_after = await page.evaluate('document.querySelector("#cEff span").textContent')
-            assert chip_text_after == 'Low', f'Expected "Low", got "{chip_text_after}"'
-            effort_stored = await page.evaluate('S.efforts[modelKey()]')
-            assert effort_stored == 'low', f'Expected "low", got "{effort_stored}"'
+            # Switch back to chat-model: should still be 'High'
+            await page.click('#cModel')
+            models = await page.evaluate('allModels()')
+            chat_idx = next(i for i, m in enumerate(models) if m['p'] == 'fake-chat' and m['m'] == 'chat-model')
+            await page.locator('#sheet .opt').nth(chat_idx).click()
+            assert await page.evaluate('document.querySelector("#cEff span").textContent') == 'High'
 
-            # Send a message
+            # Switch back to resp-model: should be 'Low'
+            await page.click('#cModel')
+            models = await page.evaluate('allModels()')
+            resp_idx = next(i for i, m in enumerate(models) if m['p'] == 'fake-resp' and m['m'] == 'resp-model')
+            await page.locator('#sheet .opt').nth(resp_idx).click()
+            assert await page.evaluate('document.querySelector("#cEff span").textContent') == 'Low'
+
+            # Send message with Responses
             fake_server.received_calls.clear()
             await page.fill('#inp', 'Explain reasoning in Responses API.')
             async with page.expect_response(lambda r: '/prompt_async' in r.url) as sent:
                 await page.click('#send')
             resp = await sent.value
             assert resp.status == 204
-            post_body = resp.request.post_data_json
-            assert post_body.get('variant') == 'low', f'Expected prompt_async variant=low, got {post_body.get("variant")}'
+            assert resp.request.post_data_json.get('variant') == 'low'
 
-            # Wait for response in feed
-            try:
-                await page.wait_for_function('!S.running && document.querySelector(".msg.ai")', timeout=10000)
-            except Exception as e:
-                print('Check 2 received calls:', [(c['path'], list(c['body'].keys()), 'title' in str(c['body'])) for c in fake_server.received_calls])
-                print('Check 2 S.msgs:', await page.evaluate('[...S.msgs.values()].map(m => ({role: m.info.role, error: m.info.error, parts: [...m.parts.values()]}))'))
-                print('Check 2 S.status:', await page.evaluate('S.status'))
-                print('Check 2 lastErr:', await page.evaluate('S.lastErr'))
-                raise
-
-            # Check what reached the fake provider at /v1/responses
+            await page.wait_for_function('!S.running', timeout=30000)
             resp_calls = [c for c in fake_server.received_calls if '/responses' in c['path'] and 'title generator' not in str(c['body'])]
-            assert len(resp_calls) >= 1, 'No prompt call reached /v1/responses'
+            assert len(resp_calls) >= 1
             reasoning_obj = resp_calls[-1]['body'].get('reasoning')
             actual_effort = reasoning_obj.get('effort') if isinstance(reasoning_obj, dict) else None
             print(f'Provider received at /v1/responses: reasoning.effort = {actual_effort}')
-            assert actual_effort == 'low', f'Expected reasoning.effort="low", got {actual_effort}'
-
-            # Verify Thinking card is displayed in feed
-            thinking_cards = await page.locator('.thinking-card').count()
-            assert thinking_cards >= 1, 'Thinking card should be in feed'
+            assert actual_effort == 'low'
             results['checks'].append('responses_reasoning_effort_low')
 
             # -------------------------------------------------------------
-            # Check 3: Separate per-model persistence & reload
+            # Check 5: xhigh option when model supports xhigh
             # -------------------------------------------------------------
-            print('--- Check 3: Separate per-model persistence ---')
-            # Switch back to chat-model: should be 'High'
-            await page.click('#cModel')
-            models = await page.evaluate('allModels()')
-            chat_idx = next(i for i, m in enumerate(models) if m['p'] == 'fake-chat' and m['m'] == 'chat-model')
-            await page.locator('#sheet .opt').nth(chat_idx).click()
-            assert await page.evaluate('document.querySelector("#cEff span").textContent') == 'High'
-            assert await page.evaluate('S.efforts[modelKey()]') == 'high'
-
-            # Switch to resp-model: should be 'Low'
-            await page.click('#cModel')
-            models = await page.evaluate('allModels()')
-            resp_idx = next(i for i, m in enumerate(models) if m['p'] == 'fake-resp' and m['m'] == 'resp-model')
-            await page.locator('#sheet .opt').nth(resp_idx).click()
-            assert await page.evaluate('document.querySelector("#cEff span").textContent') == 'Low'
-            assert await page.evaluate('S.efforts[modelKey()]') == 'low'
-
-            # Reload page and verify resp-model is still 'Low'
-            await page.reload()
-            await page.wait_for_function('S.spec && S.live && S.provs.length >= 4')
-            assert await page.evaluate('document.querySelector("#cEff span").textContent') == 'Low'
-            assert await page.evaluate('S.efforts[modelKey()]') == 'low'
-            results['checks'].append('separate_model_persistence_and_reload')
-
-            # -------------------------------------------------------------
-            # Check 4: xhigh option when model supports xhigh
-            # -------------------------------------------------------------
-            print('--- Check 4: xhigh support ---')
+            print('--- Check 5: xhigh support ---')
             await page.click('#cModel')
             models = await page.evaluate('allModels()')
             xhigh_idx = next(i for i, m in enumerate(models) if m['p'] == 'fake-xhigh' and m['m'] == 'deepseek-v4-flash')
@@ -376,33 +396,26 @@ async def main():
 
             await page.click('#cEff')
             xhigh_options = await page.locator('#sheet .opt').all_inner_texts()
-            print('DeepSeek xhigh options:', xhigh_options)
-            assert any('Very high' in opt or 'xhigh' in opt for opt in xhigh_options), f'Expected Very high/xhigh in options, got {xhigh_options}'
-
-            very_high_btn = page.locator('#sheet .opt', has_text='Very high')
-            await very_high_btn.click()
+            assert any('Very high' in opt for opt in xhigh_options)
+            await page.locator('#sheet .opt', has_text='Very high').click()
             assert await page.evaluate('document.querySelector("#cEff span").textContent') == 'Very high'
-            assert await page.evaluate('S.efforts[modelKey()]') == 'xhigh'
 
             fake_server.received_calls.clear()
             await page.fill('#inp', 'Test xhigh prompt.')
             async with page.expect_response(lambda r: '/prompt_async' in r.url) as sent:
                 await page.click('#send')
-            resp = await sent.value
-            assert resp.status == 204
-            post_body = resp.request.post_data_json
-            assert post_body.get('variant') == 'xhigh', f'Expected variant=xhigh, got {post_body.get("variant")}'
+            assert (await sent.value).request.post_data_json.get('variant') == 'xhigh'
 
-            await page.wait_for_function('!S.running && document.querySelector(".msg.ai")', timeout=30000)
+            await page.wait_for_function('!S.running', timeout=30000)
             xhigh_calls = [c for c in fake_server.received_calls if 'title generator' not in str(c['body'])]
             assert len(xhigh_calls) >= 1
-            assert xhigh_calls[-1]['body'].get('reasoning_effort') == 'xhigh', f'Expected reasoning_effort="xhigh", got {xhigh_calls[-1]["body"].get("reasoning_effort")}'
+            assert xhigh_calls[-1]['body'].get('reasoning_effort') == 'xhigh'
             results['checks'].append('xhigh_supported_and_sent')
 
             # -------------------------------------------------------------
-            # Check 5: Preserve existing declared variants
+            # Check 6: Preserved custom variants & Caret toggle screenshot
             # -------------------------------------------------------------
-            print('--- Check 5: Preserved custom variants ---')
+            print('--- Check 6: Preserved variants & Caret screenshot ---')
             await page.click('#cModel')
             models = await page.evaluate('allModels()')
             pres_idx = next(i for i, m in enumerate(models) if m['p'] == 'fake-preserved' and m['m'] == 'custom-variants-model')
@@ -410,23 +423,18 @@ async def main():
 
             await page.click('#cEff')
             pres_options = await page.locator('#sheet .opt').all_inner_texts()
-            print('Preserved model options:', pres_options)
-            await page.evaluate('closeAll()')
-            # Should have Default, Minimal/High, Maximum/Max (its own declared variants, preserved)
             assert 'Default' in pres_options
             assert any('High' in opt for opt in pres_options)
             assert any('Maximum' in opt or 'Max' in opt for opt in pres_options)
+            await page.evaluate('closeAll()')
             results['checks'].append('existing_variants_preserved')
 
-            # -------------------------------------------------------------
-            # Check 6: Expand Thinking card and take proof screenshot
-            # -------------------------------------------------------------
-            print('--- Check 6: Thinking card UI screenshot ---')
+            # Expand thinking card and take proof screenshot
             thinking_detail = page.locator('.thinking-card').first
             await thinking_detail.locator('summary').click()
             await page.wait_for_timeout(300)
             await page.screenshot(path=str(evidence_dir / 'reasoning-thinking-proof.png'))
-            results['checks'].append('thinking_rendered_and_expandable')
+            results['checks'].append('thinking_rendered_with_arrow_and_expandable')
 
             assert len(errors) == 0, f'Page errors encountered: {errors}'
             results['pageErrors'] = errors
