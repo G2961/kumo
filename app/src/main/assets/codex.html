@@ -141,7 +141,7 @@ async function api(path,o={}){
  if(dir&&!path.startsWith('/auth/')&&!path.startsWith('/global/'))u.searchParams.set('directory',dir);
  const r=await fetch(u,{method:o.method||'GET',headers:o.body?{'Content-Type':'application/json'}:{},body:o.body?JSON.stringify(o.body):undefined});
  const t=await r.text();
- if(!r.ok)throw new Error((o.method||'GET')+' '+path+' -> '+r.status+(path.startsWith('/auth/')||path==='/config'?'':' '+redact(t).slice(0,200)));
+ if(!r.ok)throw new Error((o.method||'GET')+' '+path+' -> '+r.status+(path.startsWith('/auth/')||path==='/config'||path==='/global/config'?'':' '+redact(t).slice(0,200)));
  if(!t)return null;
  try{return JSON.parse(t)}catch(e){return t}
 }
@@ -373,16 +373,57 @@ $('#gear').onclick=()=>{
  const rows=NEED.map(([m,p])=>{const ok=specHas(p,m);return `<div class="note" style="margin:2px 0">${S.spec?(ok?'<span class="ok">ok</span>':'<span class="er">MISSING</span>'):'?'} ${m.toUpperCase()} ${esc(p)}</div>`}).join('');
  const perm=S.spec?(specFind(/^\/permission\/\{[^}]+\}\/reply$/,'post')?'POST /permission/{id}/reply':specFind(/\/permissions\//,'post')?'POST /session/{id}/permissions/{pid}':'NONE FOUND'):'unknown';
  sheet(`<h3>Server check</h3>
- <div class="note">Project: ${esc(S.dir||'(server cwd)')}<br>opencode: ${esc((S.health&&S.health.version)||(S.spec&&S.spec.info&&S.spec.info.version)||'?')}<br>/doc: ${S.spec?'loaded':'FAILED '+esc(S.specErr)}<br>SSE: ${S.live?'<span class="ok">live</span>':'<span class="er">not connected (polling)</span>'}<br>Permission reply: ${esc(perm)}</div>
+ <div class="note">Project: ${esc(S.dir||'(server cwd)')}<br>opencode: ${esc((S.health&&S.health.version)||(S.spec&&S.spec.info&&S.spec.info.version)||'?')}<br>/doc: ${S.spec?'loaded':'FAILED '+esc(S.specErr)}<br>SSE: ${S.live?'<span class="ok">live</span>':'<span class="er">not connected (polling)</span>'}<br>Status: ${esc(S.status.type+(S.status.type==='retry'?' '+S.status.attempt+': '+redact(S.status.message):''))}<br>Permission reply: ${esc(perm)}</div>
  ${rows}
  <div class="note">Last errors:</div><pre style="font:11px/1.4 ui-monospace,monospace;white-space:pre-wrap;background:var(--card);padding:8px;border-radius:10px;max-height:20vh;overflow:auto">${esc(S.errors.join('\n')||'none')}</pre>
- <p class="note">Providers and keys are configured in opencode itself, not here.</p>
- <div style="display:flex;gap:8px"><button class="btn p" id="cp">Copy report</button><button class="btn" id="rl">Reload</button></div>`);
+ <p class="note">Provider keys are stored by opencode.</p>
+ <div style="display:flex;gap:8px;flex-wrap:wrap"><button class="btn p" id="pv">Providers</button><button class="btn" id="cp">Copy report</button><button class="btn" id="rl">Reload</button></div>`);
  $('#sheet').onclick=e=>{
+  if(e.target.id==='pv')providerSheet();
   if(e.target.id==='rl')location.reload();
   if(e.target.id==='cp'){const t=$('#sheet').innerText;try{navigator.clipboard.writeText(t)}catch(x){}}
  };
 };
+
+function providerSheet(){
+ const dir=S.dir;
+ const known=S.provs.filter(p=>/router/i.test(p.id)).flatMap(p=>p.models.map(m=>m.id));
+ sheet(`<h3>Providers</h3><p class="note">Connected: ${esc(S.provs.map(p=>p.name).join(', ')||'none')}</p>
+ <label class="fld" for="pi">Provider ID</label><input class="in" id="pi" value="agentrouter" autocomplete="off" spellcheck="false">
+ <label class="fld" for="pu">API base URL</label><input class="in" id="pu" value="https://agentrouter.org/v1" type="url" autocomplete="off" spellcheck="false">
+ <label class="fld" for="pf">API format</label><select class="in" id="pf"><option value="@ai-sdk/openai">Responses</option><option value="@ai-sdk/openai-compatible">Chat Completions</option></select>
+ <label class="fld" for="pm">Model IDs (comma separated)</label><input class="in" id="pm" value="${esc([...new Set(known)].join(', '))}" autocomplete="off" spellcheck="false">
+ <label class="fld" for="pk">API key</label><input class="in" id="pk" type="password" autocomplete="off" autocapitalize="none" spellcheck="false">
+ <p class="note">Settings apply to all projects. Enter model IDs available in your account. Leave the key empty to keep existing authentication. A new provider needs your key before it can answer.</p>
+ <p class="note er" id="pe" role="status"></p><div class="btns"><button class="btn p" id="ps">Save</button><button class="btn" id="pc">Cancel</button></div>`);
+ $('#sheet').onclick=async e=>{
+  if(e.target.id==='pc'){closeAll();return}
+  if(e.target.id!=='ps')return;
+  const save=$('#ps'),error=$('#pe');save.disabled=true;error.textContent='';
+  let key='';
+  try{
+   if(dir!==S.dir)throw new Error('Project changed; open Providers again.');
+   const id=$('#pi').value.trim(),url=new URL($('#pu').value.trim()),npm=$('#pf').value;
+   const ids=[...new Set($('#pm').value.split(/[,\n]/).map(v=>v.trim()).filter(Boolean))];
+   if(!/^[A-Za-z0-9._-]+$/.test(id)||['__proto__','constructor','prototype'].includes(id))throw new Error('Enter a valid provider ID.');
+   if(!['https:','http:'].includes(url.protocol)||url.username||url.password||url.search||url.hash)throw new Error('Enter an API URL without credentials or query parameters.');
+   if(!ids.length||ids.some(v=>/\s/.test(v)||['__proto__','constructor','prototype'].includes(v)))throw new Error('Enter valid model IDs.');
+   const models=Object.fromEntries(ids.map(m=>[m,{name:m}]));
+   const config={provider:{[id]:{name:id,npm,options:{baseURL:url.href.replace(/\/$/,'')},models}}};
+   key=$('#pk').value.trim();$('#pk').value='';
+   if(key&&await api('/auth/'+encodeURIComponent(id),{method:'PUT',body:{type:'api',key}})!==true)throw new Error('opencode did not save authentication.');
+   key='';
+   // 1.19.3 writes PATCH /config to project/config.json, which its loader does not read.
+   await api('/global/config',{method:'PATCH',body:config});
+   if(dir!==S.dir)return;
+   await loadProviders();
+   if(!S.provs.some(p=>p.id===id))throw new Error('Provider was saved but is absent from /config/providers.');
+   S.model={p:id,m:ids[0]};lset('oc_model',S.model);chips();connectSSE();await syncSession();
+   sheet(`<h3>Provider saved</h3><p class="note">${esc(id)} is available in opencode. Select its model in the composer.</p><button class="btn" id="pd">Done</button>`);
+   $('#sheet').onclick=e2=>{if(e2.target.id==='pd')closeAll()};
+  }catch(x){key='';if($('#pk'))$('#pk').value='';error.textContent=redact(x.message);save.disabled=false}
+ };
+}
 
 /* ---------- render ---------- */
 function render(){

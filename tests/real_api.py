@@ -166,6 +166,7 @@ async def run(args):
                 await page.click("#ps")
                 await page.wait_for_function("S.provs.some(p=>p.id==='agentrouter')", timeout=60000)
                 assert args.router_model in await page.evaluate("S.provs.find(p=>p.id==='agentrouter').models.map(m=>m.id)")
+                result['configuredProvider'] = await page.evaluate("(()=>{const p=S.provs.find(p=>p.id==='agentrouter');return {id:p.id,models:p.models.map(m=>m.id)}})()")
                 result["checks"].append("agentrouter_in_real_config_providers_without_key")
                 # Exercise PUT/DELETE on an isolated probe identity. Secret only in memory.
                 import secrets

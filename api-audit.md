@@ -22,3 +22,18 @@
 
 Это сверка контракта и кода, а не доказательство ответа модели.
 События, провайдер и ответ проверяются отдельно настоящим Playwright-тестом.
+
+## Дополнительная находка на настоящем сервере, шаг 5
+
+PATCH `/config` в 1.19.3 возвращает 200 и **эхо запроса**, записывает
+`<directory>/config.json`. Загрузчик проекта читает `opencode.json/jsonc`,
+поэтому последующий GET `/config` не содержит добавленный provider.
+Это воспроизведено настоящим запросом и подтверждено исходниками тега:
+[config.ts](https://github.com/anomalyco/opencode/blob/v1.19.3/packages/opencode/src/config/config.ts),
+[handler](https://github.com/anomalyco/opencode/blob/v1.19.3/packages/opencode/src/server/routes/instance/httpapi/handlers/config.ts).
+
+Форма сохраняет provider через настоящий PATCH `/global/config` (тело Config,
+без directory). Затем проверяет GET `/config/providers`, не полагаясь на 200
+или эхо тела. PUT `/auth/{providerID}` передаёт `{type:"api",key}` отдельно.
+На ПК новый `agentrouter` появился после глобального PATCH; ключ для него
+не вводился. Настройки provider глобальные, что указано в форме.
