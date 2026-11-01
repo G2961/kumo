@@ -2,25 +2,26 @@
 <html lang="en">
 <head>
 <meta charset="utf-8">
-<meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">
+<meta name="viewport" content="width=device-width,initial-scale=1,maximum-scale=1,user-scalable=no,viewport-fit=cover">
 <title>Codex</title>
 <style>
 :root{--bg:#fff;--side:#f4f5fa;--card:#f6f6f9;--line:#e5e6ee;--tx:#16171d;--mut:#8a8c9a;--acc:#16171d;--acctx:#fff;--ok:#1a9d55;--err:#d23b3b;--add:#e6f6ec;--del:#fdeaea;--r:14px;--font-scale:1}
 :root[data-theme="dark"]{color-scheme:dark;--bg:#000;--side:#111;--card:#181818;--line:#303030;--tx:#eee;--mut:#999;--acc:#eee;--acctx:#000;--ok:#50cb86;--err:#f17676;--add:#102a1b;--del:#341718}
 :root:not([data-theme="dark"]){color-scheme:light}
-*{box-sizing:border-box;-webkit-tap-highlight-color:transparent}
+*{box-sizing:border-box;-webkit-tap-highlight-color:transparent;user-select:none;-webkit-user-select:none}
+.msg,.msg *,pre,code,.dl,input,textarea,[contenteditable="true"]{user-select:text;-webkit-user-select:text}
 [hidden]{display:none!important}
-html,body{height:100%;margin:0}
-body{font:calc(15px * var(--font-scale))/1.45 -apple-system,"Segoe UI",Roboto,sans-serif;background:var(--bg);color:var(--tx);overflow:hidden}
-button{font:inherit;color:inherit;background:none;border:0;cursor:pointer;padding:0}
+html,body{height:100%;height:100dvh;margin:0;padding:0;overflow:hidden;overscroll-behavior:none;-webkit-overscroll-behavior:none}
+body{font:calc(15px * var(--font-scale))/1.45 -apple-system,"Segoe UI",Roboto,sans-serif;background:var(--bg);color:var(--tx);overflow:hidden;overscroll-behavior:none;-webkit-overscroll-behavior:none}
+button{font:inherit;color:inherit;background:none;border:0;cursor:pointer;padding:0;-webkit-tap-highlight-color:transparent}
 svg{width:20px;height:20px;stroke:currentColor;fill:none;stroke-width:1.8;stroke-linecap:round;stroke-linejoin:round;flex:none}
-#app{height:100dvh;display:flex;flex-direction:column;position:relative}
+#app{height:100%;height:100dvh;display:flex;flex-direction:column;position:relative;overflow:hidden;overscroll-behavior:none;-webkit-overscroll-behavior:none}
 header{display:flex;align-items:center;gap:6px;padding:8px 10px;padding-top:max(8px,env(safe-area-inset-top));border-bottom:1px solid var(--line)}
 header h1{font-size:calc(15px * var(--font-scale));font-weight:600;margin:0;flex:1;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;padding-left:4px}
 .ib{width:38px;height:38px;border-radius:10px;display:grid;place-items:center}
 .ib:active,.row:active{background:var(--card)}
 .pill{display:flex;align-items:center;gap:5px;border:1px solid var(--line);border-radius:999px;padding:6px 11px;font-size:calc(13px * var(--font-scale))}
-main{flex:1;overflow-y:auto;padding:14px 14px 8px;display:flex;flex-direction:column;gap:10px}
+main{flex:1;overflow-y:auto;overscroll-behavior:contain;-webkit-overflow-scrolling:touch;padding:14px 14px 8px;display:flex;flex-direction:column;gap:10px}
 main>*{flex-shrink:0}
 .home{margin:auto;text-align:center}
 .logo{width:56px;height:56px;margin:0 auto 14px;border-radius:18px;background:var(--card);display:grid;place-items:center}
@@ -42,7 +43,7 @@ main>*{flex-shrink:0}
 .thinking-card summary{cursor:pointer;list-style:none}.thinking-card summary::-webkit-details-marker{display:none}
 .thinking-card summary .caret{transition:transform .2s;display:inline-flex;align-items:center}
 .thinking-card[open] summary .caret{transform:rotate(180deg)}
-.change-preview{max-height:48dvh;overflow:auto}.change-turn{margin:12px 0}.change-turn h4{font-size:13px;margin:8px 0;color:var(--mut);font-weight:500;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.change-preview{max-height:48dvh;overflow:auto;overscroll-behavior:contain;-webkit-overflow-scrolling:touch}.change-turn{margin:12px 0}.change-turn h4{font-size:13px;margin:8px 0;color:var(--mut);font-weight:500;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
 .change-card{margin:6px 0}.change-card .counts{white-space:nowrap;margin-left:auto}.change-source{font-size:11px;color:var(--mut)}
 .btns{display:flex;gap:8px;padding:9px 11px}
 .btn{border-radius:10px;padding:8px 14px;font-size:calc(13px * var(--font-scale));font-weight:600;border:1px solid var(--line)}
@@ -92,7 +93,7 @@ footer{padding:8px 12px;padding-bottom:max(10px,env(safe-area-inset-bottom))}
 .sk-line{height:11px;background:var(--line);border-radius:6px;width:75%;animation:sk-pulse 1.2s ease-in-out infinite}
 .sk-line.short{width:45%}
 @keyframes sk-pulse{0%,100%{opacity:.35}50%{opacity:.8}}
-#sheet{position:absolute;left:0;right:0;bottom:0;background:var(--bg);border-radius:20px 20px 0 0;z-index:7;transform:translateY(105%);transition:.25s;padding:8px 14px max(16px,env(safe-area-inset-bottom));max-height:82dvh;overflow-y:auto;box-shadow:0 -8px 30px rgba(0,0,0,.18)}
+#sheet{position:absolute;left:0;right:0;bottom:0;background:var(--bg);border-radius:20px 20px 0 0;z-index:7;transform:translateY(105%);transition:.25s;padding:8px 14px max(16px,env(safe-area-inset-bottom));max-height:82dvh;overflow-y:auto;overscroll-behavior:contain;-webkit-overflow-scrolling:touch;box-shadow:0 -8px 30px rgba(0,0,0,.18)}
 #sheet.on{transform:none}
 #sheet .grab{width:38px;height:4px;border-radius:2px;background:var(--line);margin:0 auto 10px}
 #sheet h3{margin:4px 0 8px;font-size:calc(16px * var(--font-scale))}

@@ -64,6 +64,7 @@ class MainActivity : ComponentActivity(), LocalRuntime.Listener {
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
+        window.setSoftInputMode(android.view.WindowManager.LayoutParams.SOFT_INPUT_ADJUST_RESIZE)
         sshTools = SshToolsServer(SshConnectionStore(this)) { event ->
             runOnUiThread { if (trustedUi) webview.evaluateJavascript("window.dispatchEvent(new CustomEvent('codex-remote-event',{detail:$event}));", null) }
         }
@@ -140,6 +141,7 @@ class MainActivity : ComponentActivity(), LocalRuntime.Listener {
 
         webview = WebView(this).apply {
             visibility = View.GONE
+            overScrollMode = View.OVER_SCROLL_NEVER
             setBackgroundColor(Color.parseColor("#090A0C"))
         }
         configureWebview(webview)
@@ -151,12 +153,16 @@ class MainActivity : ComponentActivity(), LocalRuntime.Listener {
 
     @SuppressLint("SetJavaScriptEnabled")
     private fun configureWebview(wv: WebView) {
+        wv.overScrollMode = View.OVER_SCROLL_NEVER
         wv.settings.apply {
             javaScriptEnabled = true
             domStorageEnabled = true
             allowFileAccess = false
             allowContentAccess = true
             cacheMode = android.webkit.WebSettings.LOAD_DEFAULT
+            setSupportZoom(false)
+            builtInZoomControls = false
+            displayZoomControls = false
         }
         wv.addJavascriptInterface(MobileBridge(), "CodexNative")
         wv.webViewClient = object : WebViewClient() {
