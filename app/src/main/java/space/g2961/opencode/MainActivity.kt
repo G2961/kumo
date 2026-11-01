@@ -62,6 +62,8 @@ class MainActivity : ComponentActivity(), LocalRuntime.Listener {
     private lateinit var retryButton: Button
     private lateinit var webview: WebView
 
+    private val bridge = MobileBridge()
+
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
         window.setSoftInputMode(android.view.WindowManager.LayoutParams.SOFT_INPUT_ADJUST_RESIZE)
@@ -80,6 +82,7 @@ class MainActivity : ComponentActivity(), LocalRuntime.Listener {
     }
 
     override fun onDestroy() {
+        bridge.shutdown()
         runtime.stop()
         sshTools.stop()
         fileCallback?.onReceiveValue(null)
@@ -164,7 +167,7 @@ class MainActivity : ComponentActivity(), LocalRuntime.Listener {
             builtInZoomControls = false
             displayZoomControls = false
         }
-        wv.addJavascriptInterface(MobileBridge(), "CodexNative")
+        wv.addJavascriptInterface(bridge, "CodexNative")
         wv.webViewClient = object : WebViewClient() {
             override fun onPageStarted(view: WebView?, url: String?, favicon: android.graphics.Bitmap?) {
                 val u = url?.let { Uri.parse(it) }
@@ -229,9 +232,17 @@ class MainActivity : ComponentActivity(), LocalRuntime.Listener {
         folderRequest = null
     }
     private inner class MobileBridge {
+        private val bgExecutor = java.util.concurrent.Executors.newSingleThreadExecutor { r ->
+            Thread(r, "mobile-bridge-worker").apply { isDaemon = true }
+        }
+
+        fun shutdown() {
+            bgExecutor.shutdown()
+        }
+
         @JavascriptInterface fun request(raw: String) {
             if (!trustedUi || raw.length > 2 * 1024 * 1024) return
-            Thread {
+            bgExecutor.execute {
                 var id = ""
                 var action = ""
                 try {
@@ -253,7 +264,7 @@ class MainActivity : ComponentActivity(), LocalRuntime.Listener {
                             JSONObject().put("directory", dir.absolutePath)
                         }
                         "openFolder" -> {
-                            folderRequest = id; runOnUiThread { openFolderPicker() }; return@Thread
+                            folderRequest = id; runOnUiThread { openFolderPicker() }; return@execute
                         }
                         "appearance" -> {
                             runOnUiThread {
@@ -268,7 +279,7 @@ class MainActivity : ComponentActivity(), LocalRuntime.Listener {
                     }
                     nativeResult(id, result)
                 } catch (e: Exception) { if (id.isNotEmpty()) nativeResult(id, JSONObject().put("error", if (action.startsWith("history")) "Git history request failed (${e.javaClass.simpleName})." else RemoteSsh.safeError(e))) }
-            }.start()
+            }
         }
     }
 

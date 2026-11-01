@@ -331,9 +331,15 @@ function onEvent(ev){
   pt[p.field||'text']=(pt[p.field||'text']||'')+p.delta;m.parts.set(p.partID,pt);sched();
  }else if(t==='session.status'){
   if(p.sessionID!==S.sid)return;
-  S.revision++;S.status=p.status||{type:'idle'};S.running=S.status.type!=='idle';setRun();sched();if(!S.running)saveHistory(S.dir,S.sid);
+  S.revision++;S.status=p.status||{type:'idle'};S.running=S.status.type!=='idle';setRun();sched();
  }else if(t==='session.idle'){
-  if(p.sessionID!==S.sid)return;S.revision++;S.status={type:'idle'};S.running=false;setRun();sched();loadSessions().then(()=>{});syncSession();
+  if(p.sessionID!==S.sid)return;
+  const wasRunning=S.running;
+  S.revision++;S.status={type:'idle'};S.running=false;setRun();sched();
+  if(wasRunning){
+   saveHistory(S.dir,S.sid);
+   loadSessions(S.dir).then(()=>{});
+  }
  }else if(t==='session.updated'){
   const i=p.info;if(!i)return;const s=S.sessions.find(x=>x.id===i.id);
   if(s){
@@ -403,12 +409,12 @@ async function syncSession(){
   if(statuses.status==='fulfilled'){S.status=statuses.value[sid]||{type:'idle'};S.running=S.status.type!=='idle'}
   if(permissions.status==='fulfilled')S.perms=new Map((permissions.value||[]).filter(p=>p.sessionID===sid).map(p=>[p.id,p]));
   for(const p of S.perms.values())rememberChangeHint(p);
-  setRun();renderMsgs();if(!S.running)saveHistory(dir,sid);
+  setRun();renderMsgs();
  }catch(e){if(view===S.view)err('messages: '+e.message)}
  finally{if(syncing===view)syncing=null}
 }
 const loadMessages=()=>syncSession();
-setInterval(()=>{if(S.sid&&(S.running||!S.live))syncSession()},5000);
+setInterval(()=>{if(S.sid && !S.live && S.running)syncSession()},5000);
 
 /* ---------- drawer ---------- */
 const ago=t=>{if(!t)return'';const s=(Date.now()-t)/1000;return s<90?'now':s<5400?Math.round(s/60)+'m':s<129600?Math.round(s/3600)+'h':Math.round(s/86400)+'d'};
@@ -424,11 +430,11 @@ function displaySessionTitle(s){
  if(s.title&&!isDefaultTitle(s.title))return s.title;
  return 'New thread';
 }
-const resolvingSessions=new Set();
+const checkedSessions=new Set();
 async function resolveDefaultTitles(dir,list){
- for(const s of (list||[]).slice(0,15)){
-  if(isDefaultTitle(s.title)&&!S.sessionFirstMsg.has(s.id)&&!resolvingSessions.has(s.id)){
-   resolvingSessions.add(s.id);
+ for(const s of (list||[]).slice(0,10)){
+  if(isDefaultTitle(s.title)&&!S.sessionFirstMsg.has(s.id)&&!checkedSessions.has(s.id)){
+   checkedSessions.add(s.id);
    try{
     const msgs=await api('/session/'+encodeURIComponent(s.id)+'/message',{directory:dir});
     if(Array.isArray(msgs)){
@@ -444,7 +450,7 @@ async function resolveDefaultTitles(dir,list){
       if(s.id===S.sid)$('#title').textContent=clean;
      }
     }
-   }catch(e){}finally{resolvingSessions.delete(s.id)}
+   }catch(e){}
   }
  }
 }
@@ -729,7 +735,12 @@ async function persistHistory(directory,sessionID){
   const turns=new Map();
   for(const m of messages)if(m.info.role==='user')turns.set(m.info.id,{id:m.info.id,time:m.info.time.created,title:(m.parts||[]).filter(p=>p.type==='text'&&!p.synthetic).map(p=>p.text).join(' ').slice(0,160),files:[]});
   for(const m of messages){const turn=turns.get(m.info.parentID);if(!turn)continue;for(const p of m.parts||[])turn.files.push(...toolChanges(p))}
-  await historyCall('historyRecord',{directory,sessionID,turns:[...turns.values()].filter(t=>t.files.length)});S.historyErrors.delete(sessionID);
+  const changedTurns=[...turns.values()].filter(t=>t.files.length);
+  if(!changedTurns.length){
+   S.historyFiles=new Map();
+   return;
+  }
+  await historyCall('historyRecord',{directory,sessionID,turns:changedTurns});S.historyErrors.delete(sessionID);
   const stored=await historyCall('historyList',{directory,sessionID});
   if(directory===S.dir&&sessionID===S.sid){
    S.historyFiles=new Map((stored.turns||[]).flatMap(t=>t.files.map(f=>[f.key,{...f,commit:t.commit}])));sched();
