@@ -227,8 +227,10 @@ class MainActivity : ComponentActivity(), LocalRuntime.Listener {
             if (!trustedUi || raw.length > 2 * 1024 * 1024) return
             Thread {
                 var id = ""
+                var action = ""
                 try {
                     val request = JSONObject(raw); id = request.getString("id")
+                    action = request.getString("action")
                     val data = request.optJSONObject("data") ?: JSONObject()
                     val result = when (request.getString("action")) {
                         "projects" -> JSONObject().put("projects", JSONArray(ProjectManager.list(this@MainActivity).map { it.absolutePath }))
@@ -241,6 +243,7 @@ class MainActivity : ComponentActivity(), LocalRuntime.Listener {
                             val dir = File(data.getString("directory"))
                             require(dir.isDirectory && ProjectManager.canRead(dir))
                             ProjectManager.setCurrent(this@MainActivity, dir)
+                            require(runtime.registerProject(dir.absolutePath)) { "Could not register project" }
                             JSONObject().put("directory", dir.absolutePath)
                         }
                         "openFolder" -> {
@@ -255,10 +258,10 @@ class MainActivity : ComponentActivity(), LocalRuntime.Listener {
                             }
                             JSONObject().put("saved", true)
                         }
-                        else -> sshTools.action(request)
+                        else -> if (request.getString("action").startsWith("history")) runtime.changeHistory.action(request) else sshTools.action(request)
                     }
                     nativeResult(id, result)
-                } catch (e: Exception) { if (id.isNotEmpty()) nativeResult(id, JSONObject().put("error", RemoteSsh.safeError(e))) }
+                } catch (e: Exception) { if (id.isNotEmpty()) nativeResult(id, JSONObject().put("error", if (action.startsWith("history")) "Git history request failed (${e.javaClass.simpleName})." else RemoteSsh.safeError(e))) }
             }.start()
         }
     }

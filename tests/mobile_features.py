@@ -8,6 +8,7 @@ import asyncio,base64,codecs,json,os,re,struct,subprocess,zlib
 from urllib.parse import urlsplit
 from pathlib import Path
 from uuid import uuid4
+from history_support import HistoryCore,compile_core
 import asyncssh
 from playwright.async_api import async_playwright
 
@@ -49,7 +50,7 @@ def png():
     return b'\x89PNG\r\n\x1a\n'+chunk(b'IHDR',struct.pack('!2I5B',16,16,8,2,0,0,0))+chunk(b'IDAT',zlib.compress((b'\0'+b'\xff\0\0'*16)*16))+chunk(b'IEND',b'')
 
 async def main():
-    result={'checks':[]};processes=[]
+    result={'checks':[]};processes=[];history_core=None
     def checkpoint(name):
         result['checks'].append(name);print('PASS '+name,flush=True)
     ssh_server=await asyncssh.create_server(Server,'127.0.0.1',0,server_host_keys=[asyncssh.generate_private_key('ssh-rsa',key_size=2048)],process_factory=shell,sftp_factory=lambda ch:asyncssh.SFTPServer(ch,chroot=str(SSHROOT)))
@@ -81,6 +82,7 @@ async def main():
         assert health['healthy'] and health['version']=='1.19.3'
         key_file=TASK/'client-key.pem';key_file.write_bytes(USERKEY.export_private_key('openssh',passphrase=PASSPHRASE))
         project1=TASK/'project-one';project2=TASK/'project-two';project1.mkdir();project2.mkdir()
+        history_core=await HistoryCore.start(compile_core(),[project1,project2])
         note=TASK/'note.txt';note.write_text('ATTACHMENT_FILE_OK',encoding='utf-8')
         image=TASK/'image.png';image.write_bytes(png())
         async with async_playwright() as pw:
@@ -130,8 +132,13 @@ async def main():
                 await page.wait_for_function("!S.running && document.querySelector('.msg.ai')",timeout=90000);assert 'ATTACHMENT_OK' in await page.locator('#main').inner_text()
                 checkpoint('real_prompt_with_files_image_and_reasoning_variant')
             # Desktop bridge transports requests to the actual compiled native service.
+            async def history_request(raw):
+                request=json.loads(raw);data=request['data'];directory=data.pop('directory')
+                return await history_core.request(request['action'],directory,**data)
+            await page.expose_function('testHistoryRequest',history_request)
             await page.evaluate('''({url,token})=>{
               window.CodexNative={request(raw){const request=JSON.parse(raw);if(['appearance','projects','selectProject'].includes(request.action)){window.codexNativeResult(request.id,{});return}
+                if(request.action.startsWith('history')){window.testHistoryRequest(raw).then(value=>window.codexNativeResult(request.id,value)).catch(()=>window.codexNativeResult(request.id,{error:'Test history transport failed.'}));return}
                 fetch(url+'/bridge',{method:'POST',headers:{'Content-Type':'application/json','Authorization':'Bearer '+token},body:raw}).then(r=>r.json()).then(value=>window.codexNativeResult(request.id,value)).catch(()=>window.codexNativeResult(request.id,{error:'Test bridge transport failed.'}));}};
               (async()=>{const r=await fetch(url+'/events',{headers:{Authorization:'Bearer '+token}}),reader=r.body.getReader();let buffer='';const decode=new TextDecoder();while(true){const v=await reader.read();if(v.done)break;buffer+=decode.decode(v.value,{stream:true});let end;while((end=buffer.indexOf('\\n\\n'))>=0){const line=buffer.slice(0,end);buffer=buffer.slice(end+2);if(line.startsWith('data: '))window.dispatchEvent(new CustomEvent('codex-remote-event',{detail:JSON.parse(line.slice(6))}));}}})();
             }''',{'url':f"http://127.0.0.1:{service['port']}",'token':service['token']})
@@ -187,6 +194,7 @@ async def main():
         for p in reversed(processes):
             try:p.wait(timeout=5)
             except subprocess.TimeoutExpired:p.kill()
+        if history_core:await history_core.close()
     (ROOT/'tests/mobile-results.json').write_text(json.dumps(result,indent=2),encoding='utf-8')
     (LOCAL/'mobile-last-task.txt').write_text(str(TASK))
     print(json.dumps(result));return result.get('pass',False)

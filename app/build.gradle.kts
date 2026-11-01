@@ -49,6 +49,7 @@ android {
     packaging {
         resources {
             excludes += "META-INF/versions/**/OSGI-INF/MANIFEST.MF"
+            merges += "META-INF/LICENSE.txt"
         }
         jniLibs {
             useLegacyPackaging = true
@@ -66,4 +67,5 @@ dependencies {
     implementation("androidx.activity:activity-ktx:1.10.0")
     implementation("com.github.mwiede:jsch:0.2.26")
     implementation("org.bouncycastle:bcprov-jdk18on:1.80")
+    implementation("org.eclipse.jgit:org.eclipse.jgit:6.10.0.202406032230-r")
 }

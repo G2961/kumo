@@ -37,6 +37,10 @@ main>*{flex-shrink:0}
 .card pre{margin:0;padding:9px 11px;font:calc(12px * var(--font-scale))/1.5 ui-monospace,Menlo,monospace;overflow-x:auto;white-space:pre}
 .dl{display:block;padding:0 11px;font:calc(12px * var(--font-scale))/1.6 ui-monospace,Menlo,monospace;white-space:pre}
 .dl.a{background:var(--add)}.dl.d{background:var(--del)}
+.change-card summary{cursor:pointer;list-style:none}.change-card summary::-webkit-details-marker{display:none}
+.change-card summary>span:first-of-type{min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;flex:1}
+.change-preview{max-height:48dvh;overflow:auto}.change-turn{margin:12px 0}.change-turn h4{font-size:13px;margin:8px 0;color:var(--mut);font-weight:500;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.change-card{margin:6px 0}.change-card .counts{white-space:nowrap;margin-left:auto}.change-source{font-size:11px;color:var(--mut)}
 .btns{display:flex;gap:8px;padding:9px 11px}
 .btn{border-radius:10px;padding:8px 14px;font-size:calc(13px * var(--font-scale));font-weight:600;border:1px solid var(--line)}
 .btn.p{background:var(--acc);color:var(--acctx);border-color:var(--acc)}
@@ -150,6 +154,8 @@ const S={
  spec:null,specErr:null,health:null
 };
 S.savedProjects=LS('oc_projects')||[];S.attachments=[];S.connections=[];S.connectionID=LS('oc_connection');
+S.changeHints=new Map();S.historyErrors=new Map();S.historyFiles=new Map();
+S.localPolicies=LS('oc_local_policies')||{};
 S.efforts=LS('oc_efforts')||{};S.webSearch=!!LS('oc_web_search');S.remoteRuns=new Map();
 if(S.dir)lset('oc_dir',S.dir);
 
@@ -251,7 +257,7 @@ function onEvent(ev){
   pt[p.field||'text']=(pt[p.field||'text']||'')+p.delta;m.parts.set(p.partID,pt);sched();
  }else if(t==='session.status'){
   if(p.sessionID!==S.sid)return;
-  S.revision++;S.status=p.status||{type:'idle'};S.running=S.status.type!=='idle';setRun();sched();
+  S.revision++;S.status=p.status||{type:'idle'};S.running=S.status.type!=='idle';setRun();sched();if(!S.running)saveHistory(S.dir,S.sid);
  }else if(t==='session.idle'){
   if(p.sessionID!==S.sid)return;S.revision++;S.status={type:'idle'};S.running=false;setRun();sched();loadSessions().then(()=>{});syncSession();
  }else if(t==='session.updated'){
@@ -262,7 +268,7 @@ function onEvent(ev){
   const e=p.error;S.lastErr=redact(e&&(e.data&&e.data.message||e.message||e.name)||'session error');err('session.error: '+S.lastErr);
   S.revision++;S.status={type:'idle'};S.running=false;setRun();sched();
  }else if(t==='permission.asked'){
-  if(p.sessionID!==S.sid)return;S.revision++;S.perms.set(p.id,p);sched();
+  if(p.sessionID!==S.sid)return;rememberChangeHint(p);S.revision++;S.perms.set(p.id,p);sched();
  }else if(t==='permission.replied'){
   if(p.sessionID!==S.sid)return;S.revision++;S.perms.delete(p.requestID);sched();
  }else if(t==='message.removed'){
@@ -277,6 +283,7 @@ function sched(){if(raf)return;raf=requestAnimationFrame(()=>{raf=0;renderMsgs()
 /* ---------- sessions ---------- */
 function resetThread(id=null){
  S.view++;S.revision++;S.sid=id;S.msgs=new Map();S.perms=new Map();S.running=false;
+ S.historyFiles=new Map();
  S.status={type:'idle'};S.lastErr=null;S.pendingUser=null;S.sending=false;setRun();
  S.attachments=[];renderAttachments();
 }
@@ -304,7 +311,8 @@ async function syncSession(){
   if(S.pendingUser&&[...nm.values()].some(m=>m.info.role==='user'&&[...m.parts.values()].some(p=>p.text===S.pendingUser)))S.pendingUser=null;
   if(statuses.status==='fulfilled'){S.status=statuses.value[sid]||{type:'idle'};S.running=S.status.type!=='idle'}
   if(permissions.status==='fulfilled')S.perms=new Map((permissions.value||[]).filter(p=>p.sessionID===sid).map(p=>[p.id,p]));
-  setRun();renderMsgs();
+  for(const p of S.perms.values())rememberChangeHint(p);
+  setRun();renderMsgs();if(!S.running)saveHistory(dir,sid);
  }catch(e){if(view===S.view)err('messages: '+e.message)}
  finally{if(syncing===view)syncing=null}
 }
@@ -338,7 +346,7 @@ async function setDir(d){
  S.dir=d;lset('oc_dir',d);resetThread();S.sessions=[];S.live=false;
  S.savedProjects=[d,...S.savedProjects.filter(p=>p!==d)];lset('oc_projects',S.savedProjects);
  history.replaceState(null,'',location.pathname+'#d='+b64e(d));
- if(window.CodexNative)nativeCall('selectProject',{directory:d}).catch(e=>err(e.message));
+ if(window.CodexNative)await nativeCall('selectProject',{directory:d}).catch(e=>err(e.message));
  if(S.es)S.es.close();render();
  await Promise.allSettled([loadSessions(),loadProviders(),loadProjects()]);if(S.dir!==d)return;connectSSE();render();
 }
@@ -378,30 +386,129 @@ function diffLines(o,n){
  return out.slice(0,200);
 }
 function dl(lines){return lines.map(l=>`<span class="dl ${l[0]==='+'?'a':l[0]==='-'?'d':''}">${esc(l)||' '}</span>`).join('')}
+function patchCounts(patch){
+ let additions=0,deletions=0,old=0,next=0;
+ for(const line of String(patch||'').split('\n')){
+  const hunk=/^@@ -(\d+)(?:,(\d+))? \+(\d+)(?:,(\d+))? @@/.exec(line);
+  if(hunk){old=hunk[2]===undefined?1:+hunk[2];next=hunk[4]===undefined?1:+hunk[4];continue}
+  if(!old&&!next)continue;
+  if(line.startsWith('+')){additions++;next--}else if(line.startsWith('-')){deletions++;old--}else if(line.startsWith(' ')){old--;next--}
+ }
+ return {additions,deletions};
+}
+function changeCounts(d){if(d.unknown)return '<span class="counts m">Reading history…</span>';return `<span class="counts">${d.additions?`<span class="ok">+${d.additions}</span>`:''}${d.additions&&d.deletions?' ':''}${d.deletions?`<span class="er">−${d.deletions}</span>`:''}${!d.additions&&!d.deletions?'<span class="m">0</span>':''}</span>`}
+function changeBubble(d,attributes=''){
+ const counts=d.unknown?d:d.additions==null?patchCounts(d.patch):d;
+ if(d.commit)attributes+=` data-history-commit="${esc(d.commit)}" data-history-key="${esc(d.key)}"`;
+ return `<details class="card change-card" ${attributes}><summary class="ch">${I.file}<span title="${esc(d.file||'File')}">${esc(d.file||'File')}</span>${d.source==='ssh'?'<small class="change-source">SSH</small>':''}${changeCounts(counts)}</summary><div class="change-preview">${d.patch?dl(d.patch.split('\n')):''}</div></details>`;
+}
+function changeKey(p){return p.messageID+':'+p.callID}
+function toolChanges(p){
+ const st=p.state||{},meta=st.metadata||{},input=st.input||{},key=changeKey(p);
+ if(p.type!=='tool'||st.status!=='completed')return [];
+ if(p.tool==='mobile_ssh_ssh_write_file'){
+  let result={};try{result=JSON.parse(st.output||'{}')}catch(e){}
+  return result.patch?[{key,file:result.path||input.path,patch:result.patch,source:'ssh',connectionID:input.connection_id}]:[];
+ }
+ if(!['write','edit','patch','apply_patch','multiedit'].includes(p.tool))return [];
+ if(Array.isArray(meta.files))return meta.files.filter(f=>f.patch).map((f,i)=>({key:key+':'+i,file:f.filePath||f.relativePath,patch:f.patch,source:'local'}));
+ const hint=S.changeHints.get(key),file=input.filePath||input.path||meta.filepath||hint?.file;
+ const patch=meta.diff||hint?.patch;
+ if(patch)return [{key,file,patch,source:'local'}];
+ if(p.tool==='write'&&meta.exists===false&&input.content){
+  const lines=String(input.content).replace(/\n$/,'').split('\n');
+  return [{key,file,source:'local',patch:`--- /dev/null\n+++ ${file}\n@@ -0,0 +1,${lines.length} @@\n`+lines.map(l=>'+'+l).join('\n')+'\n'}];
+ }
+ // A write tool's final metadata omits its diff; the approved hint is kept by Kotlin.
+ return [{key,file,patch:'',source:'local'}];
+}
+const historyQueues=new Map(),historySaving=new Map();
+function historyCall(action,data){
+ const key=data.directory+'\n'+(data.sessionID||'');
+ const job=(historyQueues.get(key)||Promise.resolve()).catch(()=>{}).then(()=>nativeCall(action,data));
+ historyQueues.set(key,job);job.finally(()=>{if(historyQueues.get(key)===job)historyQueues.delete(key)}).catch(()=>{});return job;
+}
+function rememberChangeHint(p){
+ if(!p.tool||!p.metadata?.diff)return;
+ const key=p.tool.messageID+':'+p.tool.callID;
+ S.changeHints.set(key,{file:p.metadata.filepath,patch:p.metadata.diff});
+ if(window.CodexNative)historyCall('historyHint',{directory:S.dir,sessionID:p.sessionID,key,patch:p.metadata.diff}).catch(e=>S.historyErrors.set(p.sessionID,e.message));
+}
+async function persistHistory(directory,sessionID){
+ if(!window.CodexNative||!sessionID)return;
+ const key=directory+'\n'+sessionID;if(historySaving.has(key))return historySaving.get(key);
+ const work=(async()=>{
+  const statuses=await api('/session/status',{directory});if(statuses[sessionID]?.type&&statuses[sessionID].type!=='idle')return;
+  const messages=await api('/session/'+sessionID+'/message',{directory});
+  const turns=new Map();
+  for(const m of messages)if(m.info.role==='user')turns.set(m.info.id,{id:m.info.id,time:m.info.time.created,title:(m.parts||[]).filter(p=>p.type==='text'&&!p.synthetic).map(p=>p.text).join(' ').slice(0,160),files:[]});
+  for(const m of messages){const turn=turns.get(m.info.parentID);if(!turn)continue;for(const p of m.parts||[])turn.files.push(...toolChanges(p))}
+  await historyCall('historyRecord',{directory,sessionID,turns:[...turns.values()].filter(t=>t.files.length)});S.historyErrors.delete(sessionID);
+  const stored=await historyCall('historyList',{directory,sessionID});
+  if(directory===S.dir&&sessionID===S.sid){
+   S.historyFiles=new Map((stored.turns||[]).flatMap(t=>t.files.map(f=>[f.key,{...f,commit:t.commit}])));sched();
+  }
+ })();
+ historySaving.set(key,work);try{return await work}finally{if(historySaving.get(key)===work)historySaving.delete(key)}
+}
+function saveHistory(directory,sessionID){persistHistory(directory,sessionID).catch(e=>S.historyErrors.set(sessionID,e.message))}
+function configuredRules(value){
+ if(typeof value==='string')return [{permission:'*',pattern:'*',action:value}];
+ if(!value||typeof value!=='object')return [];
+ return Object.entries(value).flatMap(([permission,v])=>typeof v==='string'?[{permission,pattern:'*',action:v}]:Object.entries(v||{}).map(([pattern,action])=>({permission,pattern,action})));
+}
+function permissionNameMatches(pattern,name){return new RegExp('^'+String(pattern).split('*').map(s=>s.replace(/[.*+?^${}()|[\]\\]/g,'\\$&')).join('.*')+'$').test(name)}
+async function localPolicy(sid,directory){
+ const key=directory+'\n'+sid;
+ if(!S.localPolicies[key]){
+  const session=await api('/session/'+sid,{directory}),rules=session.permission||[];
+  const own=rules.findIndex((r,i)=>r.permission==='websearch'&&rules[i+1]?.permission==='mobile_ssh_ssh_connections');
+  S.localPolicies[key]=own<0?rules:rules.slice(0,own);lset('oc_local_policies',S.localPolicies);
+ }
+ return S.localPolicies[key];
+}
+async function restoreLocalRules(sid,directory,agent){
+ const baseline=await localPolicy(sid,directory);
+ const config=await api('/config',{directory});
+ const base=[{permission:'*',pattern:'*',action:'allow'},
+  {permission:'read',pattern:'*.env',action:'ask'},{permission:'read',pattern:'*.env.*',action:'ask'},{permission:'read',pattern:'*.env.example',action:'allow'},
+  ...configuredRules(config.permission),...configuredRules(config.agent?.[agent]?.permission),...baseline];
+ return ['bash','read','write','edit','apply_patch','glob','grep','task'].flatMap(permission=>{
+  const rules=base.filter(r=>permissionNameMatches(r.permission,permission)).map(r=>({permission,pattern:r.pattern,action:r.action}));
+  if(['write','edit','apply_patch'].includes(permission)){
+   if(agent==='plan')return [{permission,pattern:'*',action:'deny'}];
+   return rules.map(r=>({...r,action:r.action==='allow'?'ask':r.action}));
+  }
+  return rules;
+ });
+}
 $('#commit').onclick=async()=>{
  if(!S.sid){sheet('<h3>Changes</h3><p class="note">Open a thread first.</p>');return}
- const sid=S.sid,dir=S.dir,view=S.view;
+ const sessionID=S.sid,directory=S.dir,view=S.view;
+ sheet('<h3>Changes</h3><p class="note">Reading Git history…</p>');$('#sheet').onclick=null;
  try{
-  let r=await api('/session/'+sid+'/diff',{directory:dir});if(view!==S.view||sid!==S.sid)return;
-  let fromTools=false;
-  if(!Array.isArray(r)||!r.length){
-   r=[];fromTools=true;
-   for(const m of S.msgs.values())for(const p of m.parts.values()){
-    const st=p.state||{},meta=st.metadata||{};if(p.type!=='tool'||st.status!=='completed')continue;
-    if(Array.isArray(meta.files)&&meta.files.some(f=>typeof f.patch==='string')){
-     meta.files.filter(f=>typeof f.patch==='string').forEach(f=>r.push({file:f.relativePath||f.filePath,patch:f.patch,additions:f.additions,deletions:f.deletions}));
-    }else if(typeof meta.diff==='string'&&meta.diff){
-     const input=st.input||{};r.push({file:input.filePath||input.path||st.title||p.tool,patch:meta.diff});
-    }
-   }
-  }
-  if(!Array.isArray(r)||!r.length){sheet('<h3>Changes</h3><p class="note">No file changes in this thread.</p>');return}
-  sheet('<h3>Changes</h3>'+(fromTools?'<p class="note">Changes reported by tools</p>':'')+'<div style="max-height:60vh;overflow-y:auto">'+r.map((d,i)=>`<button class="opt" data-i="${i}">${I.file}${esc(d.file)}<span class="m"><span class="ok">+${d.additions||0}</span> <span class="er">-${d.deletions||0}</span></span></button>`).join('')+'</div>');
-  $('#sheet').onclick=e=>{const b=e.target.closest('.opt');if(!b)return;const d=r[b.dataset.i];
-   sheet(`<h3>${esc(d.file||'Changes')}</h3><div class="card" style="max-height:60vh;overflow:auto">${dl(typeof d.patch==='string'?d.patch.split('\n'):[])}</div><div class="btns"><button class="btn" id="bk">Back</button></div>`);
-   $('#sheet').onclick=e2=>{if(e2.target.id==='bk')$('#commit').onclick()};
-  };
- }catch(e){sheet('<h3>Changes</h3><p class="note er">'+esc(e.message)+'</p>')}
+  if(!window.CodexNative)throw new Error('Git history is available in the Android app.');
+  await persistHistory(directory,sessionID);
+  const r=await historyCall('historyList',{directory,sessionID});if(view!==S.view)return;
+  if(!r.turns?.length){sheet('<h3>Changes</h3><p class="note">No recorded agent edits in this thread.</p>');return}
+  const groups=r.turns.map((turn,index)=>{
+   const files=new Map();for(const f of turn.files){const key=f.source+'\n'+f.connectionID+'\n'+f.file;const row=files.get(key)||{...f,additions:0,deletions:0};row.additions+=f.additions;row.deletions+=f.deletions;files.set(key,row)}
+   return {turn,files:[...files.values()]};
+  });
+  sheet('<h3>Changes</h3>'+groups.map((g,i)=>`<section class="change-turn"><h4>Turn ${groups.length-i} · ${esc(g.turn.title||'Agent edits')}</h4>`+g.files.map((f,n)=>changeBubble(f,`data-turn="${i}" data-file="${n}"`)).join('')+'</section>').join(''));
+  const cache=new Map();
+  $('#sheet').querySelectorAll('details').forEach(detail=>detail.addEventListener('toggle',async()=>{
+   if(!detail.open||detail.dataset.loaded)return;
+   const group=groups[+detail.dataset.turn],file=group.files[+detail.dataset.file];
+   const preview=detail.querySelector('.change-preview');preview.textContent='Reading patch…';
+   try{
+    if(!cache.has(group.turn.commit))cache.set(group.turn.commit,historyCall('historyShow',{directory,sessionID,commit:group.turn.commit}));
+    const entry=await cache.get(group.turn.commit);
+    const patches=entry.files.filter(f=>f.file===file.file&&f.source===file.source&&f.connectionID===file.connectionID);
+    preview.innerHTML=patches.map(p=>dl(p.patch.split('\n'))).join('');detail.dataset.loaded='true';
+   }catch(e){preview.textContent=e.message}
+  }));
+ }catch(e){if(view===S.view)sheet('<h3>Changes</h3><p class="note er">'+esc(e.message)+'</p>')}
 };
 /* ---------- mobile preferences and native services ---------- */
 const nativePending=new Map();
@@ -577,7 +684,7 @@ function remoteEvent(e){
 function remoteCard(r){
  const connection=S.connections.find(c=>c.id===r.connectionID)?.name||'SSH';
  const status=r.status==='completed'?'<span class="m ok">done</span>':r.status==='error'?'<span class="m er">error</span>':'<span class="m"><span class="spin" style="display:inline-block"></span></span>';
- if(r.kind==='write')return `<div class="card"><div class="ch">${I.file}<span>${esc(r.path)}</span>${status}</div><div style="max-height:240px;overflow:auto">${dl((r.patch||'').split('\n'))}</div></div>`;
+ if(r.kind==='write')return changeBubble({file:r.path,patch:r.patch,additions:r.additions,deletions:r.deletions,source:'ssh'});
  return `<div class="card"><div class="ch">${I.term}<span>${esc(connection)}</span>${status}</div><pre style="max-height:260px;overflow:auto">$ ${esc(r.command||'Remote command')}\n${esc(redact((r.stdout||'')+(r.stderr?'\n'+r.stderr:'')))}</pre></div>`;
 }
 function remoteToolCard(p){
@@ -618,6 +725,12 @@ function toolCard(p){
   return `<div class="card">${head(I.term,st.title||'Ran command')}<pre style="${box}">$ ${esc(inp.command||'')}\n${esc(String(out).slice(0,4000))}</pre></div>`;
  }
  if(tool==='edit'||tool==='write'||tool==='patch'||tool==='apply_patch'||tool==='multiedit'){
+  if(st.status==='completed'){
+   const stored=S.historyFiles.get(changeKey(p));if(stored)return changeBubble(stored);
+   const changes=toolChanges(p).filter(c=>c.patch);
+   if(changes.length)return changes.map(c=>changeBubble(c)).join('');
+   return changeBubble({file:inp.filePath||inp.path||meta.filepath||st.title||tool,unknown:true});
+  }
   const file=inp.filePath||inp.path||meta.filepath||st.title||tool;
   let lines=[];
   if(typeof meta.diff==='string'&&meta.diff)lines=meta.diff.split('\n').filter(l=>!/^(---|\+\+\+|Index:|=+$|@@)/.test(l));
@@ -666,6 +779,16 @@ function renderMsgs(force){
  m.innerHTML=h;
  if(near)m.scrollTop=m.scrollHeight;
 }
+$('#main').addEventListener('toggle',async e=>{
+ const card=e.target;if(!card.matches('details[data-history-commit]')||!card.open||card.dataset.loaded)return;
+ const view=S.view,preview=card.querySelector('.change-preview');preview.textContent='Reading patch…';
+ try{
+  const entry=await historyCall('historyShow',{directory:S.dir,sessionID:S.sid,commit:card.dataset.historyCommit});
+  if(view!==S.view||!card.isConnected)return;
+  const file=entry.files.find(f=>f.key===card.dataset.historyKey);if(!file)throw new Error('Patch not found.');
+  preview.innerHTML=dl(file.patch.split('\n'));card.dataset.loaded='true';
+ }catch(error){if(view===S.view&&card.isConnected)preview.textContent=error.message}
+},true);
 $('#main').onclick=async e=>{
  const b=e.target.closest('[data-r]');if(!b)return;
  const c=b.closest('[data-pid]'),p=S.perms.get(c.dataset.pid);if(!p)return;
@@ -694,6 +817,7 @@ async function submit(){
  const files=S.attachments.map(({size,...part})=>part),connection=selectedConnection();
  $('#inp').value='';autosize();S.lastErr=null;S.sending=true;
  try{
+  if(window.CodexNative)await historyCall('historyRegister',{directory:dir});
   if(!S.sid){
    const s=await api('/session',{method:'POST',body:{},directory:dir});if(view!==S.view||dir!==S.dir)return;
    S.sid=s.id;S.sessions.unshift(s);S.msgs=new Map();$('#title').textContent=s.title||'New thread';
@@ -712,8 +836,11 @@ async function submit(){
   if(S.webSearch)body.system=(body.system||'')+' Use the websearch tool when web information is needed.';
   // prompt_async's deprecated tools booleans turn enabled tools into "allow".
   // Explicit session rules keep remote commands and file writes behind approval.
+  await localPolicy(sid,dir);
   const permission=Object.entries(body.tools).map(([tool,enabled])=>({permission:tool,pattern:'*',action:enabled?(['mobile_ssh_ssh_exec','mobile_ssh_ssh_write_file'].includes(tool)?'ask':'allow'):'deny'}));
+  if(!connection)permission.push(...await restoreLocalRules(sid,dir,body.agent));
   delete body.tools;
+  if(view!==S.view||dir!==S.dir)return;
   await api('/session/'+sid,{method:'PATCH',body:{permission},directory:dir});
   if(view!==S.view||dir!==S.dir)return;
   S.attachments=[];renderAttachments();S.pendingUser=v||'Attached files';

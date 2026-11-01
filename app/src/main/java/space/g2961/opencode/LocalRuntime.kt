@@ -17,6 +17,8 @@ import java.util.concurrent.TimeUnit
 
 class LocalRuntime(private val context: Context, private val sshTools: SshToolsServer) {
 
+    val changeHistory = ChangeHistory { ProjectManager.list(context) }
+
     enum class State { PREPARING, STARTING, READY, STOPPED, FAILED }
 
     interface Listener {
@@ -397,6 +399,8 @@ class LocalRuntime(private val context: Context, private val sshTools: SshToolsS
         val pw = password
         if (p == 0) return false
         return try {
+            ProjectManager.remember(context, File(directory))
+            changeHistory.register(directory)
             val enc = java.net.URLEncoder.encode(directory, "UTF-8")
             val conn = URL("http://127.0.0.1:$p/project/current?directory=$enc")
                 .openConnection() as HttpURLConnection
