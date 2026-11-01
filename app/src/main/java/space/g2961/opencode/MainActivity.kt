@@ -187,10 +187,16 @@ class MainActivity : ComponentActivity(), LocalRuntime.Listener {
                 val u = request?.url ?: return null
                 if (u.host == "127.0.0.1" && u.path == "/_ui/index.html") {
                     return try {
+                        val devFile = getExternalFilesDir(null)?.resolve("codex.html")
+                        val stream = if (devFile != null && devFile.exists() && devFile.isFile && devFile.canRead()) {
+                            devFile.inputStream()
+                        } else {
+                            assets.open("codex.html")
+                        }
                         WebResourceResponse(
                             "text/html", "utf-8", 200, "OK",
                             mapOf("Cache-Control" to "no-store"),
-                            assets.open("codex.html")
+                            stream
                         )
                     } catch (_: Throwable) {
                         null

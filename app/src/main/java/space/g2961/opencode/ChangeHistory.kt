@@ -184,7 +184,7 @@ class ChangeHistory(private val registered: () -> List<File>) {
                 require(key.length in 1..256 && hints.length() < 1024) { "Invalid change hint" }
                 hints.put(key, compact(data.getString("patch")))
                 require(hints.toString().toByteArray(UTF_8).size <= 2 * 1024 * 1024) { "History hint cache is full" }
-                hintsFile.parentFile.mkdirs(); hintsFile.writeText(hints.toString(), UTF_8)
+                hintsFile.parentFile?.mkdirs(); hintsFile.writeText(hints.toString(), UTF_8)
                 return JSONObject().put("saved", true)
             }
             val head = repo.resolve(branch)

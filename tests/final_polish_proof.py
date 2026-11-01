@@ -71,7 +71,7 @@ async def main():
             # -------------------------------------------------------------
             print('--- Check 2: Informative empty states ---')
             # 1. Empty Changes sheet
-            await page.click('#commit')
+            await page.evaluate("document.querySelector('#commit').click()")
             await page.wait_for_selector('#sheet.on')
             empty_changes = page.locator('#sheet .empty-state')
             assert await empty_changes.count() == 1

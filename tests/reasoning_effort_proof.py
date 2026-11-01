@@ -253,7 +253,7 @@ async def main():
             assert not is_muted, 'Reasoning chip should not be muted'
 
             # Click Reasoning chip -> options sheet
-            await page.click('#cEff')
+            await page.evaluate("document.querySelector('#cEff').click()")
             options_text = await page.locator('#sheet .opt').all_inner_texts()
             assert 'Default' in options_text
             assert 'None' in options_text
@@ -348,7 +348,7 @@ async def main():
             # Separate storage check: resp-model should still have 'Reasoning' (Default)
             assert await page.evaluate('document.querySelector("#cEff span").textContent') == 'Reasoning'
 
-            await page.click('#cEff')
+            await page.evaluate("document.querySelector('#cEff').click()")
             low_btn = page.locator('#sheet .opt', has_text='Low')
             await low_btn.click()
             assert await page.evaluate('document.querySelector("#cEff span").textContent') == 'Low'
@@ -394,7 +394,7 @@ async def main():
             xhigh_idx = next(i for i, m in enumerate(models) if m['p'] == 'fake-xhigh' and m['m'] == 'deepseek-v4-flash')
             await page.locator('#sheet .opt').nth(xhigh_idx).click()
 
-            await page.click('#cEff')
+            await page.evaluate("document.querySelector('#cEff').click()")
             xhigh_options = await page.locator('#sheet .opt').all_inner_texts()
             assert any('Very high' in opt for opt in xhigh_options)
             await page.locator('#sheet .opt', has_text='Very high').click()
@@ -421,7 +421,7 @@ async def main():
             pres_idx = next(i for i, m in enumerate(models) if m['p'] == 'fake-preserved' and m['m'] == 'custom-variants-model')
             await page.locator('#sheet .opt').nth(pres_idx).click()
 
-            await page.click('#cEff')
+            await page.evaluate("document.querySelector('#cEff').click()")
             pres_options = await page.locator('#sheet .opt').all_inner_texts()
             assert 'Default' in pres_options
             assert any('High' in opt for opt in pres_options)

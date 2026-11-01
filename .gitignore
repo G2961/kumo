@@ -10,3 +10,5 @@ captures/
 
 app/src/main/jniLibs/
 app/src/main/assets/rootfs.tgz
+tests/__pycache__/
+tests/mobile-results.json
