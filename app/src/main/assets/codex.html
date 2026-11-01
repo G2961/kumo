@@ -38,6 +38,31 @@ main>*{flex-shrink:0}
 .card pre{margin:0;padding:9px 11px;font:calc(12px * var(--font-scale))/1.5 ui-monospace,Menlo,monospace;overflow-x:auto;white-space:pre}
 .dl{display:block;padding:0 11px;font:calc(12px * var(--font-scale))/1.6 ui-monospace,Menlo,monospace;white-space:pre}
 .dl.a{background:var(--add)}.dl.d{background:var(--del)}
+.collapsible-output{position:relative}
+.collapsed-pre{max-height:160px;overflow:hidden!important}
+.show-more-btn{display:block;width:100%;padding:6px;font-size:calc(11px * var(--font-scale));color:var(--mut);background:var(--card);border:0;border-top:1px solid var(--line);text-align:center;cursor:pointer}
+.show-more-btn:active{color:var(--tx)}
+.code-block{border:1px solid var(--line);border-radius:10px;overflow:hidden;margin:8px 0}
+.code-head{display:flex;align-items:center;justify-content:space-between;padding:6px 10px;background:var(--card);font-size:calc(11px * var(--font-scale));color:var(--mut);border-bottom:1px solid var(--line)}
+.copy-btn{font-size:calc(11px * var(--font-scale));color:var(--mut);cursor:pointer;padding:2px 6px;border-radius:4px;border:1px solid var(--line);background:var(--bg)}
+.copy-btn:active{color:var(--tx)}
+.table-wrap{overflow-x:auto;margin:8px 0;border:1px solid var(--line);border-radius:10px}
+table{width:100%;border-collapse:collapse;font-size:calc(13px * var(--font-scale))}
+th,td{padding:7px 10px;border-bottom:1px solid var(--line);text-align:left}
+th{background:var(--card);font-weight:600}
+tr:last-child td{border-bottom:0}
+.ssh-badge{background:var(--card);border:1px solid var(--line);font-size:calc(10px * var(--font-scale));padding:2px 6px;border-radius:4px;color:var(--mut);margin-left:6px;font-weight:normal}
+.tool-action{font-weight:500;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.error-card{border-color:var(--err)}
+.er-body{color:var(--err);background:var(--del);padding:8px 10px;margin:0;font-size:calc(12px * var(--font-scale));overflow-x:auto;white-space:pre-wrap}
+.diff-line{display:flex;font:calc(12px * var(--font-scale))/1.6 ui-monospace,Menlo,monospace;white-space:pre}
+.diff-line.a{background:var(--add)}
+.diff-line.d{background:var(--del)}
+.diff-num{width:36px;text-align:right;padding-right:8px;color:var(--mut);user-select:none;flex:none}
+.diff-sign{width:16px;text-align:center;color:var(--mut);user-select:none;flex:none}
+.diff-line.a .diff-sign{color:var(--ok);font-weight:600}
+.diff-line.d .diff-sign{color:var(--err);font-weight:600}
+.diff-text{flex:1;overflow-x:auto}
 .change-card summary{cursor:pointer;list-style:none}.change-card summary::-webkit-details-marker{display:none}
 .change-card summary>span:first-of-type{min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;flex:1}
 .thinking-card summary{cursor:pointer;list-style:none}.thinking-card summary::-webkit-details-marker{display:none}
@@ -552,7 +577,31 @@ function diffLines(o,n){
  b.forEach(l=>out.push((sa.has(l)?' ':'+')+l));
  return out.slice(0,200);
 }
-function dl(lines){return lines.map(l=>`<span class="dl ${l[0]==='+'?'a':l[0]==='-'?'d':''}">${esc(l)||' '}</span>`).join('')}
+function formatDiff(patch){
+ const lines=Array.isArray(patch)?patch:String(patch||'').split('\n');
+ let oldL=0,newL=0;
+ const out=[];
+ for(const line of lines){
+  const hunk=/^@@ -(\d+)(?:,\d+)? \+(\d+)(?:,\d+)? @@/.exec(line);
+  if(hunk){
+   oldL=parseInt(hunk[1],10);
+   newL=parseInt(hunk[2],10);
+   continue;
+  }
+  if(line.startsWith('---')||line.startsWith('+++'))continue;
+  if(line.startsWith('+')){
+   out.push(`<div class="diff-line dl a"><span class="diff-num">${newL++}</span><span class="diff-sign">+</span><span class="diff-text">${esc(line.slice(1))||' '}</span></div>`);
+  }else if(line.startsWith('-')){
+   out.push(`<div class="diff-line dl d"><span class="diff-num">${oldL++}</span><span class="diff-sign">&minus;</span><span class="diff-text">${esc(line.slice(1))||' '}</span></div>`);
+  }else{
+   const txt=line.startsWith(' ')?line.slice(1):line;
+   out.push(`<div class="diff-line dl c"><span class="diff-num">${(newL++)||''}</span><span class="diff-sign">&nbsp;</span><span class="diff-text">${esc(txt)||' '}</span></div>`);
+   oldL++;
+  }
+ }
+ return out.join('')||'<div class="note m" style="padding:4px 8px">No changes</div>';
+}
+function dl(lines){return formatDiff(lines)}
 function patchCounts(patch){
  let additions=0,deletions=0,old=0,next=0;
  for(const line of String(patch||'').split('\n')){
@@ -911,19 +960,59 @@ function remoteEvent(e){
 }
 function remoteCard(r){
  const connection=S.connections.find(c=>c.id===r.connectionID)?.name||'SSH';
- const status=r.status==='completed'?'<span class="m ok">done</span>':r.status==='error'?'<span class="m er">error</span>':'<span class="m"><span class="spin" style="display:inline-block"></span></span>';
+ const hostBadge=`<span class="badge ssh-badge">${esc(connection)}</span>`;
+ const isErr=r.status==='error';
+ const isRunning=r.status==='running';
+ const statusBadge=isErr?'<span class="m er">Failed</span>':isRunning?'<span class="m"><span class="spin" style="display:inline-block"></span>Running</span>':'<span class="m ok">Completed</span>';
  if(r.kind==='write')return changeBubble({file:r.path,patch:r.patch,additions:r.additions,deletions:r.deletions,source:'ssh'});
- return `<div class="card"><div class="ch">${I.term}<span>${esc(connection)}</span>${status}</div><pre style="max-height:260px;overflow:auto">$ ${esc(r.command||'Remote command')}\n${esc(redact((r.stdout||'')+(r.stderr?'\n'+r.stderr:'')))}</pre></div>`;
+ const out=(r.stdout||'')+(r.stderr?'\n'+r.stderr:'');
+ const shortOut=out.length>400||out.split('\n').length>8;
+ return `<div class="card"><div class="ch">${I.term}<span class="tool-action">${esc(r.command||'Remote command')}</span>${hostBadge}${statusBadge}</div><div class="collapsible-output"><pre class="${shortOut?'collapsed-pre':''}">$ ${esc(r.command||'')}\n${esc(redact(out))}</pre>${shortOut?'<button class="show-more-btn" onclick="togglePre(this)">Show more</button>':''}</div></div>`;
 }
-function remoteToolCard(p){
+function remoteToolCard(p,claimedRuns){
  if(!p.tool?.startsWith('mobile_ssh_'))return null;
- const st=p.state||{},input=st.input||{};let result={};try{result=JSON.parse(st.output||'{}')}catch(x){}
- const runs=[...S.remoteRuns.values()].filter(r=>r.sessionID===S.sid&&r.connectionID===input.connection_id).reverse();
- const run=runs.find(r=>r.id===result.runID||(p.tool.endsWith('_ssh_exec')&&r.command===input.command)||(p.tool.endsWith('_ssh_write_file')&&r.path&&(r.path===input.path||r.path.endsWith('/'+input.path))));
- if(run)S.renderedRemoteRuns?.add(run.id);
- if(p.tool.endsWith('_ssh_exec'))return remoteCard(st.status==='completed'?{...run,...result,kind:'exec',connectionID:input.connection_id,status:'completed'}:{...run,kind:'exec',command:input.command,connectionID:input.connection_id,status:st.status});
- if(p.tool.endsWith('_ssh_write_file'))return remoteCard(st.status==='completed'?{...run,...result,kind:'write',status:'completed'}:{...run,kind:'write',path:input.path,status:st.status});
- return `<div class="card"><div class="ch">${I.file}<span>${esc(p.tool.endsWith('_ssh_read_file')?input.path||'Read remote file':'SSH connections')}</span><span class="m">${esc(st.status||'pending')}</span></div></div>`;
+ const st=p.state||{},input=st.input||{};
+ let result={};try{result=JSON.parse(st.output||'{}')}catch(x){}
+ const toolRunID=result.runID||p.callID;
+ const runs=[...S.remoteRuns.values()].filter(r=>r.sessionID===S.sid&&r.connectionID===input.connection_id&&!claimedRuns?.has(r.id));
+ let run=toolRunID?runs.find(r=>r.id===toolRunID):null;
+ if(!run){
+  if(p.tool.endsWith('_ssh_exec'))run=runs.find(r=>r.kind==='exec'&&r.command===input.command);
+  else if(p.tool.endsWith('_ssh_write_file'))run=runs.find(r=>r.kind==='write'&&r.path&&(r.path===input.path||r.path.endsWith('/'+input.path)));
+ }
+ if(run){
+  claimedRuns?.add(run.id);
+  S.renderedRemoteRuns?.add(run.id);
+ }
+ const host=S.connections.find(c=>c.id===input.connection_id)?.name||'SSH';
+ const hostBadge=`<span class="badge ssh-badge">${esc(host)}</span>`;
+ const isErr=st.status==='error'||!!st.error;
+ const isRunning=st.status==='running'||st.status==='in_progress';
+ const statusBadge=isErr?'<span class="m er">Failed</span>':isRunning?'<span class="m"><span class="spin" style="display:inline-block;vertical-align:middle"></span>Running</span>':'<span class="m ok">Completed</span>';
+ 
+ if(p.tool.endsWith('_ssh_exec')){
+  const cmd=input.command||'';
+  const out=(run?.stdout||'')+(run?.stderr?'\n'+run.stderr:'')||(result.stdout||'')+(result.stderr?'\n'+result.stderr:'')||st.error||'';
+  const shortOut=out.length>400||out.split('\n').length>8;
+  return `<div class="card"><div class="ch">${I.term}<span class="tool-action">${esc(cmd||'Command')}</span>${hostBadge}${statusBadge}</div><div class="collapsible-output"><pre class="${shortOut?'collapsed-pre':''}">$ ${esc(cmd)}\n${esc(redact(out))}</pre>${shortOut?'<button class="show-more-btn" onclick="togglePre(this)">Show more</button>':''}</div>${isErr?`<pre class="er-body">${esc(st.error||'')}</pre>`:''}</div>`;
+ }
+ if(p.tool.endsWith('_ssh_write_file')){
+  const file=input.path||'';
+  if(st.status==='completed'){
+   const patch=run?.patch||result.patch||'';
+   const adds=run?.additions??result.additions??patchCounts(patch).additions;
+   const dels=run?.deletions??result.deletions??patchCounts(patch).deletions;
+   return changeBubble({file,patch,additions:adds,deletions:dels,source:'ssh'});
+  }
+  return `<div class="card"><div class="ch">${I.edit}<span class="tool-action">Write ${esc(file.split('/').pop()||file)}</span>${hostBadge}${statusBadge}</div>${isErr?`<pre class="er-body">${esc(st.error||'')}</pre>`:''}</div>`;
+ }
+ if(p.tool.endsWith('_ssh_read_file')){
+  const file=input.path||'';
+  if(isErr)return `<div class="card error-card"><div class="ch er">${I.file}<span class="tool-action">Read ${esc(file.split('/').pop()||file)}</span>${hostBadge}${statusBadge}</div><pre class="er-body">${esc(st.error||result.error||'Read failed')}</pre></div>`;
+  const charCount=result.content?` &middot; ${result.content.length} chars`:input.content?` &middot; ${input.content.length} chars`:'';
+  return `<details class="card tool-card"><summary class="ch">${I.file}<span class="tool-action">Read ${esc(file.split('/').pop()||file)}</span><small class="m">${esc(charCount)}</small>${hostBadge}${statusBadge}</summary>${result.content?`<pre style="max-height:180px;overflow:auto">${esc(redact(result.content))}</pre>`:''}</details>`;
+ }
+ return `<div class="card"><div class="ch">${I.file}<span>SSH connections</span>${hostBadge}${statusBadge}</div></div>`;
 }
 function readableError(value){const text=redact(value);return /chat\/completions[\s\S]*responses/i.test(text)?'This model needs the Responses API. Open Settings → Providers and change its API format to Responses.':text}
 appearance();
@@ -941,18 +1030,28 @@ function render(){
  }
  renderMsgs(true);
 }
-function toolCard(p){
- const remote=remoteToolCard(p);if(remote)return remote;
+function toolCard(p,claimedRuns){
+ const remote=remoteToolCard(p,claimedRuns);if(remote)return remote;
  const st=p.state||{},inp=st.input||{},meta=st.metadata||{};
- const status=st.status==='error'?'<span class="m er">error</span>':st.status==='completed'?'<span class="m ok">done</span>':'<span class="m"><span class="spin" style="display:inline-block;vertical-align:middle"></span></span>';
- const head=(ic,t)=>`<div class="ch">${ic}<span>${esc(t)}</span>${status}</div>`;
- const box='max-height:220px;overflow:auto';
+ const isErr=st.status==='error'||!!st.error;
+ const isRunning=st.status==='running'||st.status==='in_progress';
+ const status=isErr?'<span class="m er">Failed</span>':isRunning?'<span class="m"><span class="spin" style="display:inline-block;vertical-align:middle"></span>Running</span>':'<span class="m ok">Completed</span>';
+ const errText=st.error||(st.metadata&&st.metadata.error)||(st.data&&st.data.message)||st.output||'';
+ const head=(ic,t,badge='')=>`<div class="ch">${ic}<span class="tool-action">${esc(t)}</span>${badge}${status}</div>`;
  const tool=p.tool;
  if(tool==='bash'){
   const out=st.output||meta.output||st.error||'';
-  return `<div class="card">${head(I.term,st.title||'Ran command')}<pre style="${box}">$ ${esc(inp.command||'')}\n${esc(String(out).slice(0,4000))}</pre></div>`;
+  const shortOut=out.length>400||out.split('\n').length>8;
+  return `<div class="card">${head(I.term,inp.command||st.title||'Command')}<div class="collapsible-output"><pre class="${shortOut?'collapsed-pre':''}">$ ${esc(inp.command||'')}\n${esc(String(out).slice(0,4000))}</pre>${shortOut?'<button class="show-more-btn" onclick="togglePre(this)">Show more</button>':''}</div>${isErr?`<pre class="er-body">${esc(errText)}</pre>`:''}</div>`;
  }
- if(tool==='edit'||tool==='write'||tool==='patch'||tool==='apply_patch'||tool==='multiedit'){
+ if(tool==='read'){
+  const file=inp.filePath||inp.path||'';
+  if(isErr)return `<div class="card error-card"><div class="ch er">${I.file}<span class="tool-action">Read ${esc(file.split(/[\\/]/).pop()||file)}</span>${status}</div><pre class="er-body">${esc(errText)}</pre></div>`;
+  const out=st.output||meta.output||'';
+  const charCount=out?` &middot; ${out.length} chars`:'';
+  return `<details class="card tool-card"><summary class="ch">${I.file}<span class="tool-action">Read ${esc(file.split(/[\\/]/).pop()||file)}</span><small class="m">${esc(charCount)}</small>${status}</summary>${out?`<pre style="max-height:180px;overflow:auto">${esc(String(out).slice(0,2000))}</pre>`:''}</details>`;
+ }
+ if(tool==='write'||tool==='edit'||tool==='patch'||tool==='apply_patch'||tool==='multiedit'){
   if(st.status==='completed'){
    const stored=S.historyFiles.get(changeKey(p));if(stored)return changeBubble(stored);
    const changes=toolChanges(p).filter(c=>c.patch);
@@ -960,16 +1059,11 @@ function toolCard(p){
    return changeBubble({file:inp.filePath||inp.path||meta.filepath||st.title||tool,unknown:true});
   }
   const file=inp.filePath||inp.path||meta.filepath||st.title||tool;
-  let lines=[];
-  if(typeof meta.diff==='string'&&meta.diff)lines=meta.diff.split('\n').filter(l=>!/^(---|\+\+\+|Index:|=+$|@@)/.test(l));
-  else if(inp.oldString!=null||inp.newString!=null)lines=diffLines(inp.oldString,inp.newString);
-  else if(inp.content!=null)lines=String(inp.content).split('\n').slice(0,200).map(l=>'+'+l);
-  const a=lines.filter(l=>l[0]==='+').length,d=lines.filter(l=>l[0]==='-').length;
-  const stat=st.status==='error'?'<span class="m er">error</span>':`<span class="m"><span class="ok">+${a}</span> <span class="er">-${d}</span></span>`;
-  return `<div class="card"><div class="ch">${I.file}<span>${esc(String(file).split('/').slice(-2).join('/'))}</span>${stat}</div><div style="${box}">${dl(lines)}</div>${st.status==='error'?`<pre>${esc(st.error||'')}</pre>`:''}</div>`;
+  const actionName=tool==='write'?'Write':'Edit';
+  return `<div class="card"><div class="ch">${I.edit}<span class="tool-action">${actionName} ${esc(String(file).split(/[\\/]/).pop()||file)}</span>${status}</div>${isErr?`<pre class="er-body">${esc(errText)}</pre>`:''}</div>`;
  }
  const brief=inp.filePath||inp.pattern||inp.path||inp.url||inp.description||inp.query||'';
- return `<div class="card"><div class="ch">${I.file}<span>${esc(st.title||tool)}${brief?' &middot; '+esc(String(brief).slice(0,60)):''}</span>${status}</div>${st.status==='error'?`<pre>${esc(st.error||'')}</pre>`:''}</div>`;
+ return `<div class="card">${head(I.file,st.title||tool,brief?`<small class="m">&middot; ${esc(String(brief).slice(0,40))}</small>`:'')}${isErr?`<pre class="er-body">${esc(errText)}</pre>`:''}</div>`;
 }
 function permCard(p){
  const pats=p.patterns||(p.pattern?[].concat(p.pattern):[]);
@@ -994,6 +1088,71 @@ function splitThoughts(text){
  }
  return {thoughts:thoughts.trim(),text:clean};
 }
+window.copyCode=function(btn){
+ const pre=btn.closest('.code-block')?.querySelector('code')||btn.closest('.card')?.querySelector('pre');
+ if(!pre)return;
+ const text=pre.innerText||pre.textContent||'';
+ if(navigator.clipboard&&navigator.clipboard.writeText){
+  navigator.clipboard.writeText(text).then(()=>{
+   const old=btn.textContent;btn.textContent='Copied!';setTimeout(()=>{btn.textContent=old},1500);
+  }).catch(()=>{});
+ }
+};
+window.togglePre=function(btn){
+ const pre=btn.previousElementSibling;
+ if(!pre)return;
+ const col=pre.classList.toggle('collapsed-pre');
+ btn.textContent=col?'Show more':'Show less';
+};
+function renderMarkdown(md){
+ if(!md)return '';
+ let s=esc(md);
+ const codeBlocks=[];
+ s=s.replace(/```([a-zA-Z0-9_-]*)\r?\n([\s\S]*?)```/g,(match,lang,code)=>{
+  const id=`%%CODEBLOCK${codeBlocks.length}%%`;
+  codeBlocks.push(`<div class="code-block"><div class="code-head"><span>${esc(lang||'code')}</span><button class="copy-btn" onclick="copyCode(this)">Copy</button></div><pre><code>${code}</code></pre></div>`);
+  return id;
+ });
+ s=s.replace(/((?:^|\n)\|[^\n]+\|\r?\n\|[-:\s|]+\|\r?\n(?:\|[^\n]+\|\r?\n?)+)/g,(match)=>{
+  const lines=match.trim().split('\n');
+  if(lines.length<3)return match;
+  const parseRow=l=>l.replace(/^\||\|$/g,'').split('|').map(c=>c.trim());
+  const headers=parseRow(lines[0]);
+  let th=headers.map(h=>`<th>${h}</th>`).join('');
+  let rows='';
+  for(let i=2;i<lines.length;i++){
+   const cells=parseRow(lines[i]);
+   rows+=`<tr>${cells.map(c=>`<td>${c}</td>`).join('')}</tr>`;
+  }
+  return `\n<div class="table-wrap"><table><thead><tr>${th}</tr></thead><tbody>${rows}</tbody></table></div>\n`;
+ });
+ s=s.replace(/^### (.*$)/gim,'<h5>$1</h5>');
+ s=s.replace(/^## (.*$)/gim,'<h4>$1</h4>');
+ s=s.replace(/^# (.*$)/gim,'<h3>$1</h3>');
+ s=s.replace(/`([^`\n]+)`/g,'<code>$1</code>');
+ s=s.replace(/\*\*([^*\n]+)\*\*/g,'<strong>$1</strong>');
+ s=s.replace(/__([^_\n]+)__/g,'<strong>$1</strong>');
+ s=s.replace(/\*([^*\n]+)\*/g,'<em>$1</em>');
+ s=s.replace(/_([^_\n]+)_/g,'<em>$1</em>');
+ s=s.replace(/\[([^\]]+)\]\((https?:\/\/[^\s"'()]+(?:\([^\s"'()]+\)[^\s"'()]*)*)\)/gi,'<a href="$2" target="_blank" rel="noopener noreferrer">$1</a>');
+ s=s.replace(/\[([^\]]+)\]\((?:[^"'()\n]+(?:\([^)\n]*\))*)\)/gi,'$1');
+ s=s.replace(/((?:^|\n)[ \t]*[-*] [^\n]+(?:\n[ \t]*[-*] [^\n]+)*)/g,match=>{
+  const items=match.trim().split('\n').map(l=>`<li>${l.replace(/^[ \t]*[-*] /,'')}</li>`).join('');
+  return `\n<ul>${items}</ul>\n`;
+ });
+ s=s.replace(/((?:^|\n)[ \t]*\d+\. [^\n]+(?:\n[ \t]*\d+\. [^\n]+)*)/g,match=>{
+  const items=match.trim().split('\n').map(l=>`<li>${l.replace(/^[ \t]*\d+\. /,'')}</li>`).join('');
+  return `\n<ol>${items}</ol>\n`;
+ });
+ s=s.split('\n\n').map(para=>{
+  para=para.trim();
+  if(!para)return '';
+  if(/^(?:<div|<table|<h[3-5]|<ul|<ol|%%CODEBLOCK)/.test(para))return para;
+  return `<p>${para.replace(/\n/g,'<br>')}</p>`;
+ }).join('\n');
+ codeBlocks.forEach((block,i)=>{s=s.replace(`%%CODEBLOCK${i}%%`,block)});
+ return s;
+}
 function renderMsgs(force){
  if(!S.sid)return;
  const m=$('#main');
@@ -1001,6 +1160,7 @@ function renderMsgs(force){
  const openDetails=new Set([...m.querySelectorAll('details[open]')].map(d=>d.dataset.part||d.dataset.historyKey||''));
  const list=[...S.msgs.values()].sort((a,b)=>a.info.id<b.info.id?-1:1);
  S.renderedRemoteRuns=new Set();
+ const claimedRuns=new Set();
  let h='';
  list.forEach(x=>{
   const parts=[...x.parts.values()];
@@ -1016,21 +1176,21 @@ function renderMsgs(force){
       const openAttr=openDetails.has(p.id+'_think')?' open':'';
       h+=`<details class="card thinking-card" data-part="${esc(p.id+'_think')}"${openAttr}><summary class="ch"><span>Thinking</span><span class="caret m">${I.down}</span></summary><pre style="white-space:pre-wrap">${esc(thoughts)}</pre></details>`;
      }
-     if(text)h+=`<div class="msg ai">${esc(text)}</div>`;
+     if(text)h+=`<div class="msg ai">${renderMarkdown(text)}</div>`;
     }else if(p.type==='reasoning'){
      const rText=(p.text||'').trim();
      if(rText||(S.running&&p.time&&!p.time.end)){
       const openAttr=openDetails.has(p.id)?' open':'';
       h+=`<details class="card thinking-card" data-part="${esc(p.id||'')}"${openAttr}><summary class="ch"><span>Thinking</span><span class="caret m">${I.down}</span></summary><pre style="white-space:pre-wrap">${esc(rText||'Thinking…')}</pre></details>`;
      }
-    }else if(p.type==='tool')h+=toolCard(p);
+    }else if(p.type==='tool')h+=toolCard(p,claimedRuns);
    });
-   if(x.info.error){const e=x.info.error;h+=`<div class="card"><div class="ch er">Error</div><pre style="white-space:pre-wrap">${esc(readableError((e.data&&e.data.message)||e.message||e.name||'Request failed'))}</pre></div>`}
+   if(x.info.error){const e=x.info.error;h+=`<div class="card error-card"><div class="ch er">Error<span class="m er">Failed</span></div><pre class="er-body">${esc(readableError((e.data&&e.data.message)||e.message||e.name||'Request failed'))}</pre></div>`}
   }
  });
  [...S.perms.values()].forEach(p=>{h+=permCard(p)});
- for(const r of S.remoteRuns.values())if(r.sessionID===S.sid&&!S.renderedRemoteRuns.has(r.id))h+=remoteCard(r);
- if(S.lastErr)h+=`<div class="card"><div class="ch er">Error</div><pre style="white-space:pre-wrap">${esc(readableError(S.lastErr))}</pre></div>`;
+ for(const r of S.remoteRuns.values())if(r.sessionID===S.sid&&!S.renderedRemoteRuns.has(r.id)&&r.status==='running')h+=remoteCard(r);
+ if(S.lastErr)h+=`<div class="card error-card"><div class="ch er">Error<span class="m er">Failed</span></div><pre class="er-body">${esc(readableError(S.lastErr))}</pre></div>`;
  if(S.running)h+='<div class="work"><div class="spin"></div>'+esc(S.status.type==='retry'?'Retry '+S.status.attempt+': '+redact(S.status.message):'Working...')+'</div>';
  if(S.pendingUser)h+=`<div class="msg user">${esc(S.pendingUser)}</div>`;
  m.innerHTML=h;

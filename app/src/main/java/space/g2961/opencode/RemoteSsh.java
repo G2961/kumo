@@ -142,6 +142,7 @@ public final class RemoteSsh {
             try{ch.put(new ByteArrayInputStream(content.getBytes(StandardCharsets.UTF_8)),temp);ch.chmod(mode,temp);ch.rename(temp,p);}
             finally{try{ch.rm(temp);}catch(SftpException ignored){}}
             JSONObject patch=patch(p,redact(before,c),redact(content,c));String run=UUID.randomUUID().toString();
+            patch.put("runID",run);
             event("ssh.file.updated",run,sid,c,"path",p,"patch",patch.optString("patch"),"additions",patch.optInt("additions"),"deletions",patch.optInt("deletions"));
             return patch;
         }finally{s.disconnect();}
