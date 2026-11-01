@@ -1,0 +1,132 @@
+{
+  "mode": "baseline",
+  "server": "http://127.0.0.1:58074",
+  "checks": [
+    "health_1.19.3"
+  ],
+  "model": {
+    "providerID": "opencode",
+    "modelID": "big-pickle"
+  },
+  "failure": "TimeoutError",
+  "errorNames": [],
+  "workingVisible": true,
+  "events": {
+    "server.connected": 1,
+    "session.created": 1,
+    "session.updated": 3,
+    "message.updated": 4,
+    "message.part.updated": 1,
+    "session.status": 4,
+    "session.diff": 1,
+    "plugin.added": 45,
+    "catalog.updated": 2,
+    "reference.updated": 1,
+    "integration.updated": 1,
+    "server.heartbeat": 9,
+    "session.idle": 1
+  },
+  "eventShapes": {
+    "server.connected": [],
+    "session.created": [
+      "sessionID",
+      "info"
+    ],
+    "session.updated": [
+      "sessionID",
+      "info"
+    ],
+    "message.updated": [
+      "sessionID",
+      "info"
+    ],
+    "message.part.updated": [
+      "sessionID",
+      "part",
+      "time"
+    ],
+    "session.status": [
+      "sessionID",
+      "status"
+    ],
+    "session.diff": [
+      "sessionID",
+      "diff"
+    ],
+    "plugin.added": [
+      "id"
+    ],
+    "catalog.updated": [],
+    "reference.updated": [],
+    "integration.updated": [],
+    "server.heartbeat": [],
+    "session.idle": [
+      "sessionID"
+    ]
+  },
+  "sessionErrors": [],
+  "statuses": [
+    "busy",
+    "retry",
+    "idle"
+  ],
+  "requests": [
+    {
+      "path": "/_ui/index.html",
+      "method": "GET",
+      "status": 200
+    },
+    {
+      "path": "/doc",
+      "method": "GET",
+      "status": 200
+    },
+    {
+      "path": "/global/health",
+      "method": "GET",
+      "status": 200
+    },
+    {
+      "path": "/project",
+      "method": "GET",
+      "status": 200
+    },
+    {
+      "path": "/session",
+      "method": "GET",
+      "status": 200
+    },
+    {
+      "path": "/config/providers",
+      "method": "GET",
+      "status": 200
+    },
+    {
+      "path": "/event",
+      "method": "GET",
+      "status": 200
+    },
+    {
+      "path": "/session",
+      "method": "POST",
+      "status": 200
+    },
+    {
+      "path": "/session/ses_e69bfdec1ffes9U3cumkNbkBMQ/prompt_async",
+      "method": "POST",
+      "status": 204
+    },
+    {
+      "path": "/session/ses_e69bfdec1ffes9U3cumkNbkBMQ/abort",
+      "method": "POST",
+      "status": 200
+    },
+    {
+      "path": "/session",
+      "method": "GET",
+      "status": 200
+    }
+  ],
+  "pageErrors": [],
+  "pass": false
+}

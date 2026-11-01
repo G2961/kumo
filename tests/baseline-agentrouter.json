@@ -1,0 +1,124 @@
+{
+  "mode": "baseline",
+  "server": "http://127.0.0.1:58074",
+  "checks": [
+    "health_1.19.3",
+    "real_prompt_answer_and_idle"
+  ],
+  "model": {
+    "providerID": "AgentRouter-gpt-responses-gateway",
+    "modelID": "gpt-5.6-sol"
+  },
+  "replyContainsMarker": true,
+  "sessionID": "ses_e69bde457ffeU36IMIcRP3CMqS",
+  "workingVisible": false,
+  "errorNames": [],
+  "events": {
+    "server.connected": 1,
+    "session.created": 1,
+    "session.updated": 4,
+    "message.updated": 5,
+    "message.part.updated": 5,
+    "session.status": 4,
+    "session.diff": 2,
+    "message.part.delta": 4,
+    "session.idle": 1
+  },
+  "eventShapes": {
+    "server.connected": [],
+    "session.created": [
+      "sessionID",
+      "info"
+    ],
+    "session.updated": [
+      "sessionID",
+      "info"
+    ],
+    "message.updated": [
+      "sessionID",
+      "info"
+    ],
+    "message.part.updated": [
+      "sessionID",
+      "part",
+      "time"
+    ],
+    "session.status": [
+      "sessionID",
+      "status"
+    ],
+    "session.diff": [
+      "sessionID",
+      "diff"
+    ],
+    "message.part.delta": [
+      "sessionID",
+      "messageID",
+      "partID",
+      "field",
+      "delta"
+    ],
+    "session.idle": [
+      "sessionID"
+    ]
+  },
+  "sessionErrors": [],
+  "statuses": [
+    "busy",
+    "idle"
+  ],
+  "requests": [
+    {
+      "path": "/_ui/index.html",
+      "method": "GET",
+      "status": 200
+    },
+    {
+      "path": "/doc",
+      "method": "GET",
+      "status": 200
+    },
+    {
+      "path": "/global/health",
+      "method": "GET",
+      "status": 200
+    },
+    {
+      "path": "/config/providers",
+      "method": "GET",
+      "status": 200
+    },
+    {
+      "path": "/project",
+      "method": "GET",
+      "status": 200
+    },
+    {
+      "path": "/session",
+      "method": "GET",
+      "status": 200
+    },
+    {
+      "path": "/event",
+      "method": "GET",
+      "status": 200
+    },
+    {
+      "path": "/session",
+      "method": "POST",
+      "status": 200
+    },
+    {
+      "path": "/session/ses_e69bde457ffeU36IMIcRP3CMqS/prompt_async",
+      "method": "POST",
+      "status": 204
+    },
+    {
+      "path": "/session",
+      "method": "GET",
+      "status": 200
+    }
+  ],
+  "pageErrors": [],
+  "pass": true
+}
