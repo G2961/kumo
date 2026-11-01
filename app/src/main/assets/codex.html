@@ -5,8 +5,8 @@
 <meta name="viewport" content="width=device-width,initial-scale=1,maximum-scale=1,user-scalable=no,viewport-fit=cover">
 <title>Codex</title>
 <style>
-:root{--bg:#fff;--side:#f4f5fa;--card:#f6f6f9;--line:#e5e6ee;--tx:#16171d;--mut:#8a8c9a;--acc:#16171d;--acctx:#fff;--ok:#1a9d55;--err:#d23b3b;--add:#e6f6ec;--del:#fdeaea;--r:14px;--font-scale:1}
-:root[data-theme="dark"]{color-scheme:dark;--bg:#000;--side:#111;--card:#181818;--line:#303030;--tx:#eee;--mut:#999;--acc:#eee;--acctx:#000;--ok:#50cb86;--err:#f17676;--add:#102a1b;--del:#341718}
+:root{--bg:#fff;--side:#f4f5fa;--card:#f6f6f9;--line:#e5e6ee;--tx:#16171d;--mut:#8a8c9a;--acc:#16171d;--acctx:#fff;--ok:#1a9d55;--err:#d23b3b;--add:#e6f6ec;--del:#fdeaea;--r:14px;--font-scale:1;--bg-rgb:255,255,255}
+:root[data-theme="dark"]{color-scheme:dark;--bg:#000;--side:#111;--card:#181818;--line:#303030;--tx:#eee;--mut:#b0b3c2;--acc:#eee;--acctx:#000;--ok:#50cb86;--err:#f17676;--add:#102a1b;--del:#341718;--bg-rgb:0,0,0}
 :root:not([data-theme="dark"]){color-scheme:light}
 *{box-sizing:border-box;-webkit-tap-highlight-color:transparent;user-select:none;-webkit-user-select:none}
 .msg,.msg *,pre,code,.dl,input,textarea,[contenteditable="true"]{user-select:text;-webkit-user-select:text}
@@ -18,10 +18,10 @@ svg{width:20px;height:20px;stroke:currentColor;fill:none;stroke-width:1.8;stroke
 #app{height:100%;height:100dvh;display:flex;flex-direction:column;position:relative;overflow:hidden;overscroll-behavior:none;-webkit-overscroll-behavior:none}
 header{display:flex;align-items:center;gap:6px;padding:8px 10px;padding-top:max(8px,env(safe-area-inset-top));border-bottom:1px solid var(--line)}
 header h1{font-size:calc(15px * var(--font-scale));font-weight:600;margin:0;flex:1;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;padding-left:4px}
-.ib{width:38px;height:38px;border-radius:10px;display:grid;place-items:center}
+.ib{width:44px;height:44px;min-width:44px;min-height:44px;border-radius:10px;display:grid;place-items:center}
 .ib:active,.row:active{background:var(--card)}
-.pill{display:flex;align-items:center;gap:5px;border:1px solid var(--line);border-radius:999px;padding:6px 11px;font-size:calc(13px * var(--font-scale))}
-main{flex:1;overflow-y:auto;overscroll-behavior:contain;-webkit-overflow-scrolling:touch;padding:14px 14px 8px;display:flex;flex-direction:column;gap:10px}
+.pill{display:flex;align-items:center;gap:5px;border:1px solid var(--line);border-radius:999px;padding:8px 14px;min-height:44px;font-size:calc(13px * var(--font-scale))}
+main{flex:1;overflow-y:auto;overscroll-behavior:contain;-webkit-overflow-scrolling:touch;padding:14px 14px 28px;display:flex;flex-direction:column;gap:10px}
 main>*{flex-shrink:0}
 .home{margin:auto;text-align:center}
 .logo{width:56px;height:56px;margin:0 auto 14px;border-radius:18px;background:var(--card);display:grid;place-items:center}
@@ -36,7 +36,7 @@ main>*{flex-shrink:0}
 .card .ch{display:flex;align-items:center;gap:8px;padding:8px 11px;background:var(--card);font-weight:500}
 .card .ch span.m{color:var(--mut);font-weight:400;margin-left:auto}
 .card pre{margin:0;padding:9px 11px;font:calc(12px * var(--font-scale))/1.5 ui-monospace,Menlo,monospace;overflow-x:auto;white-space:pre}
-.dl{display:block;padding:0 11px;font:calc(12px * var(--font-scale))/1.6 ui-monospace,Menlo,monospace;white-space:pre}
+.dl{display:block;padding:0 11px;font:calc(13.5px * var(--font-scale))/1.6 ui-monospace,Menlo,monospace;white-space:pre}
 .dl.a{background:var(--add)}.dl.d{background:var(--del)}
 .collapsible-output{position:relative}
 .collapsed-pre{max-height:160px;overflow:hidden!important}
@@ -55,7 +55,7 @@ tr:last-child td{border-bottom:0}
 .tool-action{font-weight:500;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
 .error-card{border-color:var(--err)}
 .er-body{color:var(--err);background:var(--del);padding:8px 10px;margin:0;font-size:calc(12px * var(--font-scale));overflow-x:auto;white-space:pre-wrap}
-.diff-line{display:flex;font:calc(12px * var(--font-scale))/1.6 ui-monospace,Menlo,monospace;white-space:pre}
+.diff-line{display:flex;font:calc(13.5px * var(--font-scale))/1.6 ui-monospace,Menlo,monospace;white-space:pre}
 .diff-line.a{background:var(--add)}
 .diff-line.d{background:var(--del)}
 .diff-num{width:36px;text-align:right;padding-right:8px;color:var(--mut);user-select:none;flex:none}
@@ -77,16 +77,18 @@ tr:last-child td{border-bottom:0}
 .work{display:flex;align-items:center;gap:8px;color:var(--mut);font-size:calc(13px * var(--font-scale))}
 .spin{width:14px;height:14px;border:2px solid var(--line);border-top-color:var(--tx);border-radius:50%;animation:sp .8s linear infinite}
 @keyframes sp{to{transform:rotate(360deg)}}
-footer{padding:8px 12px;padding-bottom:max(10px,env(safe-area-inset-bottom))}
-.comp{border:1px solid var(--line);border-radius:20px;padding:10px 12px;box-shadow:0 2px 12px rgba(0,0,0,.05)}
+footer{position:relative;padding:4px 12px 10px;padding-bottom:max(10px,env(safe-area-inset-bottom));background:linear-gradient(to top,var(--bg) 85%,rgba(var(--bg-rgb),0) 100%)}
+footer::before{content:'';position:absolute;top:-18px;left:0;right:0;height:18px;background:linear-gradient(to top,rgba(var(--bg-rgb),1),rgba(var(--bg-rgb),0));pointer-events:none}
+.comp{border:1px solid var(--line);border-radius:20px;padding:10px 12px;box-shadow:0 2px 12px rgba(0,0,0,.05);background:var(--bg)}
 .comp textarea{width:100%;border:0;outline:0;resize:none;background:none;color:inherit;font:inherit;max-height:140px;min-height:24px}
-.crow{display:flex;align-items:center;gap:4px;margin-top:6px}
-.chip{display:flex;align-items:center;gap:3px;color:var(--tx);font-size:calc(13px * var(--font-scale));padding:5px 7px;border-radius:8px;max-width:42vw}
+.crow{display:flex;align-items:center;gap:6px;margin-top:8px;min-width:0}
+.comp-plus{width:44px;height:44px;min-width:44px;min-height:44px;border-radius:10px;display:grid;place-items:center;flex:none}
+.chip{display:inline-flex;align-items:center;gap:4px;color:var(--tx);font-size:calc(13px * var(--font-scale));padding:6px 8px;min-height:44px;border-radius:10px;min-width:0;max-width:calc(50vw - 56px);background:var(--card);border:1px solid var(--line);cursor:pointer;flex:0 1 auto}
 .chip span{overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
-.chip svg{width:14px;height:14px}
-.send{width:36px;height:36px;border-radius:50%;background:var(--acc);color:var(--acctx);display:grid;place-items:center;margin-left:auto}
-.meta{display:flex;gap:4px;padding:6px 6px 0;color:var(--mut);font-size:calc(12px * var(--font-scale));flex-wrap:wrap}
-.meta .chip{padding:3px 6px;font-size:calc(12px * var(--font-scale))}
+.chip svg{width:15px;height:15px;flex:none}
+.send{width:44px;height:44px;min-width:44px;min-height:44px;border-radius:50%;background:var(--acc);color:var(--acctx);display:grid;place-items:center;margin-left:auto;flex:none}
+.meta{display:flex;gap:6px;padding:6px 6px 0;color:var(--mut);font-size:calc(12px * var(--font-scale));flex-wrap:wrap}
+.meta .chip{min-height:44px;padding:6px 12px;background:none;border-color:var(--line);border-radius:10px;max-width:none}
 #dim{position:absolute;inset:0;background:rgba(0,0,0,.4);opacity:0;pointer-events:none;transition:.2s;z-index:5}
 #dim.on{opacity:1;pointer-events:auto}
 #drawer{position:absolute;top:0;bottom:0;left:0;width:84%;max-width:340px;background:var(--side);z-index:6;transform:translateX(-102%);transition:.25s;display:flex;flex-direction:column;padding:max(10px,env(safe-area-inset-top)) 8px 10px}
@@ -153,16 +155,16 @@ button:focus-visible,input:focus-visible,select:focus-visible,textarea:focus-vis
       <div id="attachments" class="attachments"></div>
       <textarea id="inp" rows="1" placeholder="Ask anything…"></textarea>
       <div class="crow">
-        <button class="ib" style="width:30px;height:30px" id="plus"><svg viewBox="0 0 24 24"><path d="M12 5v14M5 12h14"/></svg></button>
+        <button class="ib comp-plus" id="plus" aria-label="Add attachment"><svg viewBox="0 0 24 24"><path d="M12 5v14M5 12h14"/></svg></button>
         <button class="chip" id="cModel"><span></span><svg viewBox="0 0 24 24"><path d="m6 9 6 6 6-6"/></svg></button>
         <button class="chip" id="cEff"><span>Reasoning</span><svg viewBox="0 0 24 24"><path d="m6 9 6 6 6-6"/></svg></button>
-        <button class="send" id="send"><svg viewBox="0 0 24 24"><path d="M12 19V5M5 12l7-7 7 7"/></svg></button>
+        <button class="send" id="send" aria-label="Send message"><svg viewBox="0 0 24 24"><path d="M12 19V5M5 12l7-7 7 7"/></svg></button>
       </div>
     </div>
     <div class="meta">
       <button class="chip" id="cEnv"><span>Local</span><svg viewBox="0 0 24 24"><path d="m6 9 6 6 6-6"/></svg></button>
-      <button class="chip" id="cPerm"><span></span><svg viewBox="0 0 24 24"><path d="m6 9 6 6 6-6"/></svg></button>
-      <button class="chip" id="cSearch" hidden>Web search</button>
+      <button class="chip" id="cPerm"><span>Agent: build</span><svg viewBox="0 0 24 24"><path d="m6 9 6 6 6-6"/></svg></button>
+      <button class="chip" id="cSearch" hidden><svg viewBox="0 0 24 24" style="width:14px;height:14px"><circle cx="11" cy="11" r="7"/><path d="m21 21-4.3-4.3"/></svg><span>Web search</span></button>
     </div>
   </footer>
   <div id="dim"></div>
@@ -562,11 +564,16 @@ $('#cPerm').onclick=()=>options('Agent',['build','plan'],S.agent,i=>{S.agent=['b
 function chips(){
  const m=currentModel();
  $('#cModel span').textContent=m?m.mn:(S.model?S.model.m:'Default model');
- $('#cPerm span').textContent=S.agent;
+ $('#cPerm span').textContent='Agent: '+S.agent;
  const keys=modelEffortKeys(m),eff=S.efforts[modelKey()];
  $('#cEff span').textContent=eff?effortLabel(eff,keys):'Reasoning';
  $('#cEff').classList.remove('muted');
- $('#cEnv span').textContent=selectedConnection()?.name||'Local';
+ const conn=selectedConnection();
+ if(conn){
+  $('#cEnv').innerHTML=`${I.term}<span>SSH: ${esc(conn.name)}</span><svg viewBox="0 0 24 24"><path d="m6 9 6 6 6-6"/></svg>`;
+ }else{
+  $('#cEnv').innerHTML=`<svg viewBox="0 0 24 24"><rect x="4" y="4" width="16" height="16" rx="2"/><rect x="9" y="9" width="6" height="6"/></svg><span>Local</span><svg viewBox="0 0 24 24"><path d="m6 9 6 6 6-6"/></svg>`;
+ }
  $('#cSearch').hidden=!S.webSearch;
 }
 
