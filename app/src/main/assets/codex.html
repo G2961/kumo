@@ -691,18 +691,21 @@ function options(title,list,cur,cb,sub){
  $('#sheet').onclick=e=>{const b=e.target.closest('.opt');if(!b)return;cb(+b.dataset.i);closeAll();chips()};
 }
 const OPT_CK='<svg class="ck" viewBox="0 0 24 24"><path d="m5 12 5 5 9-10"/></svg>';
-function modelSub(x){return x.pn&&x.pn!==x.p?`${x.pn} · ${x.p}`:x.p}
 function modelSheet(onPick){
  const L=allModels();
  if(!L.length){sheet('<h3>Model</h3><p class="note">No providers returned by the server. Configure a provider in opencode first.</p>');return}
  let h='<h3>Model</h3><div style="max-height:60vh;overflow-y:auto">';
- L.forEach((x,i)=>{
-  const sel=S.model&&x.p===S.model.p&&x.m===S.model.m;
-  h+=`<button class="opt ${sel?'sel':''}" data-i="${i}">${esc(x.mn)}<span class="r">${sel?OPT_CK:''}<span class="m">${esc(modelSub(x))}</span></span></button>`;
+ S.provs.forEach(p=>{
+  if(!p.models.length)return;
+  h+=`<div class="sheet-sec-title">${esc(p.name||p.id)}</div>`;
+  p.models.forEach(m=>{
+   const sel=S.model&&p.id===S.model.p&&m.id===S.model.m;
+   h+=`<button class="opt ${sel?'sel':''}" data-p="${esc(p.id)}" data-m="${esc(m.id)}">${esc(m.name)}<span class="r">${sel?OPT_CK:''}</span></button>`;
+  });
  });
  h+='</div>';
  sheet(h);
- $('#sheet').onclick=e=>{const b=e.target.closest('.opt');if(!b)return;const x=L[+b.dataset.i];S.model={p:x.p,m:x.m};lset('oc_model',S.model);chips();closeAll();if(onPick)onPick(x)};
+ $('#sheet').onclick=e=>{const b=e.target.closest('.opt');if(!b)return;S.model={p:b.dataset.p,m:b.dataset.m};lset('oc_model',S.model);chips();closeAll();if(onPick)onPick()};
 }
 function allModels(){const o=[];S.provs.forEach(p=>p.models.forEach(m=>o.push({p:p.id,pn:p.name,m:m.id,mn:m.name,capabilities:m.capabilities,variants:m.variants})));return o}
 $('#cModel').onclick=()=>modelSheet();

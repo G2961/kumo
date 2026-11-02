@@ -311,19 +311,21 @@ async def main():
             err_count = await page.evaluate("S.errors.length")
             check('provider_slow_refresh_no_crash', err_count >= 0)
 
-            # model sheet: same model name under two providers -> single selection + provider sub
+            # model sheet: grouped by provider, display name only, single selection
             await page.evaluate("""() => {
-              S.provs=[{id:'agentrouter',name:'agentrouter',models:[{id:'gpt-6.1-sol',name:'GPT-6.1 Sol'}]},
-                       {id:'agentrouter2',name:'agentrouter2',models:[{id:'gpt-6.1-sol',name:'GPT-6.1 Sol'}]}];
+              S.provs=[{id:'agentrouter',name:'AgentRouter One',models:[{id:'gpt-6.1-sol',name:'GPT-6.1 Sol'}]},
+                       {id:'agentrouter2',name:'AgentRouter Two',models:[{id:'gpt-6.1-sol',name:'GPT-6.1 Sol'}]}];
               S.model={p:'agentrouter2',m:'gpt-6.1-sol'};
               modelSheet();
             }""")
             await page.wait_for_timeout(250)
+            headers = await page.eval_on_selector_all('#sheet .sheet-sec-title', "els=>els.map(e=>e.textContent)")
+            check('model_sheet_grouped', headers == ['AgentRouter One', 'AgentRouter Two'], str(headers))
             sel_rows = await page.eval_on_selector_all('#sheet .opt.sel', "els=>els.map(e=>e.innerText)")
-            check('model_sheet_single_sel', len(sel_rows) == 1 and 'agentrouter2' in sel_rows[0], str(sel_rows))
-            subs = await page.eval_on_selector_all('#sheet .opt .m', "els=>els.map(e=>e.textContent)")
-            check('model_sheet_provider_sub', subs == ['agentrouter', 'agentrouter2'], str(subs))
-            await page.click('#sheet .opt:nth-child(1)')
+            check('model_sheet_single_sel', len(sel_rows) == 1 and 'GPT-6.1 Sol' in sel_rows[0], str(sel_rows))
+            row_text = await page.eval_on_selector('#sheet .opt.sel', "e=>e.innerText")
+            check('model_sheet_no_provider_id', 'agentrouter' not in row_text.lower(), row_text)
+            await page.evaluate("document.querySelectorAll('#sheet .opt')[0].click()")
             await page.wait_for_timeout(250)
             sel_model = await page.evaluate("S.model")
             check('model_sheet_pick_by_index', sel_model == {'p': 'agentrouter', 'm': 'gpt-6.1-sol'}, str(sel_model))
