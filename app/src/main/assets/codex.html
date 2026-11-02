@@ -1110,11 +1110,14 @@ async function providerForm(existing){
     models[modelID]=model;
    }
    const config={provider:{[id]:{name:meta.name||id,npm,options:{baseURL:url.href.replace(/\/$/,'')},models,whitelist:ids}}};
-   key=$('#pk').value.trim();$('#pk').value='';if(key)await api('/auth/'+encodeURIComponent(id),{method:'PUT',body:{type:'api',key}});key='';
-   await api('/global/config',{method:'PATCH',body:config});await loadProviders();
-   if(!S.provs.some(p=>p.id===id))throw new Error('Provider is not available yet. Check its settings and key.');
-   S.model={p:id,m:ids[0]};lset('oc_model',S.model);chips();connectSSE();closeAll();
-  }catch(x){key='';if($('#pk'))$('#pk').value='';error.textContent=redact(x.message);save.disabled=false}
+   key=$('#pk').value.trim();
+   if(key)await api('/auth/'+encodeURIComponent(id),{method:'PUT',body:{type:'api',key}});
+   await api('/global/config',{method:'PATCH',body:config});
+   key='';if($('#pk'))$('#pk').value='';
+   S.model={p:id,m:ids[0]};lset('oc_model',S.model);
+   closeAll();chips();connectSSE();
+   loadProviders().then(()=>{if(!S.provs.some(p=>p.id===id))err('provider: not available yet — check settings and key')}).catch(()=>{});
+  }catch(x){if($('#pk'))$('#pk').value=key;error.textContent=redact(x.message);save.disabled=false}
  };
 }
 

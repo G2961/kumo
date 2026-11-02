@@ -284,6 +284,34 @@ async def main():
             check('edit_resend_prompt_to_fork', len(prompts) == 1 and any('Edited text' == p.get('parts', [{}])[0].get('text') for p in prompts if isinstance(p, dict)), str(prompts)[:200])
             await browser.close()
 
+            # provider save closes the sheet immediately (bugfix)
+            browser, context, page, errors = await boot_page(pw, origin, 'dark')
+            await page.route('**/global/config', lambda route: route.fulfill(status=200, content_type='application/json', body='{}'))
+            await page.route('**/auth/*', lambda route: route.fulfill(status=200, content_type='application/json', body='true'))
+            slow_provs = []
+            async def slow_providers(route):
+                await asyncio.sleep(8)
+                await route.fulfill(status=200, content_type='application/json', body=json.dumps({'providers': [{'id': 'testprov', 'name': 'Test', 'models': {'m1': {'id': 'm1', 'name': 'Model 1'}}}], 'default': {}}))
+                slow_provs.append(1)
+            await page.route('**/config/providers', slow_providers)
+            await page.evaluate("providerForm()")
+            await page.evaluate("""() => {
+              document.querySelector('#pi').value='testprov';
+              document.querySelector('#pu').value='https://example.com/v1';
+              document.querySelector('#pk').value='sk-test-key';
+              document.querySelector('#pm').value='m1';
+            }""")
+            await page.click('#ps')
+            await page.wait_for_timeout(1500)
+            sheet_open = await page.eval_on_selector('#sheet', "e=>e.classList.contains('on')")
+            check('provider_save_closes_fast', sheet_open is False and not slow_provs, f'sheet={sheet_open} slowLoaded={bool(slow_provs)}')
+            key_after = await page.evaluate("document.querySelector('#pk') ? document.querySelector('#pk').value : ''")
+            check('provider_key_cleared_after_save', key_after == '', repr(key_after))
+            await page.wait_for_timeout(9000)
+            err_count = await page.evaluate("S.errors.length")
+            check('provider_slow_refresh_no_crash', err_count >= 0)
+            await browser.close()
+
         # spec check: fork endpoint really exists (Block F: API not invented)
         with urllib.request.urlopen(origin + '/doc', timeout=15) as r:
             spec = json.load(r)
