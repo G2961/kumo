@@ -32,7 +32,15 @@ jobs:
             gh api -X DELETE "repos/${{ github.repository }}/actions/artifacts/$id" >/dev/null 2>&1 && echo "deleted $name ($id)" || true
           done || true
 
+      - name: Cache native binaries
+        id: native-cache
+        uses: actions/cache@v4
+        with:
+          path: jni/arm64-v8a
+          key: native-${{ env.OPENCODE_VERSION }}-${{ env.ALPINE_VERSION }}-${{ env.RG_VERSION }}
+
       - name: Download opencode binary (arm64 musl)
+        if: steps.native-cache.outputs.cache-hit != 'true'
         run: |
           mkdir -p jni/arm64-v8a
           curl -sSL "https://registry.npmjs.org/opencode-linux-arm64-musl/-/opencode-linux-arm64-musl-${OPENCODE_VERSION}.tgz" -o /tmp/opencode.tgz
@@ -43,6 +51,7 @@ jobs:
           file jni/arm64-v8a/libopencode.so
 
       - name: Download Alpine libraries (aarch64)
+        if: steps.native-cache.outputs.cache-hit != 'true'
         run: |
           set -e
           mkdir -p app/src/main/assets
@@ -70,7 +79,18 @@ jobs:
 
           ls -la "$GITHUB_WORKSPACE/jni/arm64-v8a/"
 
+      - name: Cache Cargo registry and ripgrep build
+        if: steps.native-cache.outputs.cache-hit != 'true'
+        uses: actions/cache@v4
+        with:
+          path: |
+            ~/.cargo/registry
+            ~/.cargo/git
+            /tmp/rg/target
+          key: cargo-rg-${{ env.RG_VERSION }}
+
       - name: Build static ripgrep (aarch64 musl)
+        if: steps.native-cache.outputs.cache-hit != 'true'
         run: |
           set -e
           rustup target add aarch64-unknown-linux-musl
