@@ -287,13 +287,15 @@ async def main():
                 # Americ-thought tags inside a text part: go to the think panel, not the bubble
                 tagged = await page.evaluate("()=>{const a=S.msgs.get('msg_a2');a.parts.set('p8',{id:'p8',type:'text',text:'<think>мысль из текста</think>Ответ готов'});renderMsgs(true);const w=[...document.querySelectorAll('.think')].pop();return {rts:[...w.querySelectorAll('.rtext')].map(r=>r.textContent),bubbles:[...document.querySelectorAll('.msg.ai')].map(b=>b.textContent)}}")
                 check(f'{theme}_think_tagged_text', tagged['rts'][-1] == 'мысль из текста' and not any('мысль из текста' in b for b in tagged['bubbles']), str(tagged)[:200])
-                # actions bar under the assistant text (msg_a1 + msg_a2's cleaned text -> 2 bars)
+                # actions bar: ONE per turn, under the last completed assistant message
                 acts = await page.eval_on_selector_all('.msg-actions button', 'els=>els.length')
-                check(f'{theme}_actions_bar', acts == 10, str(acts))
+                check(f'{theme}_actions_bar', acts == 5, str(acts))
+                bars = await page.eval_on_selector_all('.msg-actions', "els=>els.map(e=>e.dataset.amid)")
+                check(f'{theme}_actions_bar_last_msg', bars == ['msg_a2'], str(bars))
                 await page.click('.msg-actions [data-ma="like"]')
                 await page.wait_for_timeout(200)
                 lk = await page.evaluate("({r:S.reactions,p:localStorage.getItem('oc_reactions')})")
-                check(f'{theme}_like_persists', lk['r'].get('msg_a1') == 'like' and lk['p'] and 'like' in lk['p'], str(lk))
+                check(f'{theme}_like_persists', lk['r'].get('msg_a2') == 'like' and lk['p'] and 'like' in lk['p'], str(lk))
                 await page.click('.msg-actions [data-ma="copy"]')
                 await page.wait_for_timeout(250)
                 clip2 = await page.evaluate("navigator.clipboard.readText()")
@@ -301,6 +303,8 @@ async def main():
                 # long-press does not block scrolling (Block F tests)
                 scroll_info = await page.evaluate("()=>{const m=document.querySelector('#main');const can=m.scrollHeight>m.clientHeight;m.scrollTop=50;return {can,v:m.scrollTop}}")
                 check(f'{theme}_scroll_after_lp', scroll_info['can'] and scroll_info['v'] == 50, str(scroll_info))
+                # return the bar to msg_a1 (drop msg_a2's text part) for the retry test
+                await page.evaluate("()=>{const a=S.msgs.get('msg_a2');if(a)a.parts.delete('p8');renderMsgs(true)}")
                 # retry: deletes the old pair, re-sends the same text, no duplicates on the wire
                 dels = []
                 newprompts = []
@@ -330,7 +334,7 @@ async def main():
                 check(f'{theme}_retry_resends_same_text', bool(pb) and pb.get('parts', [{}])[0].get('text') == 'Fix the login bug', str(pb)[:150])
                 check(f'{theme}_retry_state_clean', await page.evaluate("S.msgs.size") == 2, str(await page.evaluate("S.msgs.size")))
 
-                # long-press context menu on user message (Block F)
+                # long-press: no custom menu anymore, text stays natively selectable
                 box = await page.evaluate("()=>{const e=document.querySelector('.msg.user[data-mid=\"msg_u9\"]');e.scrollIntoView({block:'center'});const r=e.getBoundingClientRect();return {x:r.x+r.width/2,y:Math.max(60,r.y+10)}}")
                 await page.mouse.move(box['x'], box['y'])
                 await page.mouse.down()
@@ -338,23 +342,25 @@ async def main():
                 await page.mouse.up()
                 await page.wait_for_timeout(350)
                 menu = await page.eval_on_selector('#sheet', "e=>e.classList.contains('on')?e.innerText:'OFF'")
-                check(f'{theme}_lp_menu_user', all(k in menu for k in ['Copy', 'Edit & resend', 'Resend', 'Select text']), menu[:150])
+                check(f'{theme}_lp_no_menu', menu == 'OFF', menu[:120])
+                sel_st = await page.evaluate("getComputedStyle(document.querySelector('.msg.user[data-mid=\"msg_u9\"]')).userSelect")
+                check(f'{theme}_text_selectable', sel_st != 'none', sel_st)
+
+                # ai message: actions live in the More (...) button menu: copy + fork
+                await page.evaluate("()=>{const a=S.msgs.get('msg_a9');a.parts.set('pa9',{id:'pa9',type:'text',text:'Assistant answer'});renderMsgs(true)}")
+                await page.click('.msg-actions [data-ma="more"]')
+                await page.wait_for_timeout(350)
+                menu2 = await page.eval_on_selector('#sheet', "e=>e.classList.contains('on')?e.innerText:'OFF'")
+                check(f'{theme}_more_menu_ai', all(k in menu2 for k in ['Copy', 'Retry', 'Fork from here']) and 'Select text' not in menu2, menu2[:150])
                 await shot('context-menu')
                 await page.click('#sheet .opt:nth-child(1)')
                 await page.wait_for_timeout(300)
                 clip = await page.evaluate("navigator.clipboard.readText()")
-                check(f'{theme}_copy_works', clip == 'Fix the login bug', clip)
+                check(f'{theme}_copy_works', 'Assistant answer' in clip, clip[:80])
 
-                # ai message menu + fork from here (Block F)
-                await page.evaluate("()=>{const a=S.msgs.get('msg_a9');a.parts.set('pa9',{id:'pa9',type:'text',text:'Assistant answer'});renderMsgs(true)}")
-                box2 = await page.evaluate("()=>{const e=document.querySelector('.msg.ai[data-mid=\"msg_a9\"]');e.scrollIntoView({block:'center'});const r=e.getBoundingClientRect();return {x:r.x+r.width/2,y:Math.max(60,r.y+10)}}")
-                await page.mouse.move(box2['x'], box2['y'])
-                await page.mouse.down()
-                await page.wait_for_timeout(600)
-                await page.mouse.up()
+                # fork from here via the same menu (reopen)
+                await page.click('.msg-actions [data-ma="more"]')
                 await page.wait_for_timeout(350)
-                menu2 = await page.eval_on_selector('#sheet', "e=>e.classList.contains('on')?e.innerText:'OFF'")
-                check(f'{theme}_lp_menu_ai', all(k in menu2 for k in ['Copy', 'Retry', 'Fork from here']), menu2[:150])
                 fork_calls = []
                 async def fork_route(route):
                     fork_calls.append(route.request.post_data_json)

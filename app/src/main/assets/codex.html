@@ -82,12 +82,13 @@ main>*{flex-shrink:0}
 .show-more-btn:active{color:var(--text)}
 .code-block{border:1px solid var(--border);border-radius:var(--r-12);overflow:hidden;margin:var(--s-8) 0}
 .code-head{display:flex;align-items:center;justify-content:space-between;padding:6px 10px;background:var(--surface-1);font-size:calc(11px * var(--font-scale));color:var(--text-2);border-bottom:1px solid var(--border)}
+.code-block pre{margin:0;padding:10px 12px;overflow-x:auto;overscroll-behavior-x:contain}
 .copy-btn{font-size:calc(11px * var(--font-scale));color:var(--text-2);cursor:pointer;padding:2px 6px;border-radius:var(--r-8);border:1px solid var(--border);background:var(--surface-2)}
 .copy-btn:active{color:var(--text)}
 .copy-btn.copied{color:var(--ok);border-color:var(--ok)}
-.table-wrap{overflow-x:auto;margin:var(--s-8) 0;border:1px solid var(--border);border-radius:var(--r-12)}
+.table-wrap{overflow-x:auto;overscroll-behavior-x:contain;margin:var(--s-8) 0;border:1px solid var(--border);border-radius:var(--r-12)}
 table{width:100%;border-collapse:collapse;font-size:var(--fs-13)}
-th,td{padding:7px 10px;border-bottom:1px solid var(--border);text-align:left}
+th,td{padding:8px 12px;border-bottom:1px solid var(--border);text-align:left;white-space:nowrap}
 th{background:var(--surface-1);font-weight:600}
 tr:last-child td{border-bottom:0}
 .ssh-badge{background:var(--surface-2);border:1px solid var(--border);font-size:calc(10px * var(--font-scale));padding:2px 6px;border-radius:var(--r-8);color:var(--text-2);margin-left:6px;font-weight:normal}
@@ -1940,19 +1941,51 @@ function renderMarkdown(md){
   codeBlocks.push(`<div class="code-block"><div class="code-head"><span>${esc(lang||'code')}</span><button class="copy-btn" onclick="copyCode(this)">Copy</button></div><pre><code>${code}</code></pre></div>`);
   return id;
  });
- s=s.replace(/((?:^|\n)\|[^\n]+\|\r?\n\|[-:\s|]+\|\r?\n(?:\|[^\n]+\|\r?\n?)+)/g,(match)=>{
-  const lines=match.trim().split('\n');
-  if(lines.length<3)return match;
-  const parseRow=l=>l.replace(/^\||\|$/g,'').split('|').map(c=>c.trim());
-  const headers=parseRow(lines[0]);
-  let th=headers.map(h=>`<th>${h}</th>`).join('');
-  let rows='';
-  for(let i=2;i<lines.length;i++){
-   const cells=parseRow(lines[i]);
-   rows+=`<tr>${cells.map(c=>`<td>${c}</td>`).join('')}</tr>`;
+ const stripCell=c=>c.replace(/\\+(?=[\s]|$)/g,'').trim();
+ const parseRow=l=>l.replace(/^\||\|$/g,'').split('|').map(c=>stripCell(c));
+ const tableRe=/(?:^|\n)\|[^\n]+\|\r?\n\|[-: \t|]+\|/g;
+ const tables=[];
+ let tm;
+ while((tm=tableRe.exec(s))!==null){
+  let i=tm.index+tm[0].length;
+  if(s[i]==='\r')i++;
+  if(s[i]==='\n')i++;
+  const lines=[];let open=false;
+  while(i<s.length){
+   const nl=s.indexOf('\n',i);
+   const line=nl<0?s.slice(i):s.slice(i,nl);
+   const t=line.trim();
+   if(!t)break;
+   if(!open&&!t.startsWith('|'))break;
+   lines.push(t);
+   open=!t.endsWith('|');
+   i=nl<0?s.length:nl+1;
   }
-  return `\n<div class="table-wrap"><table><thead><tr>${th}</tr></thead><tbody>${rows}</tbody></table></div>\n`;
- });
+  if(!lines.length){continue}
+  const headerLine=tm[0].replace(/^\n/,'').split('\n')[0];
+  const headers=parseRow(headerLine);
+  const rows=[];let cur=null;
+  const flush=()=>{if(cur!==null){const cells=cur.split('|').map(stripCell);if(cells.some(c=>c))rows.push(cells);cur=null}};
+  for(let k=0;k<lines.length;k++){
+   const t=lines[k];
+   if(t.startsWith('|')){
+    flush();
+    const content=t.slice(1);
+    if(content.endsWith('|')){cur=content.slice(0,-1);flush()}
+    else cur=content.replace(/\\+$/,'');
+   }else if(cur!==null){
+    if(t.endsWith('|')){cur+=' '+t.slice(0,-1).trim();flush()}
+    else cur+=' '+t.replace(/\\+$/,'');
+   }
+  }
+  flush();
+  if(!rows.length){continue}
+  const th=headers.map(h=>`<th>${h}</th>`).join('');
+  const tbody=rows.map(cells=>`<tr>${cells.map(c=>`<td>${c}</td>`).join('')}</tr>`).join('');
+  const lead=s[tm.index]==='\n'?'\n':'';
+  tables.push({start:tm.index,end:i,html:lead+`<div class="table-wrap"><table><thead><tr>${th}</tr></thead><tbody>${tbody}</tbody></table></div>`+'\n'});
+ }
+ for(let k=tables.length-1;k>=0;k--){const t=tables[k];s=s.slice(0,t.start)+t.html+s.slice(t.end)}
  s=s.replace(/^### (.*$)/gim,'<h5>$1</h5>');
  s=s.replace(/^## (.*$)/gim,'<h4>$1</h4>');
  s=s.replace(/^# (.*$)/gim,'<h3>$1</h3>');
@@ -2104,7 +2137,7 @@ function toolEntry(p,claimedRuns,lang){
   let o='';
   if(isSsh){let result={};try{result=JSON.parse(st.output||'{}')}catch(x){};o=result.content||''}
   else o=st.output||meta.output||'';
-  if(o){chars=`<span class="m">· ${o.length}</span>`;body+=`<pre style="max-height:180px;overflow:auto">${esc(String(o).slice(0,2000))}</pre>`}
+  if(o)chars=`<span class="m">· ${o.length}</span>`;
  }
  if(isErr){const errText=st.error||(st.metadata&&st.metadata.error)||'';if(errText)body+=`<pre class="er-body">${esc(errText)}</pre>`}
  const mark=isRun?'<span class="dot"></span>':'<svg viewBox="0 0 24 24"><circle cx="12" cy="12" r="9"/><path d="m8.5 12 2.5 2.5 5-5"/></svg>';
@@ -2135,6 +2168,10 @@ function renderMsgs(force){
  const openDetails=new Set([...m.querySelectorAll('details[open],.think[data-open]')].map(d=>d.dataset.part||d.dataset.historyKey||''));
  const closedDetails=new Set([...m.querySelectorAll('.think[data-closed]')].map(d=>d.dataset.part||''));
  const list=[...S.msgs.values()].sort((a,b)=>a.info.id<b.info.id?-1:1);
+ const textsOf=x=>[...x.parts.values()].filter(p=>p.type==='text'&&p.text).map(p=>splitThoughts(p.text).text).filter(Boolean);
+ let lastTextMsg=null,turnRaw='',start=-1;
+ for(let i=list.length-1;i>=0;i--){const x=list[i];if(x.info.role==='assistant'&&textsOf(x).length){lastTextMsg=x.info.id;start=i;break}}
+ if(lastTextMsg){const acc=[];for(let i=start;i>=0;i--){const x=list[i];if(x.info.role!=='assistant')break;acc.push(textsOf(x).join('\n\n'))}turnRaw=acc.reverse().join('\n\n')}
  S.renderedRemoteRuns=new Set();
  const claimedRuns=new Set();
  let h='',hadMsgError=false;
@@ -2160,8 +2197,10 @@ function renderMsgs(force){
    const reaction=S.reactions[x.info.id];
    texts.forEach(p=>{
     h+=`<div class="msg ai" data-mid="${esc(x.info.id)}" data-raw="${esc(p.text)}">${renderMarkdown(p.text)}</div>`;
-    h+=`<div class="msg-actions" data-amid="${esc(x.info.id)}" data-araw="${esc(p.text)}"><button data-ma="copy" aria-label="Copy">${I.copy}</button><button data-ma="like" class="${reaction==='like'?'on':''}" aria-label="Good response">${I.like}</button><button data-ma="dislike" class="${reaction==='dislike'?'on':''}" aria-label="Bad response">${I.dislike}</button><button data-ma="retry" aria-label="Regenerate">${I.redo}</button><button data-ma="more" aria-label="More">${I.dots}</button></div>`;
    });
+   if(x.info.id===lastTextMsg&&!S.running&&x.info.time&&x.info.time.completed){
+    h+=`<div class="msg-actions" data-amid="${esc(x.info.id)}" data-araw="${esc(turnRaw)}"><button data-ma="copy" aria-label="Copy">${I.copy}</button><button data-ma="like" class="${reaction==='like'?'on':''}" aria-label="Good response">${I.like}</button><button data-ma="dislike" class="${reaction==='dislike'?'on':''}" aria-label="Bad response">${I.dislike}</button><button data-ma="retry" aria-label="Regenerate">${I.redo}</button><button data-ma="more" aria-label="More">${I.dots}</button></div>`;
+   }
    if(x.info.error){const e=x.info.error;h+=errorCardHTML(e,x.info.id);hadMsgError=true}
   }
  });
@@ -2239,9 +2278,6 @@ function copyText(text){
  if(navigator.clipboard&&navigator.clipboard.writeText)navigator.clipboard.writeText(text).catch(()=>fallbackCopy(text));
  else fallbackCopy(text);
 }
-function selectText(el){
- try{const r=document.createRange();r.selectNodeContents(el);const s=getSelection();s.removeAllRanges();s.addRange(r)}catch(e){}
-}
 async function forkSession(messageID){
  if(!S.sid)throw new Error('No thread.');
  if(!specFind(/^\/session\/\{[^}]+\}\/fork$/,'post'))throw new Error('Fork is not supported by this server version.');
@@ -2261,51 +2297,13 @@ function startEditResend(mid,text){
 function cancelEdit(){S.editing=null;renderEditBanner();$('#inp').value='';autosize()}
 function renderEditBanner(){const b=$('#editBanner');if(b)b.hidden=!S.editing}
 $('#editCancel').onclick=cancelEdit;
-let lpTimer=null,lpXY=null;
 function msgMenu(mid,raw){
  contextMenu('Message',[
   {label:'Copy',fn:()=>copyText(raw)},
   {label:'Retry',fn:()=>retryFrom(mid)},
   {label:'Retry with another model…',fn:()=>{modelSheet(x=>{retryFrom(mid)})}},
   mid?{label:'Fork from here',fn:()=>forkAndOpen(mid)}:null,
-  {label:'Select text',fn:()=>{const el=document.querySelector(`.msg.ai[data-mid="${CSS.escape(mid)}"]`);if(el)selectText(el)}},
  ]);
-}
-function fireContextMenu(target){
- if(!LS('oc_lp_hint'))lset('oc_lp_hint',true);
- if(navigator.vibrate&&S.haptics)navigator.vibrate(10);
- const um=target.closest('.msg.user');
- if(um){
-  const text=(um.dataset.utext||'').trim();
-  contextMenu('Message',[
-   {label:'Copy',fn:()=>copyText(text)},
-   text&&um.dataset.mid?{label:'Edit & resend',fn:()=>startEditResend(um.dataset.mid,text)}:null,
-   text?{label:'Resend',fn:()=>resendPrompt(text)}:null,
-   {label:'Select text',fn:()=>selectText(um)}
-  ]);return;
- }
- const am=target.closest('.msg.ai');
- if(am){
-  msgMenu(am.dataset.mid,am.dataset.raw||am.innerText||'');return;
- }
- const card=target.closest('.card');if(!card)return;
- if(card.classList.contains('change-card')||card.querySelector('.change-preview')){
-  const path=card.querySelector('.ch span')?.getAttribute('title')||card.querySelector('.ch span')?.textContent||'';
-  const diff=card.querySelector('.change-preview')?.innerText||'';
-  contextMenu('Change',[
-   {label:'Copy path',fn:()=>copyText(path)},
-   {label:'Copy diff',fn:()=>copyText(diff)}
-  ]);return;
- }
- const out=card.querySelector('.collapsible-output pre');
- if(out){
-  const cmd=card.querySelector('.tool-action')?.textContent||'';
-  const body=out.textContent.replace(/^\$ [^\n]*\n?/,'');
-  contextMenu('Command',[
-   {label:'Copy command',fn:()=>copyText(cmd)},
-   {label:'Copy output',fn:()=>copyText(body)}
-  ]);
- }
 }
 function contextMenu(title,items){
  let h='<h3>'+esc(title)+'</h3><div>';
@@ -2319,16 +2317,6 @@ function contextMenu(title,items){
  };
 }
 $('#main').addEventListener('contextmenu',e=>e.preventDefault());
-$('#main').addEventListener('pointerdown',e=>{
- if(e.pointerType==='mouse'&&e.button!==0)return;
- lpXY={x:e.clientX,y:e.clientY};
- $('#main').classList.add('lp-wait');
- lpTimer=setTimeout(()=>{lpTimer=null;$('#main').classList.remove('lp-wait');fireContextMenu(e.target)},420);
-},{passive:true});
-function lpCancel(){if(lpTimer){clearTimeout(lpTimer);lpTimer=null}$('#main').classList.remove('lp-wait')}
-$('#main').addEventListener('pointermove',e=>{if(lpTimer&&lpXY&&(Math.abs(e.clientX-lpXY.x)>10||Math.abs(e.clientY-lpXY.y)>10))lpCancel()},{passive:true});
-$('#main').addEventListener('pointerup',lpCancel,{passive:true});
-$('#main').addEventListener('pointercancel',lpCancel,{passive:true});
 async function submit(){
  if(S.bootP){try{await S.bootP}catch(e){}S.bootP=null}
  const dir=S.dir,view=S.view;
