@@ -167,13 +167,36 @@ footer::before{content:'';position:absolute;top:-24px;left:0;right:0;height:24px
 .tout .change-preview{max-height:40vh}
 .tcaret{width:12px;height:12px;color:var(--text-2);flex:none;transition:transform .2s;stroke-width:2}
 .topic[open] .tcaret{transform:rotate(180deg)}
-.qcard{border-color:var(--accent)}
-.qcard .qwrap{padding:var(--s-8) var(--s-12)}
-.qq{font-size:var(--fs-14);color:var(--text);margin:var(--s-4) 0 var(--s-8)}
-.qopts{display:flex;flex-direction:column;gap:2px}
-.qopt{border-radius:var(--r-8);min-height:44px}
-.qopt.sel{background:var(--surface-2);font-weight:500}
-.qcustom{margin-top:var(--s-4)}
+.qcard{background:var(--base);border-radius:14px}
+.qcard .qhead{display:flex;align-items:center;gap:var(--s-8);width:100%;padding:12px 14px;background:none;border:none;color:var(--text-2);font-size:var(--fs-13);font-weight:500;cursor:pointer;text-align:left;box-sizing:border-box}
+.qcard .qhead svg{width:14px;height:14px;margin-left:auto;flex:none;transition:transform .2s}
+.qcard[data-collapsed] .qhead svg{transform:rotate(180deg)}
+.qcard .qbody-wrap{padding:0 14px 12px;display:flex;flex-direction:column;gap:16px}
+.qcard[data-collapsed] .qbody-wrap{display:none}
+.qsec{display:flex;flex-direction:column}
+.qq{font-size:var(--fs-14);font-weight:600;color:var(--text)}
+.qhint{font-size:var(--fs-12);color:var(--text-2);margin-top:3px}
+.qopts{display:flex;flex-direction:column;gap:8px;margin-top:12px}
+.qopt{display:flex;align-items:flex-start;gap:10px;padding:10px 12px;border:1px solid var(--border);border-radius:10px;background:var(--surface-1);cursor:pointer;text-align:left;color:var(--text);width:100%;box-sizing:border-box;min-height:44px}
+.qopt:active{background:var(--surface-active)}
+.qopt.sel{border-color:var(--accent)}
+.qradio{width:16px;height:16px;min-width:16px;border:1.5px solid var(--text-2);border-radius:50%;margin-top:2px;display:grid;place-items:center;box-sizing:border-box}
+.qradio.cb{border-radius:5px}
+.qopt.sel .qradio{border-color:var(--accent)}
+.qopt.sel .qradio::after{content:'';width:8px;height:8px;min-width:8px;border-radius:50%;background:var(--accent)}
+.qradio.cb::after{width:9px;height:9px;min-width:9px;border-radius:2px}
+.qbody{display:flex;flex-direction:column;gap:2px;flex:1;min-width:0}
+.qlabel{font-size:var(--fs-13);font-weight:500;color:var(--text);line-height:1.4}
+.qdesc{font-size:var(--fs-12);color:var(--text-2);line-height:1.4}
+.qnum{min-width:20px;height:20px;border:1px solid var(--border);border-radius:6px;color:var(--text-2);font-size:calc(11px * var(--font-scale,1));display:grid;place-items:center;flex:none;font-weight:500;margin-top:1px}
+.qopt.sel .qnum{color:var(--accent);border-color:var(--accent)}
+.qcustom-wrap{display:none}
+.qcustom-wrap.on{display:block;margin-top:2px}
+.qfoot{display:flex;align-items:center;justify-content:space-between;gap:var(--s-8);margin-top:14px}
+.qdismiss{background:none;border:none;color:var(--text-2);font-size:var(--fs-13);font-weight:500;padding:9px 12px;border-radius:var(--r-8);cursor:pointer}
+.qdismiss:active{color:var(--text);background:var(--surface-active)}
+.qsend{border-radius:var(--r-full);padding:9px 20px}
+.qsend:disabled{opacity:.4}
 .topic .tl{width:16px;flex:none;display:flex;flex-direction:column;align-items:center}
 .topic .tl .mark{width:14px;height:14px;flex:none;display:grid;place-items:center;margin-top:5px}
 .topic .tl .mark .dot{width:6px;height:6px;border-radius:50%;background:var(--text-2);animation:tk-pulse 1.2s ease-in-out infinite}
@@ -498,14 +521,16 @@ function err(m){m=redact(m);S.errors.push(m);console.log('[codex-ui] '+m);if(S.e
 const projName=d=>(d||'').split(/[\\/]/).filter(Boolean).pop()||d||'(server cwd)';
 
 /* ---------- SSE ---------- */
+let lastEv=0;
 function connectSSE(){
  if(S.es)S.es.close();
  const es=new EventSource('/event'+(S.dir?'?directory='+encodeURIComponent(S.dir):''));
- es.onopen=()=>{if(es!==S.es)return;S.live=true;if(S.sid)syncSession()};
- es.onmessage=e=>{try{onEvent(JSON.parse(e.data))}catch(x){}};
+ es.onopen=()=>{if(es!==S.es)return;S.live=true;lastEv=Date.now();if(S.sid)syncSession()};
+ es.onmessage=e=>{lastEv=Date.now();try{onEvent(JSON.parse(e.data))}catch(x){}};
  es.onerror=()=>{if(es===S.es)S.live=false};
  S.es=es;
 }
+function recycleSSE(){S.live=false;try{if(S.es)S.es.close()}catch(x){}S.es=null;connectSSE()}
 function ensureMsg(sid,id){
  let m=S.msgs.get(id);
  if(!m){m={info:{id,sessionID:sid,role:'assistant'},parts:new Map()};S.msgs.set(id,m)}
@@ -564,7 +589,7 @@ function onEvent(ev){
  }
 }
 let raf=0;
-function sched(){if(raf)return;raf=requestAnimationFrame(()=>{raf=0;renderMsgs();updateCtxRing()})}
+function sched(){if(raf)return;raf=requestAnimationFrame(()=>{raf=0;try{renderMsgs()}catch(e){err('render: '+((e&&e.message)||e))}updateCtxRing()})}
 
 /* ---------- sessions ---------- */
 function resetThread(id=null){
@@ -618,7 +643,16 @@ async function syncSession(){
  finally{if(syncing===view)syncing=null}
 }
 const loadMessages=()=>syncSession();
-setInterval(()=>{if(S.sid && !S.live && S.running)syncSession()},5000);
+setInterval(()=>{
+ if(!S.sid||!S.running||S.sending)return;
+ syncSession();
+ if(S.live&&lastEv&&Date.now()-lastEv>15000)recycleSSE();
+},3000);
+document.addEventListener('visibilitychange',()=>{
+ if(document.hidden||!S.sid)return;
+ if(!S.es||!S.live||(lastEv&&Date.now()-lastEv>15000))recycleSSE();
+ syncSession();
+});
 
 /* ---------- drawer ---------- */
 const ago=t=>{if(!t)return'';const s=(Date.now()-t)/1000;return s<90?'now':s<5400?Math.round(s/60)+'m':s<129600?Math.round(s/3600)+'h':Math.round(s/86400)+'d'};
@@ -1763,14 +1797,26 @@ function toolCard(p,claimedRuns){
 }
 function questionCard(q){
  const qs=q.questions||[];
- let h=`<div class="card qcard" data-qid="${esc(q.id)}"><div class="ch">${I.bot}<span>${esc((qs[0]&&qs[0].header)||'Question')}</span></div><div class="qwrap">`;
+ let body='';
  qs.forEach((qi,qidx)=>{
-  if(qi.question)h+=`<div class="qq">${esc(qi.question)}</div>`;
-  if(qi.options&&qi.options.length)h+=`<div class="qopts">`+qi.options.map((o,oi)=>`<button class="opt qopt ${qi.multiple?'multi':''}" data-qsel="${qidx}:${oi}"><span>${esc(o.label)}</span>${o.description?`<span class="m">${esc(o.description)}</span>`:''}</button>`).join('')+`</div>`;
-  if(qi.custom)h+=`<input class="in qcustom" data-qcustom="${qidx}" placeholder="Your own answer" autocomplete="off">`;
+  const opts=qi.options||[],multi=!!qi.multiple;
+  body+=`<div class="qsec"><div class="qq">${esc(qi.question||'')}</div><div class="qhint">${multi?'Select one or more answers':'Select one answer'}</div><div class="qopts">`;
+  opts.forEach((o,oi)=>{
+   body+=`<button class="qopt${multi?' multi':''}" type="button" data-qsel="${qidx}:${oi}"><span class="qradio${multi?' cb':''}"></span><span class="qbody"><span class="qlabel">${esc(o.label)}</span>${o.description?`<span class="qdesc">${esc(o.description)}</span>`:''}</span><span class="qnum">${oi+1}</span></button>`;
+  });
+  body+=`<button class="qopt qopt-custom${multi?' multi':''}" type="button" data-qcustom-opt="${qidx}"><span class="qradio${multi?' cb':''}"></span><span class="qbody"><span class="qlabel">Type your own answer…</span></span><span class="qnum">${opts.length+1}</span></button>`;
+  body+=`<div class="qcustom-wrap" data-qcustom-wrap="${qidx}"><input class="in qcustom" data-qcustom="${qidx}" placeholder="Your own answer" autocomplete="off"></div>`;
+  body+=`</div></div>`;
  });
- h+=`<div class="btns"><button class="btn p" data-qact="send">Answer</button><button class="btn" data-qact="reject">Dismiss</button></div></div></div>`;
- return h;
+ return `<div class="card qcard" data-qid="${esc(q.id)}"><button class="qhead" type="button"><span>Question</span>${I.chev}</button><div class="qbody-wrap">${body}<div class="qfoot"><button class="qdismiss" type="button" data-qact="reject">Закрыть</button><button class="btn p qsend" type="button" data-qact="send" disabled>Отправить</button></div></div></div>`;
+}
+function updateQSend(card){
+ if(!card)return;
+ const send=card.querySelector('.qsend');if(!send)return;
+ const hasSel=!!card.querySelector('.qopt[data-qsel].sel');
+ let customOk=false;
+ card.querySelectorAll('[data-qcustom-wrap]').forEach(w=>{if(w.classList.contains('on')){const i=w.querySelector('input');if(i&&i.value.trim())customOk=true}});
+ send.disabled=!(hasSel||customOk);
 }
 function permCard(p){
  const pats=p.patterns||(p.pattern?[].concat(p.pattern):[]);
@@ -2076,11 +2122,20 @@ $('#main').addEventListener('toggle',async e=>{
 $('#main').onclick=async e=>{
  const th=e.target.closest('.think-head');
  if(th){const w=th.closest('.think');if(w.hasAttribute('data-open')||w.hasAttribute('data-live')){w.removeAttribute('data-open');w.removeAttribute('data-live');w.setAttribute('data-closed','1')}else{w.removeAttribute('data-closed');w.setAttribute('data-open','1')}return}
+ const qh=e.target.closest('.qhead');
+ if(qh){const c=qh.closest('.qcard');if(c.hasAttribute('data-collapsed'))c.removeAttribute('data-collapsed');else c.setAttribute('data-collapsed','1');return}
  const qo=e.target.closest('.qopt');
  if(qo){
-  const multi=qo.classList.contains('multi');
-  if(!multi)qo.parentElement.querySelectorAll('.qopt').forEach(b=>b.classList.remove('sel'));
-  if(multi)qo.classList.toggle('sel');else qo.classList.add('sel');
+  const card=qo.closest('.qcard');const multi=qo.classList.contains('multi');
+  if(!multi){card.querySelectorAll('.qopt').forEach(b=>b.classList.remove('sel'));qo.classList.add('sel')}
+  else qo.classList.toggle('sel');
+  card.querySelectorAll('[data-qcustom-wrap]').forEach(w=>{
+   const idx=w.getAttribute('data-qcustom-wrap');
+   const opt=card.querySelector(`[data-qcustom-opt="${idx}"]`);
+   w.classList.toggle('on',!!(opt&&opt.classList.contains('sel')));
+   if(w.classList.contains('on'))setTimeout(()=>{const i=w.querySelector('input');if(i)i.focus()},60);
+  });
+  updateQSend(card);
   return;
  }
  const qa=e.target.closest('[data-qact]');
@@ -2093,10 +2148,11 @@ $('#main').onclick=async e=>{
   }
   const qs=q.questions||[];
   const answers=qs.map((qi,qidx)=>{
-   const custom=card.querySelector(`[data-qcustom="${qidx}"]`);
+   const wrap=card.querySelector(`[data-qcustom-wrap="${qidx}"]`);
+   const custom=wrap?wrap.querySelector('input'):null;
    const customText=custom?custom.value.trim():'';
-   if(customText)return [customText];
-   return [...card.querySelectorAll('.qopt.sel')].filter(b=>b.dataset.qsel.split(':')[0]===String(qidx)).map(b=>((qi.options||[])[+b.dataset.qsel.split(':')[1]]||{}).label).filter(Boolean);
+   if(wrap&&wrap.classList.contains('on')&&customText)return [customText];
+   return [...card.querySelectorAll('.qopt.sel')].filter(b=>b.dataset.qsel&&b.dataset.qsel.split(':')[0]===String(qidx)).map(b=>((qi.options||[])[+b.dataset.qsel.split(':')[1]]||{}).label).filter(Boolean);
   });
   try{await api('/question/'+encodeURIComponent(q.id)+'/reply',{method:'POST',body:{answers},directory:S.dir})}catch(x){err('question: '+x.message);qa.disabled=false;return}
   S.questions.delete(q.id);renderMsgs();
@@ -2136,6 +2192,14 @@ async function replyPerm(p,r){
  else await api('/session/'+encodeURIComponent(p.sessionID)+'/permissions/'+encodeURIComponent(p.id),{method:'POST',body:{response:r}});
  S.perms.delete(p.id);renderMsgs();
 }
+$('#main').addEventListener('input',e=>{if(e.target.classList&&e.target.classList.contains('qcustom'))updateQSend(e.target.closest('.qcard'))});
+document.addEventListener('keydown',e=>{
+ const t=e.target;if(t&&(t.tagName==='INPUT'||t.tagName==='TEXTAREA'||t.isContentEditable))return;
+ const card=document.querySelector('.qcard:not([data-collapsed])');if(!card)return;
+ const n=parseInt(e.key,10);if(isNaN(n)||n<1)return;
+ const opts=card.querySelectorAll('.qopt');if(n>opts.length)return;
+ opts[n-1].click();e.preventDefault();
+});
 
 /* ---------- send ---------- */
 function setRun(){$('#send').innerHTML=S.running?I.stop:I.up}
