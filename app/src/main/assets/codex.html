@@ -192,6 +192,11 @@ span.ib-right-col{font-size:var(--fs-12);color:var(--text-2)}
 .skeleton-ai{margin-bottom:8px}
 #sheet h3{margin:var(--s-4) 0 var(--s-8);font-size:var(--fs-16);color:var(--text)}
 .sheet-sec-title{font-size:var(--fs-12);font-weight:600;text-transform:uppercase;letter-spacing:0.04em;color:var(--text-2);margin:var(--s-8) 0 var(--s-4)}
+.grp-h{display:flex;align-items:center;gap:var(--s-8);width:100%;min-height:44px;padding:var(--s-8);border-radius:var(--r-8);text-align:left;font-weight:600;font-size:var(--fs-12);text-transform:uppercase;letter-spacing:0.04em;color:var(--text-2);background:none;border:none;cursor:pointer;box-sizing:border-box}
+.grp-h:active{background:var(--surface-active)}
+.grp-h .caret{width:16px;height:16px;display:grid;place-items:center;flex:none;color:var(--text-2);transition:transform 180ms ease}
+.grp-h .caret.open{transform:rotate(90deg)}
+.grp-h .caret svg{width:14px;height:14px}
 .effort-chips-row{display:flex;gap:var(--s-8);overflow-x:auto;padding:var(--s-4) 0;margin-bottom:var(--s-8)}
 .eff-btn{padding:var(--s-8) var(--s-12);font-size:var(--fs-12);border-radius:var(--r-full);background:var(--surface-2);border:none;color:var(--text)}
 .eff-btn.p{background:var(--accent);color:#FFFFFF}
@@ -287,6 +292,7 @@ S.changeHints=new Map();S.historyErrors=new Map();S.historyFiles=new Map();
 S.localPolicies=LS('oc_local_policies')||{};
 S.efforts=LS('oc_efforts')||{};S.webSearch=!!LS('oc_web_search');S.remoteRuns=new Map();
 S.expandedFolders=new Set([S.dir].filter(Boolean));
+S.collapsedModelGroups=new Set(LS('oc_model_groups')||[]);
 S.folderSessions=new Map();S.folderLoading=new Set();S.sessionFirstMsg=new Map();
 if(S.dir)lset('oc_dir',S.dir);
 
@@ -692,20 +698,34 @@ function options(title,list,cur,cb,sub){
 }
 const OPT_CK='<svg class="ck" viewBox="0 0 24 24"><path d="m5 12 5 5 9-10"/></svg>';
 function modelSheet(onPick){
- const L=allModels();
- if(!L.length){sheet('<h3>Model</h3><p class="note">No providers returned by the server. Configure a provider in opencode first.</p>');return}
+ if(S.model&&S.collapsedModelGroups.has(S.model.p)){S.collapsedModelGroups.delete(S.model.p);lset('oc_model_groups',[...S.collapsedModelGroups])}
+ if(!allModels().length){sheet('<h3>Model</h3><p class="note">No providers returned by the server. Configure a provider in opencode first.</p>');return}
  let h='<h3>Model</h3><div style="max-height:60vh;overflow-y:auto">';
  S.provs.forEach(p=>{
   if(!p.models.length)return;
-  h+=`<div class="sheet-sec-title">${esc(p.name||p.id)}</div>`;
+  const open=!S.collapsedModelGroups.has(p.id);
+  h+=`<div class="grp" data-p="${esc(p.id)}"><button class="grp-h" data-grp="${esc(p.id)}"><span class="caret ${open?'open':''}"><svg viewBox="0 0 24 24"><path d="m9 6 6 6-6 6"/></svg></span>${esc(p.name||p.id)}<span class="r"><span class="m">${p.models.length}</span></span></button><div class="proj-body ${open?'open':''}"><div class="proj-inner">`;
   p.models.forEach(m=>{
    const sel=S.model&&p.id===S.model.p&&m.id===S.model.m;
    h+=`<button class="opt ${sel?'sel':''}" data-p="${esc(p.id)}" data-m="${esc(m.id)}">${esc(m.name)}<span class="r">${sel?OPT_CK:''}</span></button>`;
   });
+  h+='</div></div></div>';
  });
  h+='</div>';
  sheet(h);
- $('#sheet').onclick=e=>{const b=e.target.closest('.opt');if(!b)return;S.model={p:b.dataset.p,m:b.dataset.m};lset('oc_model',S.model);chips();closeAll();if(onPick)onPick()};
+ $('#sheet').onclick=e=>{
+  const g=e.target.closest('[data-grp]');
+  if(g){
+   const id=g.dataset.grp,open=!S.collapsedModelGroups.has(id);
+   if(open)S.collapsedModelGroups.add(id);else S.collapsedModelGroups.delete(id);
+   lset('oc_model_groups',[...S.collapsedModelGroups]);
+   const wrap=$('#sheet .grp[data-p="'+CSS.escape(id)+'"] .proj-body');if(wrap)wrap.classList.toggle('open',!open);
+   const caret=g.querySelector('.caret');if(caret)caret.classList.toggle('open',!open);
+   return;
+  }
+  const b=e.target.closest('.opt');if(!b)return;
+  S.model={p:b.dataset.p,m:b.dataset.m};lset('oc_model',S.model);chips();closeAll();if(onPick)onPick();
+ };
 }
 function allModels(){const o=[];S.provs.forEach(p=>p.models.forEach(m=>o.push({p:p.id,pn:p.name,m:m.id,mn:m.name,capabilities:m.capabilities,variants:m.variants})));return o}
 $('#cModel').onclick=()=>modelSheet();
