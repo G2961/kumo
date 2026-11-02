@@ -45,16 +45,22 @@ header h1{font-size:var(--fs-16);font-weight:600;margin:0;flex:1;white-space:now
 .pill:active{background:var(--surface-2)}
 main{flex:1;overflow-y:auto;overscroll-behavior:contain;-webkit-overflow-scrolling:touch;padding:var(--s-12) var(--s-12) var(--s-24);display:flex;flex-direction:column;gap:var(--s-8)}
 main>*{flex-shrink:0}
-.home{margin:auto 0;width:100%;display:flex;flex-direction:column;gap:var(--s-16);padding:var(--s-8) 0}
+.home{margin:auto 0;width:100%;display:flex;flex-direction:column;align-items:center;gap:var(--s-16);padding:var(--s-8) 0}
 .home h2{margin:0;font-size:var(--fs-28);font-weight:600;letter-spacing:-0.02em;color:var(--text)}
 .home .proj{font-size:var(--fs-14);color:var(--text-2);display:inline-flex;align-items:center;gap:var(--s-8);font-weight:500}
+.home-proj-btn{display:inline-flex;align-items:center;gap:6px;font-size:var(--fs-14);color:var(--text-2);font-weight:500;background:none;border:none;cursor:pointer;padding:var(--s-4) var(--s-8);border-radius:var(--r-8);-webkit-tap-highlight-color:transparent}
+.home-proj-btn:active{background:var(--surface-active)}
+.home-proj-btn svg{stroke:currentColor;fill:none;stroke-width:1.8;stroke-linecap:round;stroke-linejoin:round}
 .home-proj-dot{width:8px;height:8px;border-radius:var(--r-full);background:var(--accent);flex:none}
 .home-sec{display:flex;flex-direction:column;gap:var(--s-8);width:100%}
 .home-sec-title{font-size:var(--fs-12);font-weight:600;text-transform:uppercase;letter-spacing:0.04em;color:var(--text-2)}
-.home-recents,.sug-cards{display:flex;flex-direction:column;gap:var(--s-8);width:100%}
+.home-icon{width:56px;height:56px;border-radius:16px;background:var(--surface-2);display:grid;place-items:center;color:var(--text-2)}
+.home-icon svg{width:28px;height:28px;stroke:currentColor;fill:none;stroke-width:1.5;stroke-linecap:round;stroke-linejoin:round}
+.home-recents{display:flex;flex-direction:column;gap:var(--s-8);width:100%}
 .home-recent-row{display:flex;align-items:center;gap:var(--s-8);padding:0 var(--s-16);height:48px;min-height:48px;background:var(--surface-1);border:1px solid var(--border);border-radius:var(--r-12);width:100%;text-align:left;cursor:pointer;box-sizing:border-box}
 .home-recent-row:active{background:var(--surface-2)}
 .home-recent-title{min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;flex:1;font-size:var(--fs-14);color:var(--text);font-weight:500}
+.sug-cards{display:grid;grid-template-columns:1fr 1fr;gap:var(--s-8);width:100%}
 .sug-card{display:flex;flex-direction:column;gap:var(--s-4);padding:var(--s-12) var(--s-16);min-height:48px;background:var(--surface-1);border:1px solid var(--border);border-radius:var(--r-12);width:100%;text-align:left;cursor:pointer;box-sizing:border-box}
 .sug-card:active{background:var(--surface-2)}
 .sug-title{font-size:var(--fs-14);font-weight:500;color:var(--text)}
@@ -206,7 +212,7 @@ button:focus-visible,input:focus-visible,select:focus-visible,textarea:focus-vis
   <footer>
     <div class="comp">
       <div id="attachments" class="attachments"></div>
-      <textarea id="inp" rows="1" placeholder="Ask anything…"></textarea>
+      <textarea id="inp" rows="1" placeholder="Ask Codex Anything…"></textarea>
       <div class="crow">
         <button class="ib comp-plus" id="plus" aria-label="Add attachment"><svg viewBox="0 0 24 24"><path d="M12 5v14M5 12h14"/></svg></button>
         <button class="chip" id="cModel" aria-label="Model and reasoning effort"><span>Default model</span><svg viewBox="0 0 24 24"><path d="m6 9 6 6 6-6"/></svg></button>
@@ -1231,33 +1237,53 @@ function renderHome(){
  updateCommitButton();
  const m=$('#main');
  const proj=projName(S.dir);
- 
  const curSessions=(S.folderSessions.get(S.dir)||S.sessions||[]).slice(0,3);
  let contentHtml='';
  if(curSessions.length>0){
-  const topSession=curSessions[0];
-  contentHtml+=`<div class="home-sec"><div class="home-sec-title">Recent thread</div><div class="home-recents"><button class="home-recent-row" data-sid="${esc(topSession.id)}"><span class="home-recent-title">${esc(displaySessionTitle(topSession))}</span><span class="m">${ago(topSession.time&&topSession.time.updated)}</span></button></div></div>`;
- }else{
+  contentHtml+=`<div class="home-sec"><div class="home-sec-title">Recent threads</div><div class="home-recents">`;
+  curSessions.forEach(s=>{
+   contentHtml+=`<button class="home-recent-row" data-sid="${esc(s.id)}"><span class="home-recent-title">${esc(displaySessionTitle(s))}</span><span class="m">${ago(s.time&&s.time.updated)}</span></button>`;
+  });
+  contentHtml+=`</div></div>`;
+ }
+ if(!curSessions.length){
   contentHtml+=`<div class="home-sec"><div class="home-sec-title">Suggested</div><div class="sug-cards">
-    <button class="sug-card" data-prompt="Проверь место на диске по SSH (df -h)">
-      <div class="sug-title">Проверь место на диске по SSH</div>
-      <div class="sug-desc">Выполни df -h на удалённом сервере</div>
-    </button>
+   <button class="sug-card" data-prompt="Find and fix potential bugs in this project"><div class="sug-title">Find bugs</div><div class="sug-desc">Scan for potential issues</div></button>
+   <button class="sug-card" data-prompt="Write unit tests for the main modules"><div class="sug-title">Write tests</div><div class="sug-desc">Generate tests for your code</div></button>
+   <button class="sug-card" data-prompt="Explain this codebase structure and architecture"><div class="sug-title">Explain project</div><div class="sug-desc">Overview of the codebase</div></button>
+   <button class="sug-card" data-prompt="Refactor this code for better readability and performance"><div class="sug-title">Refactor code</div><div class="sug-desc">Improve structure and speed</div></button>
   </div></div>`;
  }
-
  m.innerHTML=`<div class="home">
+  <div class="home-icon"><svg viewBox="0 0 48 48"><path d="M24 8c-5 0-9.3 3.2-10.8 7.8A8.5 8.5 0 0 0 6 24a8.5 8.5 0 0 0 8.5 8.5h19A8.5 8.5 0 0 0 42 24a8.5 8.5 0 0 0-6.6-8.3C33.8 11 29.3 8 24 8Z"/><path d="m19 19.5-4 4.5 4 4.5" stroke-width="2"/><path d="m29 19.5 4 4.5-4 4.5" stroke-width="2"/></svg></div>
   <h2>Let's build</h2>
-  <div class="proj"><span class="home-proj-dot"></span>${esc(proj)}</div>
+  <button class="home-proj-btn" id="homeProj"><span class="home-proj-dot"></span>${esc(proj)}<svg viewBox="0 0 24 24" style="width:14px;height:14px"><path d="m6 9 6 6 6-6"/></svg></button>
   ${contentHtml}
  </div>`;
-
  m.querySelectorAll('.home-recent-row').forEach(b=>{
   b.onclick=()=>openSession(b.dataset.sid);
  });
  m.querySelectorAll('.sug-card').forEach(b=>{
   b.onclick=()=>{$('#inp').value=b.dataset.prompt;$('#inp').focus()};
  });
+ const projBtn=$('#homeProj');
+ if(projBtn) projBtn.onclick=()=>projectPickerSheet();
+}
+function projectPickerSheet(){
+ const list=S.projects;
+ if(!list.length){sheet('<h3>Switch project</h3><p class="note">No projects yet.</p><div class="btns"><button class="btn p" id="ppAdd">Add project</button></div>');$('#sheet').onclick=e=>{if(e.target.id==='ppAdd'){closeAll();projectSheet()}};return}
+ let h='<h3>Switch project</h3>';
+ list.forEach(p=>{
+  const isCur=p.worktree===S.dir;
+  h+=`<button class="opt ${isCur?'sel':''}" data-dir="${esc(p.worktree)}"><svg viewBox="0 0 24 24" style="width:18px;height:18px;stroke:currentColor;fill:none;stroke-width:1.8;stroke-linecap:round;stroke-linejoin:round;flex:none"><path d="M4 20h16a2 2 0 0 0 2-2V8a2 2 0 0 0-2-2h-7.93a2 2 0 0 1-1.66-.9l-.82-1.2A2 2 0 0 0 7.93 3H4a2 2 0 0 0-2 2v13c0 1.1.9 2 2 2Z"/></svg>${esc(projName(p.worktree))}${isCur?'<span class="m">Current</span>':''}</button>`;
+ });
+ h+='<div class="btns"><button class="btn p" id="ppAdd">Add project</button></div>';
+ sheet(h);
+ $('#sheet').onclick=async e=>{
+  const b=e.target.closest('[data-dir]');
+  if(b){closeAll();await setDir(b.dataset.dir);return}
+  if(e.target.id==='ppAdd'){closeAll();projectSheet()}
+ };
 }
 
 function render(){
