@@ -54,6 +54,11 @@ public final class SshToolsServer {
                 selectedConnections.put(sid,connection);return RemoteSsh.obj("saved",true);
             }
             case "connections":return RemoteSsh.obj("connections",store.list());
+            case "revealSecrets":{
+                JSONObject raw=store.get(data.getString("id"));
+                if(raw==null)throw new IllegalArgumentException("SSH connection not found");
+                return RemoteSsh.obj("password",raw.optString("password"),"hasKey",!raw.optString("privateKey").isEmpty(),"passphrase",raw.optString("passphrase"));
+            }
             case "removeConnection":store.remove(data.getString("id"));return RemoteSsh.obj("connections",store.list());
             case "saveConnection":{
                 String id=data.optString("id");JSONObject old=id.isEmpty()?null:store.get(id);
