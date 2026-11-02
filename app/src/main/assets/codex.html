@@ -158,6 +158,7 @@ footer::before{content:'';position:absolute;top:-24px;left:0;right:0;height:24px
 .nav-row .r{margin-left:auto;display:inline-flex;align-items:center;gap:var(--s-8);flex:none}
 .nav-row .m{color:var(--text-2);font-size:var(--fs-12)}
 .drawer-sep{height:1px;background:var(--sep);margin:var(--s-8) var(--s-8)}
+.skill-desc{max-width:170px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
 .drawer-th-head{display:flex;align-items:center;justify-content:space-between;padding:var(--s-4) var(--s-4) var(--s-4) var(--s-8)}
 .drawer-th-title{font-size:var(--fs-14);font-weight:600;color:var(--text)}
 .drawer-bottom{flex:none;display:flex;align-items:center;justify-content:space-between;gap:var(--s-8);padding:var(--s-8) 0 0;padding-bottom:max(var(--s-8),env(safe-area-inset-bottom));position:relative}
@@ -663,6 +664,7 @@ function renderDrawer(){
 function drawer(on){$('#drawer').classList.toggle('on',on);$('#dim').classList.toggle('on',on||$('#sheet').classList.contains('on'));if(!on){S.drawerSearch=false}}
 $('#menu').onclick=()=>{renderDrawer();drawer(true)};
 $('#drawer').onclick=async e=>{
+ if($('#sheet').classList.contains('on')){closeSheet();return}
  const b=e.target.closest('[data-a]');if(!b)return;const a=b.dataset.a;
  if(a==='new'){resetThread();drawer(false);render()}
  else if(a==='add'){projectSheet()}
@@ -747,7 +749,7 @@ async function pluginsSheet(){
   const canToggle=!!specFind(/^\/mcp\/\{[^}]+\}\/disconnect$/,'post')&&!!specFind(/^\/mcp\/\{[^}]+\}\/connect$/,'post');
   sheet('<h3>Plugins</h3>'+(names.length?names.map(name=>{
    const st=S.mcpStatus[name]||{},s=st.status||'unknown',on=s==='connected';
-   return `<div class="opt settings-row"><span class="tool-action">${esc(name)}</span><span class="r"><span class="m">${esc(s)}</span></span>${canToggle?`<button class="btn" data-mcp="${esc(name)}" data-on="${on}">${on?'Disconnect':'Connect'}</button>`:''}</div>`;
+   return `<div class="opt settings-row"><span class="tool-action" style="flex:none">${esc(name)}</span><span class="r">${canToggle?`<button class="btn" data-mcp="${esc(name)}" data-on="${on}">${on?'Disconnect':'Connect'}</button>`:''}</span></div>`;
   }).join(''):'<p class="note">No MCP servers configured.</p>')+'<div class="btns"><button class="btn" id="settingsBack">Back</button></div>');
   $('#sheet').onclick=async e=>{
    const mb=e.target.closest('[data-mcp]');
@@ -761,7 +763,7 @@ async function skillsSheet(){
  try{
   const list=await api('/skill');
   const arr=Array.isArray(list)?list:[];
-  sheet('<h3>Skills</h3>'+(arr.length?arr.map(s=>`<div class="opt settings-row"><span class="tool-action">${esc(s.name)}</span><span class="r">${s.description?`<span class="m">${esc(String(s.description).slice(0,60))}</span>`:''}</span></div>`).join(''):'<p class="note">No skills installed.</p>')+'<div class="btns"><button class="btn" id="settingsBack">Back</button></div>');
+  sheet('<h3>Skills</h3>'+(arr.length?arr.map(s=>`<div class="opt settings-row"><span class="tool-action" style="flex:none">${esc(s.name)}</span><span class="r"><span class="m skill-desc">${s.description?esc(String(s.description).slice(0,60)):''}</span></span></div>`).join(''):'<p class="note">No skills installed.</p>')+'<div class="btns"><button class="btn" id="settingsBack">Back</button></div>');
   $('#sheet').onclick=e=>{if(e.target.id==='settingsBack')settingsSheet()};
  }catch(e){sheet('<h3>Skills</h3><p class="note error-note">'+esc(redact(e.message))+'</p><div class="btns"><button class="btn" id="settingsBack">Back</button></div>');$('#sheet').onclick=()=>settingsSheet()}
 }
