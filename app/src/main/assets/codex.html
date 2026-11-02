@@ -160,7 +160,8 @@ footer::before{content:'';position:absolute;top:-24px;left:0;right:0;height:24px
 .think-inner{min-height:0;overflow:hidden}
 .think-panel{background:var(--surface-1);border-radius:var(--r-12);padding:6px 10px;margin-top:var(--s-4);width:fit-content;max-width:100%;min-width:min(240px,100%)}
 .think-topics{display:flex;flex-direction:column}
-.topic{display:flex;align-items:stretch;gap:10px;min-height:26px}
+.rtext{font-size:var(--fs-13);color:var(--text-2);white-space:pre-wrap;overflow-wrap:anywhere;line-height:1.5;padding:2px 2px 6px}
+.topic{display:block;min-height:26px}
 .topic>summary.tsum{display:flex;align-items:center;gap:8px;min-height:26px;list-style:none;cursor:pointer;min-width:0}
 .topic>summary.tsum::-webkit-details-marker{display:none}
 .tout{margin:2px 0 4px 26px}
@@ -2048,10 +2049,11 @@ function toolEntry(p,claimedRuns,lang){
  const status=isErr?'<span class="m er">Failed</span>':'';
  return `<details class="topic ${isRun?'run':'done'}" data-part="${esc(p.id||'')}"><summary class="tsum"><span class="tl"><span class="mark">${mark}</span><span class="line"></span></span><span class="txt">${esc(toolTopic(p,lang))}</span>${host?`<span class="m mono">${esc(host)}</span>`:''}${chars}${counts}${status}${body?'<svg class="tcaret" viewBox="0 0 24 24"><path d="m6 9 6 6 6-6"/></svg>':''}</summary>${body?`<div class="tout">${body}</div>`:''}</details>`;
 }
-function thinkBlockHtml(x,toolParts,claimedRuns,openSet,closedSet){
+function thinkBlockHtml(x,toolParts,thoughts,claimedRuns,openSet,closedSet){
  const reasons=[...x.parts.values()].filter(p=>p.type==='reasoning');
  const done=!!((x.info.time&&x.info.time.completed)||x.info.error);
- const hasBody=toolParts.length||reasons.length;
+ const rtxt=(thoughts||[]).map(t=>String(t||'').trim()).filter(Boolean).map(t=>`<div class="rtext">${esc(t)}</div>`).join('');
+ const hasBody=!!(toolParts.length||rtxt);
  if(done&&!hasBody)return '';
  const running=!done;
  const key=x.info.id+'_think';
@@ -2061,8 +2063,8 @@ function thinkBlockHtml(x,toolParts,claimedRuns,openSet,closedSet){
  const dur2=running?null:thinkDuration(x,reasons);
  const lang=detectLang();
  const topics=toolParts.map(p=>toolEntry(p,claimedRuns,lang)).join('');
- const caret=toolParts.length?'<svg class="caret" viewBox="0 0 24 24"><path d="m6 9 6 6 6-6"/></svg>':'';
- return `<div class="think" data-part="${esc(key)}"${attrs}><button class="think-head" type="button" ${toolParts.length?'':'tabindex="-1" style="cursor:default"'}>${running?'<span class="think-spin"></span>':`<span class="think-icon">${I.brain}</span>`}<span>${running?(S.status&&S.status.type==='retry'?'Retrying…':'Thinking…'):(dur2?`Thought for ${dur2}`:'Thought')}</span>${caret}</button>${toolParts.length?`<div class="think-body"><div class="think-inner"><div class="think-panel"><div class="think-topics">${topics}</div></div></div></div>`:''}</div>`;
+ const caret=hasBody?'<svg class="caret" viewBox="0 0 24 24"><path d="m6 9 6 6 6-6"/></svg>':'';
+ return `<div class="think" data-part="${esc(key)}"${attrs}><button class="think-head" type="button" ${hasBody?'':'tabindex="-1" style="cursor:default"'}>${running?'<span class="think-spin"></span>':`<span class="think-icon">${I.brain}</span>`}<span>${running?(S.status&&S.status.type==='retry'?'Retrying…':'Thinking…'):(dur2?`Thought for ${dur2}`:'Thought')}</span>${caret}</button>${hasBody?`<div class="think-body"><div class="think-inner"><div class="think-panel"><div class="think-topics">${rtxt}${topics}</div></div></div></div>`:''}</div>`;
 }
 function renderMsgs(force){
  if(!S.sid)return;
@@ -2082,14 +2084,16 @@ function renderMsgs(force){
    if(t||files.length)h+=`<div class="msg user" data-mid="${esc(x.info.id)}" data-utext="${esc(t)}">${esc(t)}${files.length?'<div class="attachments">'+attachmentHtml(files,false)+'</div>':''}</div>`;
   }else{
    const parts=[...x.parts.values()];
-   const toolParts=[];const texts=[];
+   const toolParts=[];const texts=[];const thoughts=[];
    parts.forEach(p=>{
     if(p.type==='text'&&p.text){
-     const {text}=splitThoughts(p.text);
-     if(text)texts.push({text});
-    }else if(p.type==='tool')toolParts.push(p);
+     const sp=splitThoughts(p.text);
+     if(sp.thoughts)thoughts.push(sp.thoughts);
+     if(sp.text)texts.push({text:sp.text});
+    }else if(p.type==='reasoning'&&p.text)thoughts.push(p.text);
+    else if(p.type==='tool')toolParts.push(p);
    });
-   const think=thinkBlockHtml(x,toolParts,claimedRuns,openDetails,closedDetails);
+   const think=thinkBlockHtml(x,toolParts,thoughts,claimedRuns,openDetails,closedDetails);
    if(think)h+=think;
    const reaction=S.reactions[x.info.id];
    texts.forEach(p=>{

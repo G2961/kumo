@@ -273,17 +273,23 @@ async def main():
                 await page.wait_for_timeout(300)
                 panel = await page.eval_on_selector('.think-panel', 'e=>e.innerText')
                 check(f'{theme}_think_topics', 'Running df -h' in panel and 'Editing login.js' in panel, panel[:200])
-                check(f'{theme}_think_no_raw_reasoning', 'The user wants a quick check.' not in panel and not await page.evaluate("!!document.querySelector('.think-reason')"), panel[:200])
+                check(f'{theme}_think_reasoning_visible', 'The user wants a quick check.' in panel and await page.evaluate("!!document.querySelector('.think .rtext')"), panel[:200])
                 check(f'{theme}_think_topic_marks', await page.evaluate("document.querySelectorAll('.think .topic.done').length") == 2)
+                # opened tool entry: output renders BELOW the chip, never side-by-side
+                layout = await page.evaluate("()=>{const t=document.querySelector('.think .topic');t.setAttribute('open','');const s=t.querySelector('.tsum').getBoundingClientRect(),o=t.querySelector('.tout').getBoundingClientRect();return {below:o.top>=s.bottom-1,overlap:o.top<s.bottom-1}}")
+                check(f'{theme}_think_tout_below_summary', layout['below'], str(layout))
                 await page.click('.think-head')
                 await page.wait_for_timeout(250)
                 check(f'{theme}_think_closes', not await page.evaluate("document.querySelector('.think').hasAttribute('data-open')"))
-                # reasoning-only message: no topics -> no expander caret
-                caret_none = await page.evaluate("()=>{const a=S.msgs.get('msg_a2');a.parts.set('p7',{id:'p7',type:'reasoning',text:'Brief.',time:{start:8000,end:9000}});a.info.time={created:8000,completed:9500};renderMsgs(true);const w=[...document.querySelectorAll('.think')].pop();return {head:w.querySelector('.think-head').innerText,caret:!!w.querySelector('.caret')}}")
-                check(f'{theme}_think_no_caret_without_topics', 'Thought for 2s' in caret_none['head'] and not caret_none['caret'], str(caret_none))
-                # actions bar under the assistant text
+                # reasoning-only message: caret + thought text visible inside
+                caret_none = await page.evaluate("()=>{const a=S.msgs.get('msg_a2');a.parts.set('p7',{id:'p7',type:'reasoning',text:'Brief.',time:{start:8000,end:9000}});a.info.time={created:8000,completed:9500};renderMsgs(true);const w=[...document.querySelectorAll('.think')].pop();return {head:w.querySelector('.think-head').innerText,caret:!!w.querySelector('.caret'),rtxt:(w.querySelector('.rtext')||{}).textContent}}")
+                check(f'{theme}_think_reasoning_only_expandable', 'Thought for 2s' in caret_none['head'] and caret_none['caret'] and caret_none['rtxt'] == 'Brief.', str(caret_none))
+                # Americ-thought tags inside a text part: go to the think panel, not the bubble
+                tagged = await page.evaluate("()=>{const a=S.msgs.get('msg_a2');a.parts.set('p8',{id:'p8',type:'text',text:'<think>мысль из текста</think>Ответ готов'});renderMsgs(true);const w=[...document.querySelectorAll('.think')].pop();return {rts:[...w.querySelectorAll('.rtext')].map(r=>r.textContent),bubbles:[...document.querySelectorAll('.msg.ai')].map(b=>b.textContent)}}")
+                check(f'{theme}_think_tagged_text', tagged['rts'][-1] == 'мысль из текста' and not any('мысль из текста' in b for b in tagged['bubbles']), str(tagged)[:200])
+                # actions bar under the assistant text (msg_a1 + msg_a2's cleaned text -> 2 bars)
                 acts = await page.eval_on_selector_all('.msg-actions button', 'els=>els.length')
-                check(f'{theme}_actions_bar', acts == 5, str(acts))
+                check(f'{theme}_actions_bar', acts == 10, str(acts))
                 await page.click('.msg-actions [data-ma="like"]')
                 await page.wait_for_timeout(200)
                 lk = await page.evaluate("({r:S.reactions,p:localStorage.getItem('oc_reactions')})")
