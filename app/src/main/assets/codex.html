@@ -13,8 +13,8 @@
   --base:#FFFFFF;--surface-1:#F2F3F8;--surface-2:#EEEEF0;--border:rgba(0,0,0,0.10);
   --text:#0A0D12;--text-2:#6B6B6B;--accent:#0A84FF;
   --send-bg:#0A0D12;--send-tx:#FFFFFF;--surface-active:rgba(0,0,0,0.04);
-  --dim:rgba(0,0,0,0.5);--shadow-drawer:4px 0 24px rgba(0,0,0,0.12);
-  --comp-bg:#FFFFFF;--comp-border:rgba(0,0,0,0.10);--comp-shadow:0 1px 3px rgba(0,0,0,0.08);--pill-proj:transparent;--sheet-bg:#FFFFFF;--ph:#6B6B6B;
+  --dim:rgba(0,0,0,0.65);--shadow-drawer:4px 0 24px rgba(0,0,0,0.12);
+  --comp-bg:#FFFFFF;--comp-border:rgba(0,0,0,0.10);--comp-shadow:0 1px 3px rgba(0,0,0,0.08);--pill-proj:transparent;--sheet-bg:#FFFFFF;--ph:#6B6B6B;--sep:rgba(0,0,0,0.10);--side-rgb:242,243,248;
   --ok:#1A9D55;--err:#D23B3B;--add:#E6F6EC;--del:#FDEAEA;--base-rgb:255,255,255;
   --bg:var(--base);--side:var(--surface-1);--card:var(--surface-2);--line:var(--border);
   --tx:var(--text);--mut:var(--text-2);--acc:var(--accent);--acctx:#FFFFFF;--r:var(--r-12);--bg-rgb:var(--base-rgb);
@@ -24,8 +24,8 @@
   --base:#212121;--surface-1:#181818;--surface-2:#303030;--border:#424242;
   --text:#FFFFFF;--text-2:#AAAAAA;--accent:#0A84FF;
   --send-bg:#FFFFFF;--send-tx:#212121;--surface-active:rgba(255,255,255,0.06);
-  --dim:rgba(0,0,0,0.6);--shadow-drawer:4px 0 32px rgba(0,0,0,0.8);
-  --comp-bg:#303030;--comp-border:#424242;--comp-shadow:none;--pill-proj:#373737;--sheet-bg:#181818;--ph:#AFAFAF;
+  --dim:rgba(0,0,0,0.65);--shadow-drawer:4px 0 32px rgba(0,0,0,0.8);
+  --comp-bg:#303030;--comp-border:#424242;--comp-shadow:none;--pill-proj:#373737;--sheet-bg:#181818;--ph:#AFAFAF;--sep:#3D3D3D;--side-rgb:24,24,24;
   --ok:#50CB86;--err:#F17676;--add:#102A1B;--del:#341718;--base-rgb:33,33,33;
   --bg:var(--base);--side:var(--surface-1);--card:var(--surface-2);--line:var(--border);
   --tx:var(--text);--mut:var(--text-2);--acc:var(--accent);--acctx:#212121;--r:var(--r-12);--bg-rgb:var(--base-rgb);
@@ -146,11 +146,26 @@ footer::before{content:'';position:absolute;top:-24px;left:0;right:0;height:24px
 #drawer{position:absolute;top:0;bottom:0;left:0;width:84%;max-width:340px;background:var(--surface-1);border-right:1px solid var(--border);box-shadow:none;z-index:6;transform:translateX(-102%);transition:transform 250ms cubic-bezier(0.32,0.72,0,1);display:flex;flex-direction:column;padding:max(var(--s-12),env(safe-area-inset-top)) var(--s-8) var(--s-12);box-sizing:border-box}
 #drawer.on{transform:none;box-shadow:var(--shadow-drawer)}
 .drawer-header{flex:none}
-.drawer-top-bar{display:flex;align-items:center;gap:var(--s-8);padding:0 0 var(--s-8)}
-.btn-new-thread{flex:1;display:flex;align-items:center;justify-content:center;gap:var(--s-8);height:48px;min-height:48px;border-radius:var(--r-12);background:var(--surface-2);color:var(--text);font-size:var(--fs-14);font-weight:600;border:none;cursor:pointer}
-.btn-new-thread:active{background:var(--surface-active)}
-.btn-add-proj{width:48px;height:48px;min-width:48px;min-height:48px;border-radius:var(--r-12);background:var(--surface-2);color:var(--text);display:grid;place-items:center;flex:none;border:none;cursor:pointer}
-.btn-add-proj:active{background:var(--surface-active)}
+.drawer-top-bar{display:flex;align-items:center;gap:var(--s-8);padding:0 0 var(--s-4)}
+.drawer-title{flex:1;font-size:var(--fs-16);font-weight:600;color:var(--text);padding-left:var(--s-4);white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.drawer-search{display:flex;align-items:center;gap:var(--s-4)}
+.drawer-search[hidden]{display:none}
+.drawer-search .in{flex:1;min-width:0}
+.drawer-nav{display:flex;flex-direction:column}
+.nav-row{display:flex;align-items:center;gap:var(--s-12);width:100%;min-height:52px;height:52px;padding:0 var(--s-8);border-radius:var(--r-8);background:none;border:none;cursor:pointer;color:var(--text);font-size:var(--fs-16);box-sizing:border-box;text-align:left}
+.nav-row:active{background:var(--surface-active)}
+.nav-row svg{width:22px;height:22px;color:var(--text-2)}
+.nav-row .r{margin-left:auto;display:inline-flex;align-items:center;gap:var(--s-8);flex:none}
+.nav-row .m{color:var(--text-2);font-size:var(--fs-12)}
+.drawer-sep{height:1px;background:var(--sep);margin:var(--s-8) var(--s-8)}
+.drawer-th-head{display:flex;align-items:center;justify-content:space-between;padding:var(--s-4) var(--s-4) var(--s-4) var(--s-8)}
+.drawer-th-title{font-size:var(--fs-14);font-weight:600;color:var(--text)}
+.drawer-bottom{flex:none;display:flex;align-items:center;justify-content:space-between;gap:var(--s-8);padding:var(--s-8) 0 0;padding-bottom:max(var(--s-8),env(safe-area-inset-bottom));position:relative}
+.drawer-bottom::before{content:'';position:absolute;top:-28px;left:-8px;right:-8px;height:28px;background:linear-gradient(to bottom,rgba(var(--side-rgb),0),rgba(var(--side-rgb),1));pointer-events:none}
+.drawer-gear{width:52px;height:52px;min-width:52px;min-height:52px;border-radius:var(--r-full);display:grid;place-items:center;color:var(--text-2);background:var(--surface-2);border:none;cursor:pointer}
+.drawer-gear:active{background:var(--surface-active)}
+.btn-new-thread{flex:none;display:flex;align-items:center;justify-content:center;gap:var(--s-8);height:50px;min-height:50px;padding:0 var(--s-16);border-radius:var(--r-full);background:var(--send-bg);color:var(--send-tx);font-size:var(--fs-14);font-weight:600;border:none;cursor:pointer}
+.btn-new-thread:active{opacity:0.85}
 .sec{display:flex;align-items:center;color:var(--text-2);font-size:var(--fs-14);font-weight:500;padding:var(--s-12) var(--s-8) var(--s-4)}
 .drawer-projects{overflow-y:auto;flex:1;-webkit-overflow-scrolling:touch}
 .proj-group{margin-bottom:var(--s-4)}
@@ -175,6 +190,7 @@ span.ib-right-col{font-size:var(--fs-12);color:var(--text-2)}
 .th-dot{width:6px;height:6px;border-radius:var(--r-full);background:var(--accent)}
 .th-title{min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;flex:1;font-size:var(--fs-13);color:var(--text)}
 .th-time{font-size:var(--fs-12);color:var(--text-2);flex:none;margin-left:var(--s-8)}
+.th-more .th-title{color:var(--text-2);font-weight:400}
 .skeleton-row{padding:8px 34px;display:flex;flex-direction:column;gap:6px}
 .sk-line{height:11px;background:var(--border);border-radius:6px;width:75%;animation:sk-pulse 1.2s ease-in-out infinite}
 .sk-line.short{width:45%}
@@ -233,7 +249,7 @@ span.ib-right-col{font-size:var(--fs-12);color:var(--text-2)}
     <button class="ib" id="menu" aria-label="menu"><svg viewBox="0 0 24 24"><rect x="3" y="4" width="18" height="16" rx="3"/><path d="M9 4v16"/></svg></button>
     <h1 id="title">New thread</h1>
     <button class="pill" id="commit"><svg viewBox="0 0 24 24" style="width:15px;height:15px"><circle cx="12" cy="12" r="3"/><path d="M3 12h6M15 12h6"/></svg><span>Commit</span></button>
-    <button class="ib" id="gear" aria-label="settings"><svg viewBox="0 0 24 24"><circle cx="12" cy="12" r="3"/><path d="M19.4 15a1.7 1.7 0 0 0 .3 1.8l.1.1a2 2 0 1 1-2.8 2.8l-.1-.1a1.7 1.7 0 0 0-1.8-.3 1.7 1.7 0 0 0-1 1.5V21a2 2 0 1 1-4 0v-.1a1.7 1.7 0 0 0-1.1-1.5 1.7 1.7 0 0 0-1.8.3l-.1.1a2 2 0 1 1-2.8-2.8l.1-.1a1.7 1.7 0 0 0 .3-1.8 1.7 1.7 0 0 0-1.5-1H3a2 2 0 1 1 0-4h.1a1.7 1.7 0 0 0 1.5-1.1 1.7 1.7 0 0 0-.3-1.8l-.1-.1a2 2 0 1 1 2.8-2.8l.1.1a1.7 1.7 0 0 0 1.8.3H9a1.7 1.7 0 0 0 1-1.5V3a2 2 0 1 1 4 0v.1a1.7 1.7 0 0 0 1 1.5 1.7 1.7 0 0 0 1.8-.3l.1-.1a2 2 0 1 1 2.8 2.8l-.1.1a1.7 1.7 0 0 0-.3 1.8V9a1.7 1.7 0 0 0 1.5 1H21a2 2 0 1 1 0 4h-.1a1.7 1.7 0 0 0-1.5 1z"/></svg></button>
+    <button class="ib" id="diffPanel" aria-label="Changes"><svg viewBox="0 0 24 24"><rect x="3" y="4" width="18" height="16" rx="3"/><path d="M12 4v16"/><path d="M6 10.5h3"/><path d="M16.5 12h3M18 10.5v3"/></svg></button>
   </header>
   <main id="main"></main>
   <footer>
@@ -275,7 +291,11 @@ const I={
  stop:'<svg viewBox="0 0 24 24"><rect x="6" y="6" width="12" height="12" rx="2" fill="currentColor"/></svg>',
  plus:'<svg viewBox="0 0 24 24" style="width:16px;height:16px"><path d="M12 5v14M5 12h14"/></svg>',
  up:'<svg viewBox="0 0 24 24"><path d="M12 19V5M5 12l7-7 7 7"/></svg>',
- bot:'<svg viewBox="0 0 24 24"><path d="M12 3a4 4 0 0 1 4 3 4 4 0 0 1 3 6 4 4 0 0 1-3 6 4 4 0 0 1-8 0 4 4 0 0 1-3-6 4 4 0 0 1 3-6 4 4 0 0 1 4-3z"/><path d="m9 11 2 2-2 2M13 15h3"/></svg>'
+ bot:'<svg viewBox="0 0 24 24"><path d="M12 3a4 4 0 0 1 4 3 4 4 0 0 1 3 6 4 4 0 0 1-3 6 4 4 0 0 1-8 0 4 4 0 0 1-3-6 4 4 0 0 1 3-6 4 4 0 0 1 4-3z"/><path d="m9 11 2 2-2 2M13 15h3"/></svg>',
+ search:'<svg viewBox="0 0 24 24"><circle cx="11" cy="11" r="7"/><path d="m20 20-3.5-3.5"/></svg>',
+ plug:'<svg viewBox="0 0 24 24"><path d="M9 7V3M15 7V3"/><path d="M7 7h10v4a5 5 0 0 1-10 0z"/><path d="M12 16v5"/></svg>',
+ book:'<svg viewBox="0 0 24 24"><path d="M4 19V5a2 2 0 0 1 2-2h13v16H6a2 2 0 0 0-2 2zm0 0a2 2 0 0 0 2 2h13"/></svg>',
+ diff:'<svg viewBox="0 0 24 24"><rect x="3" y="4" width="18" height="16" rx="3"/><path d="M12 4v16"/><path d="M6 10.5h3"/><path d="M16.5 12h3M18 10.5v3"/></svg>'
 };
 const LS=k=>{try{return JSON.parse(localStorage.getItem(k))}catch(e){return null}};
 const lset=(k,v)=>{try{localStorage.setItem(k,JSON.stringify(v))}catch(e){}};
@@ -297,6 +317,8 @@ S.localPolicies=LS('oc_local_policies')||{};
 S.efforts=LS('oc_efforts')||{};S.webSearch=!!LS('oc_web_search');S.remoteRuns=new Map();
 S.expandedFolders=new Set([S.dir].filter(Boolean));
 S.collapsedModelGroups=new Set(LS('oc_model_groups')||[]);
+S.fullFolders=new Set(LS('oc_full_folders')||[]);
+S.drawerSearch=false;S.mcpStatus=null;
 S.folderSessions=new Map();S.folderLoading=new Set();S.sessionFirstMsg=new Map();
 if(S.dir)lset('oc_dir',S.dir);
 
@@ -304,7 +326,7 @@ if(S.dir)lset('oc_dir',S.dir);
 async function api(path,o={}){
  const u=new URL(path,location.origin);
  const dir=o.directory===undefined?S.dir:o.directory;
- if(dir&&!path.startsWith('/auth/')&&!path.startsWith('/global/'))u.searchParams.set('directory',dir);
+ if(dir&&!path.startsWith('/auth/')&&!path.startsWith('/global/')&&!path.startsWith('/experimental/'))u.searchParams.set('directory',dir);
  const r=await fetch(u,{method:o.method||'GET',headers:o.body?{'Content-Type':'application/json'}:{},body:o.body?JSON.stringify(o.body):undefined});
  const t=await r.text();
  if(!r.ok)throw new Error((o.method||'GET')+' '+path+' -> '+r.status+(path.startsWith('/auth/')||path==='/config'||path==='/global/config'?'':' '+redact(t).slice(0,200)));
@@ -562,39 +584,64 @@ function renderFolderSessions(dir){
  const list=S.folderSessions.get(dir);
  if(!list){inner.innerHTML='<div class="skeleton-row"><div class="sk-line"></div><div class="sk-line short"></div></div>';return}
  if(!list.length){inner.innerHTML='';return}
+ const full=S.fullFolders.has(dir);
+ const shown=full?list:list.slice(0,5);
  let h='';
- list.forEach(s=>{
+ shown.forEach(s=>{
   const isSel=(dir===S.dir&&S.sid===s.id);
   h+=`<button class="th ${isSel?'sel':''}" data-a="th" data-dir="${esc(dir)}" data-id="${esc(s.id)}" data-sid="${esc(s.id)}"><span class="th-dot-col">${isSel?'<span class="th-dot"></span>':''}</span><span class="th-title">${esc(displaySessionTitle(s))}</span><span class="th-time">${ago(s.time&&s.time.updated)}</span></button>`;
  });
+ if(!full&&list.length>5)h+=`<button class="th th-more" data-a="showall" data-dir="${esc(dir)}"><span class="th-dot-col"></span><span class="th-title">Show all…</span><span class="th-time">${list.length}</span></button>`;
  inner.innerHTML=h;
 }
 function renderDrawer(){
  const st=$('#drawerProjects')?.scrollTop||0;
  const folderClosed='<svg viewBox="0 0 24 24"><path d="M4 20h16a2 2 0 0 0 2-2V8a2 2 0 0 0-2-2h-7.93a2 2 0 0 1-1.66-.9l-.82-1.2A2 2 0 0 0 7.93 3H4a2 2 0 0 0-2 2v13c0 1.1.9 2 2 2Z"/></svg>';
  const folderOpen='<svg viewBox="0 0 24 24"><path d="M4 20h16a2 2 0 0 0 2-2V8a2 2 0 0 0-2-2h-7.93a2 2 0 0 1-1.66-.9l-.82-1.2A2 2 0 0 0 7.93 3H4a2 2 0 0 0-2 2v13c0 1.1.9 2 2 2Z"/><path d="M2 10h20"/></svg>';
- let h=`<div class="drawer-header"><div class="drawer-top-bar"><button class="btn-new-thread" data-a="new">${I.edit}<span>New thread</span></button><button class="btn-add-proj" data-a="add" aria-label="Add project">${I.plus}</button></div><div class="sec">Threads</div></div><div id="drawerProjects" class="drawer-projects">`;
- S.projects.forEach(p=>{
-  const isCur=p.worktree===S.dir;
-  const isOpen=S.expandedFolders.has(p.worktree);
-  h+=`<div class="proj-group" data-dir="${esc(p.worktree)}"><div class="proj-h ${isCur?'active-proj':''}" data-a="folder" data-dir="${esc(p.worktree)}"><span class="proj-icon">${isOpen?folderOpen:folderClosed}</span><span class="proj-title">${esc(projName(p.worktree))}</span></div><div class="proj-body ${isOpen?'open':''}" data-dir="${esc(p.worktree)}"><div class="proj-inner" data-dir="${esc(p.worktree)}"></div></div></div>`;
- });
+ const hasMcp=!!specFind(/^\/mcp$/,'get');
+ const hasSkills=!!(specFind(/^\/skill$/,'get')||specFind(/^\/api\/skill$/,'get'));
+ const conn=selectedConnection();
+ const remoteSub=conn?conn.name:(S.connections.length?String(S.connections.length):'');
+ let h=`<div class="drawer-header"><div class="drawer-top-bar" ${S.drawerSearch?'hidden':''}><span class="drawer-title">opencode</span><button class="ib" data-a="search" aria-label="Search threads">${I.search}</button></div><div class="drawer-search" id="drawerSearchBox" ${S.drawerSearch?'':'hidden'}><input class="in" id="drawerSearchInput" placeholder="Search threads" autocomplete="off" autocapitalize="none" spellcheck="false"><button class="ib" data-a="searchclose" aria-label="Close search"><svg viewBox="0 0 24 24"><path d="M18 6 6 18M6 6l12 12"/></svg></button></div><div class="drawer-nav"><button class="nav-row" data-a="remote">${I.term}<span>Remote</span><span class="r"><span class="m">${esc(remoteSub)}</span></span></button>${hasMcp?`<button class="nav-row" data-a="plugins">${I.plug}<span>Plugins</span><span class="r"><span class="m" id="mcpBadge"></span></span></button>`:''}${hasSkills?`<button class="nav-row" data-a="skills">${I.book}<span>Skills</span></button>`:''}</div><div class="drawer-sep"></div></div><div id="drawerProjects" class="drawer-projects">`;
+ if(S.drawerSearch){
+  h+=`<div id="drawerSearchResults"><div class="note" style="padding:var(--s-8)">Type to search threads</div></div>`;
+ }else{
+  h+=`<div class="drawer-th-head"><span class="drawer-th-title">Threads</span><button class="ib" data-a="add" aria-label="Add project"><svg viewBox="0 0 24 24"><path d="M4 20h16a2 2 0 0 0 2-2V8a2 2 0 0 0-2-2h-7.93a2 2 0 0 1-1.66-.9l-.82-1.2A2 2 0 0 0 7.93 3H4a2 2 0 0 0-2 2v13c0 1.1.9 2 2 2Z"/><path d="M12 10v6M9 13h6"/></svg></button></div>`;
+  S.projects.forEach(p=>{
+   const isCur=p.worktree===S.dir;
+   const isOpen=S.expandedFolders.has(p.worktree);
+   h+=`<div class="proj-group" data-dir="${esc(p.worktree)}"><div class="proj-h ${isCur?'active-proj':''}" data-a="folder" data-dir="${esc(p.worktree)}"><span class="proj-icon">${isOpen?folderOpen:folderClosed}</span><span class="proj-title">${esc(projName(p.worktree))}</span></div><div class="proj-body ${isOpen?'open':''}" data-dir="${esc(p.worktree)}"><div class="proj-inner" data-dir="${esc(p.worktree)}"></div></div></div>`;
+  });
+ }
  h+='</div>';
+ h+=`<div class="drawer-bottom"><button class="btn-new-thread" data-a="new">${I.edit}<span>New thread</span></button><button class="ib drawer-gear" data-a="settings" aria-label="Settings"><svg viewBox="0 0 24 24"><circle cx="12" cy="12" r="3"/><path d="M19.4 15a1.7 1.7 0 0 0 .3 1.8l.1.1a2 2 0 1 1-2.8 2.8l-.1-.1a1.7 1.7 0 0 0-1.8-.3 1.7 1.7 0 0 0-1 1.5V21a2 2 0 1 1-4 0v-.1a1.7 1.7 0 0 0-1.1-1.5 1.7 1.7 0 0 0-1.8.3l-.1.1a2 2 0 1 1-2.8-2.8l.1-.1a1.7 1.7 0 0 0 .3-1.8 1.7 1.7 0 0 0-1.5-1H3a2 2 0 1 1 0-4h.1a1.7 1.7 0 0 0 1.5-1.1 1.7 1.7 0 0 0-.3-1.8l-.1-.1a2 2 0 1 1 2.8-2.8l.1.1a1.7 1.7 0 0 0 1.8.3H9a1.7 1.7 0 0 0 1-1.5V3a2 2 0 1 1 4 0v.1a1.7 1.7 0 0 0 1 1.5 1.7 1.7 0 0 0 1.8-.3l.1-.1a2 2 0 1 1 2.8 2.8l-.1.1a1.7 1.7 0 0 0-.3 1.8V9a1.7 1.7 0 0 0 1.5 1H21a2 2 0 1 1 0 4h-.1a1.7 1.7 0 0 0-1.5 1z"/></svg></button></div>`;
  $('#drawer').innerHTML=h;
  if($('#drawerProjects'))$('#drawerProjects').scrollTop=st;
- S.projects.forEach(p=>{
-  if(S.expandedFolders.has(p.worktree)){
-   if(S.folderSessions.has(p.worktree))renderFolderSessions(p.worktree);
-   else loadFolderSessions(p.worktree);
-  }
- });
+ if(S.drawerSearch){
+  drawerSearchBind();
+ }else{
+  S.projects.forEach(p=>{
+   if(S.expandedFolders.has(p.worktree)){
+    if(S.folderSessions.has(p.worktree))renderFolderSessions(p.worktree);
+    else loadFolderSessions(p.worktree);
+   }
+  });
+ }
+ if(hasMcp&&!S.mcpStatus)api('/mcp').then(r=>{S.mcpStatus=r||{};const m=$('#mcpBadge');if(m)m.textContent=Object.keys(S.mcpStatus).length||''}).catch(()=>{});
 }
-function drawer(on){$('#drawer').classList.toggle('on',on);$('#dim').classList.toggle('on',on||$('#sheet').classList.contains('on'))}
+function drawer(on){$('#drawer').classList.toggle('on',on);$('#dim').classList.toggle('on',on||$('#sheet').classList.contains('on'));if(!on){S.drawerSearch=false}}
 $('#menu').onclick=()=>{renderDrawer();drawer(true)};
 $('#drawer').onclick=async e=>{
  const b=e.target.closest('[data-a]');if(!b)return;const a=b.dataset.a;
  if(a==='new'){resetThread();drawer(false);render()}
- else if(a==='add'){drawer(false);projectSheet()}
+ else if(a==='add'){projectSheet()}
+ else if(a==='settings'){drawer(false);settingsSheet()}
+ else if(a==='remote'){connectionSheet(true)}
+ else if(a==='plugins'){pluginsSheet()}
+ else if(a==='skills'){skillsSheet()}
+ else if(a==='search'){S.drawerSearch=true;renderDrawer();const i=$('#drawerSearchInput');if(i)i.focus()}
+ else if(a==='searchclose'){S.drawerSearch=false;renderDrawer()}
+ else if(a==='showall'){const dir=b.dataset.dir;if(dir){S.fullFolders.add(dir);lset('oc_full_folders',[...S.fullFolders]);renderFolderSessions(dir)}}
  else if(a==='folder'){
   const dir=b.dataset.dir;if(!dir)return;
   const isOpen=!S.expandedFolders.has(dir);
@@ -620,6 +667,73 @@ $('#drawer').onclick=async e=>{
   else openSession(sid);
  }
 };
+let drawerTouchX=null,drawerTouchY=null,drawerDragged=false;
+$('#drawer').addEventListener('touchstart',e=>{if(e.touches.length===1){drawerTouchX=e.touches[0].clientX;drawerTouchY=e.touches[0].clientY;drawerDragged=false}},{passive:true});
+$('#drawer').addEventListener('touchmove',e=>{
+ if(drawerTouchX===null)return;
+ const dx=e.touches[0].clientX-drawerTouchX,dy=e.touches[0].clientY-drawerTouchY;
+ if(dx<-8&&Math.abs(dx)>Math.abs(dy)){drawerDragged=true;const sh=$('#drawer');sh.style.transition='none';sh.style.transform=`translateX(${dx}px)`}
+ else if(Math.abs(dy)>8)drawerTouchX=null;
+},{passive:true});
+$('#drawer').addEventListener('touchend',e=>{
+ if(drawerTouchX===null)return;
+ const sh=$('#drawer');sh.style.transition='';sh.style.transform='';
+ const dx=e.changedTouches[0].clientX-drawerTouchX;drawerTouchX=null;
+ if(drawerDragged&&dx<-80)drawer(false);
+},{passive:true});
+$('#drawer').addEventListener('touchcancel',()=>{drawerTouchX=null;const sh=$('#drawer');sh.style.transition='';sh.style.transform=''},{passive:true});
+let searchTimer=null;
+function drawerSearchBind(){
+ const inp=$('#drawerSearchInput');if(!inp)return;
+ inp.oninput=()=>{clearTimeout(searchTimer);searchTimer=setTimeout(()=>drawerSearch(inp.value),300)};
+ inp.onkeydown=e=>{if(e.key==='Enter'){clearTimeout(searchTimer);drawerSearch(inp.value)}};
+ drawerSearch(inp.value);
+}
+async function drawerSearch(q){
+ const box=$('#drawerSearchResults');if(!box)return;
+ const global=specFind(/^\/experimental\/session$/,'get');
+ let list=[];
+ if(global){
+  try{const r=await api('/experimental/session'+(q.trim()?'?search='+encodeURIComponent(q):''));list=Array.isArray(r)?r:[]}catch(e){}
+  if(!q.trim())list.sort((a,b)=>((b.time&&b.time.updated)||0)-((a.time&&a.time.updated)||0));
+ }else{
+  const needle=q.trim().toLowerCase();
+  for(const sessions of S.folderSessions.values())for(const s of sessions)if(!needle||(s.title||'').toLowerCase().includes(needle))list.push(s);
+  list.sort((a,b)=>((b.time&&b.time.updated)||0)-((a.time&&a.time.updated)||0));
+ }
+ list=list.slice(0,30);
+ const box2=$('#drawerSearchResults');if(!box2)return;
+ box2.innerHTML=list.length?list.map(s=>{
+  const wt=(s.project&&s.project.worktree)||s.directory||S.dir;
+  return `<button class="th" data-a="th" data-dir="${esc(wt)}" data-id="${esc(s.id)}"><span class="th-dot-col">${(wt===S.dir&&S.sid===s.id)?'<span class="th-dot"></span>':''}</span><span class="th-title">${esc(displaySessionTitle(s))}</span><span class="th-time">${esc(projName(wt))}</span></button>`;
+ }).join(''):'<div class="note" style="padding:var(--s-8)">No threads found</div>';
+}
+async function pluginsSheet(){
+ sheet('<h3>Plugins</h3><p class="note">Loading…</p>');
+ try{
+  const r=await api('/mcp');S.mcpStatus=r||{};
+  const names=Object.keys(S.mcpStatus);
+  const canToggle=!!specFind(/^\/mcp\/\{[^}]+\}\/disconnect$/,'post')&&!!specFind(/^\/mcp\/\{[^}]+\}\/connect$/,'post');
+  sheet('<h3>Plugins</h3>'+(names.length?names.map(name=>{
+   const st=S.mcpStatus[name]||{},s=st.status||'unknown',on=s==='connected';
+   return `<div class="opt settings-row"><span class="tool-action">${esc(name)}</span><span class="r"><span class="m">${esc(s)}</span></span>${canToggle?`<button class="btn" data-mcp="${esc(name)}" data-on="${on}">${on?'Disconnect':'Connect'}</button>`:''}</div>`;
+  }).join(''):'<p class="note">No MCP servers configured.</p>')+'<div class="btns"><button class="btn" id="settingsBack">Back</button></div>');
+  $('#sheet').onclick=async e=>{
+   const mb=e.target.closest('[data-mcp]');
+   if(mb){mb.disabled=true;try{await api('/mcp/'+encodeURIComponent(mb.dataset.mcp)+'/'+(mb.dataset.on==='true'?'disconnect':'connect'),{method:'POST'})}catch(x){err('mcp: '+x.message)}pluginsSheet();return}
+   if(e.target.id==='settingsBack')settingsSheet();
+  };
+ }catch(e){sheet('<h3>Plugins</h3><p class="note error-note">'+esc(redact(e.message))+'</p><div class="btns"><button class="btn" id="settingsBack">Back</button></div>');$('#sheet').onclick=()=>settingsSheet()}
+}
+async function skillsSheet(){
+ sheet('<h3>Skills</h3><p class="note">Loading…</p>');
+ try{
+  const list=await api('/skill');
+  const arr=Array.isArray(list)?list:[];
+  sheet('<h3>Skills</h3>'+(arr.length?arr.map(s=>`<div class="opt settings-row"><span class="tool-action">${esc(s.name)}</span><span class="r">${s.description?`<span class="m">${esc(String(s.description).slice(0,60))}</span>`:''}</span></div>`).join(''):'<p class="note">No skills installed.</p>')+'<div class="btns"><button class="btn" id="settingsBack">Back</button></div>');
+  $('#sheet').onclick=e=>{if(e.target.id==='settingsBack')settingsSheet()};
+ }catch(e){sheet('<h3>Skills</h3><p class="note error-note">'+esc(redact(e.message))+'</p><div class="btns"><button class="btn" id="settingsBack">Back</button></div>');$('#sheet').onclick=()=>settingsSheet()}
+}
 async function setDir(d,targetSid){
  if(!d)return;
  const changed=(d!==S.dir);
@@ -670,7 +784,7 @@ function initSheetSwipe(){
   if(!isDraggingSheet)return;
   isDraggingSheet=false;sh.style.transition='';
   const dim=$('#dim');if(dim)dim.style.opacity='';
-  if(sheetTouchDeltaY>80)closeAll();
+  if(sheetTouchDeltaY>80)closeSheet();
   else sh.style.transform='';
   sheetTouchDeltaY=0;
  };
@@ -697,8 +811,9 @@ function resetSheetSwipe(){
  isDraggingSheet=false;sheetTouchDeltaY=0;
 }
 function sheet(html){$('#sheet').innerHTML='<div class="grab"></div>'+html;$('#sheet').classList.add('on');$('#dim').classList.add('on');initSheetSwipe()}
-function closeAll(){$('#sheet').classList.remove('on');$('#drawer').classList.remove('on');$('#dim').classList.remove('on');resetSheetSwipe()}
-$('#dim').onclick=closeAll;
+function closeSheet(){$('#sheet').classList.remove('on');resetSheetSwipe();if(!$('#drawer').classList.contains('on'))$('#dim').classList.remove('on')}
+function closeAll(){$('#sheet').classList.remove('on');$('#drawer').classList.remove('on');$('#dim').classList.remove('on');resetSheetSwipe();S.drawerSearch=false}
+$('#dim').onclick=()=>{if($('#sheet').classList.contains('on'))closeSheet();else drawer(false)};
 function options(title,list,cur,cb,sub){
  sheet(`<h3>${title}</h3><div class="sheet-scroll">`+list.map((o,i)=>`<button class="opt ${o===cur?'sel':''}" data-i="${i}">${esc(o)}<span class="r">${o===cur?OPT_CK:''}${sub&&sub[i]?`<span class="m">${esc(sub[i])}</span>`:''}</span></button>`).join('')+'</div>');
  $('#sheet').onclick=e=>{const b=e.target.closest('.opt');if(!b)return;cb(+b.dataset.i);closeAll();chips()};
@@ -776,11 +891,13 @@ function updateCommitButton(){
   btn.style.opacity='0.35';
   btn.style.pointerEvents='none';
   btn.innerHTML=`${icon}<span>Commit</span>`;
+  const dp=$('#diffPanel');if(dp){dp.style.opacity='0.35';dp.style.pointerEvents='none'}
   return;
  }
  btn.style.opacity='1';
  btn.style.pointerEvents='auto';
  btn.disabled=false;
+ const dp2=$('#diffPanel');if(dp2){dp2.style.opacity='1';dp2.style.pointerEvents='auto'}
  let add=0,del=0;
  if(S.historyFiles&&S.historyFiles.size>0){
   for(const f of S.historyFiles.values()){
@@ -1050,7 +1167,7 @@ function settingsSheet(){
  sheet(`<h3>Settings</h3><button class="opt settings-row" id="pv">Providers<span class="m">${S.provs.length}</span></button><button class="opt settings-row" id="sc">SSH connections<span class="m">${S.connections.length}</span></button><button class="opt settings-row" id="ap">Appearance<span class="m">${LS('oc_theme')==='dark'?'Dark':'Light'}</span></button><button class="opt settings-row" id="wp">Web search<span class="m">${S.webSearch?'On':'Off'}</span></button>`);
  $('#sheet').onclick=e=>{const b=e.target.closest('button');if(!b)return;if(b.id==='pv')providerSheet();if(b.id==='sc')connectionSheet(true);if(b.id==='ap')appearanceSheet();if(b.id==='wp'){toggleSearch();settingsSheet()}};
 }
-$('#gear').onclick=settingsSheet;
+ $('#diffPanel').onclick=()=>$('#commit').click();
 function projectSheet(){
  if(window.CodexNative){
   sheet(`<h3>Add project</h3><button class="opt" id="folderOpen">${I.folder}Open folder</button><label class="fld" for="projectName">New project name</label><input class="in" id="projectName" placeholder="My project"><p class="note error-note" id="projectError"></p><div class="btns"><button class="btn p" id="projectCreate">Create project</button></div>`);
@@ -1172,7 +1289,7 @@ async function loadConnections(){
 async function connectionSheet(manage=false){
  await loadConnections();
  const conn=selectedConnection();
- let h='<h3>Environment</h3>';
+ let h=`<h3>${manage?'SSH connections':'Environment'}</h3>`;
  if(!manage){
   const agents=[['build','Build','Edit files and run commands'],['plan','Plan','Read only, no changes']];
   h+='<div class="sheet-sec-title">Agent</div>'+agents.map(([id,lbl,sub])=>`<button class="opt ${S.agent===id?'sel':''}" data-agent="${id}">${lbl}<span class="r">${S.agent===id?OPT_CK:''}<span class="m">${sub}</span></span></button>`).join('')+'<div class="sheet-sec-title">Connection</div><button class="opt '+(S.agent!=='auto'&&!conn?'sel':'')+'" data-connection=""><svg viewBox="0 0 24 24" style="width:18px;height:18px;stroke:currentColor;fill:none;stroke-width:1.8;stroke-linecap:round;stroke-linejoin:round;flex:none"><rect x="4" y="4" width="16" height="16" rx="2"/><rect x="9" y="9" width="6" height="6"/></svg>Local<span class="r">'+(S.agent!=='auto'&&!conn?OPT_CK:'')+'<span class="m">This device</span></span></button>';
@@ -1183,7 +1300,7 @@ async function connectionSheet(manage=false){
  $('#sheet').onclick=e=>{
   const b=e.target.closest('button');if(!b)return;
   if(b.dataset.agent){S.agent=b.dataset.agent;lset('oc_agent',S.agent);chips();connectionSheet(manage);return}
-  if(b.dataset.connection!==undefined){if(manage)connectionForm(S.connections.find(c=>c.id===b.dataset.connection));else{S.connectionID=b.dataset.connection||null;lset('oc_connection',S.connectionID);chips();closeAll()}}
+  if(b.dataset.connection!==undefined){if(manage)connectionForm(S.connections.find(c=>c.id===b.dataset.connection));else{S.connectionID=b.dataset.connection||null;lset('oc_connection',S.connectionID);chips();closeSheet()}}
   if(b.id==='sa')connectionForm();
   if(b.id==='settingsBack')settingsSheet();
  };

@@ -368,6 +368,69 @@ async def main():
             check('model_sheet_pick_by_index', sel_model == {'p': 'agentrouter', 'm': 'gpt-6.1-sol'}, str(sel_model))
             await browser.close()
 
+            # Block G: sidebar structure with real threads (3 projects, 12 sessions, one folder >5)
+            gdirs = []
+            for gi in range(3):
+                gd = TASK / f'g-project-{gi}'
+                gd.mkdir()
+                gdirs.append(gd)
+                subprocess.run(['git', '-C', str(gd), 'init', '-q'], check=True, capture_output=True)
+            for gi, (gd, n) in enumerate(zip(gdirs, [7, 3, 2])):
+                for j in range(n):
+                    title = 'Zebra cross-project' if (gi == 2 and j == 0) else f'G thread {gi}-{j}'
+                    api('/session', {'title': title}, 'POST', str(gd))
+            for theme2 in ['dark', 'light']:
+                browser, context, page, errors = await boot_page(pw, origin, theme2)
+                gshot = lambda name: page.screenshot(path=str(EVIDENCE / f'g-{theme2}-{name}.png'))
+                check(f'g_{theme2}_boot', not errors, '; '.join(errors[:2]))
+                await page.evaluate(f"""async () => {{
+                  S.savedProjects={json.dumps([str(d) for d in gdirs])};lset('oc_projects',S.savedProjects);
+                  S.projects=sortProjects(S.savedProjects.map(w=>({{worktree:w}})));
+                  S.projects.forEach(p=>S.expandedFolders.add(p.worktree));
+                  renderDrawer();drawer(true);
+                  await Promise.all(S.projects.map(p=>loadFolderSessions(p.worktree)));
+                  renderDrawer();
+                }}""")
+                await page.wait_for_timeout(500)
+                await gshot('drawer')
+                pin = await page.evaluate("""()=>{const dp=document.querySelector('#drawerProjects');dp.scrollTop=dp.scrollHeight;const h=document.querySelector('.drawer-top-bar').getBoundingClientRect();const b=document.querySelector('.drawer-bottom').getBoundingClientRect();return {h:[h.top,h.bottom],b:[b.top,b.bottom],vh:innerHeight}}""")
+                check(f'g_{theme2}_header_pinned', pin['h'][0] >= 0 and pin['h'][1] <= pin['vh'], str(pin))
+                check(f'g_{theme2}_bottom_pinned', pin['b'][1] <= pin['vh'] + 1, str(pin))
+                counts_in_folder = await page.evaluate("()=>document.querySelectorAll('#drawer .proj-group')[0].querySelectorAll('.th').length")
+                check(f'g_{theme2}_five_plus_showall', counts_in_folder == 6, str(counts_in_folder))
+                await page.click('#drawer .th-more')
+                await page.wait_for_timeout(300)
+                after = await page.evaluate("()=>{const g=document.querySelectorAll('#drawer .proj-group')[0];return {n:g.querySelectorAll('.th').length,more:!!g.querySelector('.th-more')}}")
+                check(f'g_{theme2}_showall_expands', after['n'] == 7 and not after['more'], str(after))
+                sizes = await page.evaluate("()=>[...document.querySelectorAll('#drawer .nav-row, .btn-new-thread, .drawer-gear, #drawer .th')].every(e=>{const r=e.getBoundingClientRect();return r.height>=44&&r.width>=44})")
+                check(f'g_{theme2}_touch_targets', sizes)
+                text = await page.eval_on_selector('#drawer', 'e=>e.innerText')
+                check(f'g_{theme2}_no_decorative', not any(x in text for x in ['Images', 'Library', 'Scheduled']), text[:100])
+                await page.click('.nav-row[data-a="remote"]')
+                await page.wait_for_timeout(400)
+                sheet_t = await page.eval_on_selector('#sheet h3', 'e=>e.textContent')
+                check(f'g_{theme2}_remote_sheet', sheet_t == 'SSH connections', sheet_t)
+                await page.click('#dim', position={'x': 370, 'y': 400})
+                await page.wait_for_timeout(350)
+                await page.click('#drawer [data-a="search"]')
+                await page.wait_for_timeout(250)
+                await gshot('search')
+                await page.fill('#drawerSearchInput', 'Zebra')
+                await page.wait_for_timeout(800)
+                res = await page.eval_on_selector_all('#drawerSearchResults .th', 'els=>els.map(e=>e.innerText)')
+                projname = await page.evaluate(f"projName({json.dumps(str(gdirs[2]))})")
+                check(f'g_{theme2}_search_found', len(res) >= 1 and 'Zebra' in res[0], str(res))
+                check(f'g_{theme2}_search_shows_project', projname in res[0], res[0] + ' vs ' + projname)
+                await page.click('#drawerSearchResults .th')
+                await page.wait_for_timeout(900)
+                title = await page.eval_on_selector('#title', 'e=>e.textContent')
+                check(f'g_{theme2}_search_opens_thread', 'Zebra' in title, title)
+                dimc = await page.evaluate("getComputedStyle(document.querySelector('#dim')).backgroundColor")
+                check(f'g_{theme2}_dim_65', dimc == 'rgba(0, 0, 0, 0.65)', dimc)
+                hdr = await page.evaluate("({gear:!!document.querySelector('#gear'),diff:!!document.querySelector('#diffPanel')})")
+                check(f'g_{theme2}_header_gone_diff_in', not hdr['gear'] and hdr['diff'], str(hdr))
+                await browser.close()
+
         # spec check: fork endpoint really exists (Block F: API not invented)
         with urllib.request.urlopen(origin + '/doc', timeout=15) as r:
             spec = json.load(r)
