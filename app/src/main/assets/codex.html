@@ -196,7 +196,9 @@ span.ib-right-col{font-size:var(--fs-12);color:var(--text-2)}
 .eff-btn{padding:var(--s-8) var(--s-12);font-size:var(--fs-12);border-radius:var(--r-full);background:var(--surface-2);border:none;color:var(--text)}
 .eff-btn.p{background:var(--accent);color:#FFFFFF}
 .opt{display:flex;align-items:center;gap:var(--s-8);padding:11px var(--s-8);border-radius:var(--r-8);width:100%;text-align:left;color:var(--text)}
-.opt.sel{background:var(--surface-2);font-weight:500}.opt .m{margin-left:auto;color:var(--text-2);font-size:var(--fs-12)}
+.opt .r{margin-left:auto;display:inline-flex;align-items:center;gap:var(--s-8);flex:none;min-width:0}
+.opt .ck{width:16px;height:16px;color:var(--accent);flex:none}
+.opt.sel{background:var(--surface-2);font-weight:500}.opt .m{margin-left:auto;color:var(--text-2);font-size:var(--fs-12);overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
 .fld{display:block;margin:var(--s-8) 0 2px;font-size:var(--fs-12);color:var(--text-2)}
 .in{width:100%;border:1px solid var(--border);background:var(--surface-2);color:inherit;border-radius:var(--r-8);padding:10px;font:inherit;outline:0}
 .note{font-size:var(--fs-12);color:var(--text-2);margin:var(--s-8) 0}
@@ -685,15 +687,25 @@ function sheet(html){$('#sheet').innerHTML='<div class="grab"></div>'+html;$('#s
 function closeAll(){$('#sheet').classList.remove('on');$('#drawer').classList.remove('on');$('#dim').classList.remove('on');resetSheetSwipe()}
 $('#dim').onclick=closeAll;
 function options(title,list,cur,cb,sub){
- sheet(`<h3>${title}</h3><div style="max-height:60vh;overflow-y:auto">`+list.map((o,i)=>`<button class="opt ${o===cur?'sel':''}" data-i="${i}">${esc(o)}${sub&&sub[i]?`<span class="m">${esc(sub[i])}</span>`:''}</button>`).join('')+'</div>');
+ sheet(`<h3>${title}</h3><div style="max-height:60vh;overflow-y:auto">`+list.map((o,i)=>`<button class="opt ${o===cur?'sel':''}" data-i="${i}">${esc(o)}<span class="r">${o===cur?OPT_CK:''}${sub&&sub[i]?`<span class="m">${esc(sub[i])}</span>`:''}</span></button>`).join('')+'</div>');
  $('#sheet').onclick=e=>{const b=e.target.closest('.opt');if(!b)return;cb(+b.dataset.i);closeAll();chips()};
 }
-function allModels(){const o=[];S.provs.forEach(p=>p.models.forEach(m=>o.push({p:p.id,pn:p.name,m:m.id,mn:m.name,capabilities:m.capabilities,variants:m.variants})));return o}
-$('#cModel').onclick=()=>{
+const OPT_CK='<svg class="ck" viewBox="0 0 24 24"><path d="m5 12 5 5 9-10"/></svg>';
+function modelSub(x){return x.pn&&x.pn!==x.p?`${x.pn} · ${x.p}`:x.p}
+function modelSheet(onPick){
  const L=allModels();
  if(!L.length){sheet('<h3>Model</h3><p class="note">No providers returned by the server. Configure a provider in opencode first.</p>');return}
- options('Model',L.map(x=>x.mn),S.model&&(L.find(x=>x.p===S.model.p&&x.m===S.model.m)||{}).mn,i=>{S.model={p:L[i].p,m:L[i].m};lset('oc_model',S.model)},L.map(x=>x.pn));
-};
+ let h='<h3>Model</h3><div style="max-height:60vh;overflow-y:auto">';
+ L.forEach((x,i)=>{
+  const sel=S.model&&x.p===S.model.p&&x.m===S.model.m;
+  h+=`<button class="opt ${sel?'sel':''}" data-i="${i}">${esc(x.mn)}<span class="r">${sel?OPT_CK:''}<span class="m">${esc(modelSub(x))}</span></span></button>`;
+ });
+ h+='</div>';
+ sheet(h);
+ $('#sheet').onclick=e=>{const b=e.target.closest('.opt');if(!b)return;const x=L[+b.dataset.i];S.model={p:x.p,m:x.m};lset('oc_model',S.model);chips();closeAll();if(onPick)onPick(x)};
+}
+function allModels(){const o=[];S.provs.forEach(p=>p.models.forEach(m=>o.push({p:p.id,pn:p.name,m:m.id,mn:m.name,capabilities:m.capabilities,variants:m.variants})));return o}
+$('#cModel').onclick=()=>modelSheet();
 $('#cEff').onclick=()=>{
  const m=currentModel(),keys=modelEffortKeys(m);
  const currentEff=S.efforts[modelKey()];
@@ -1079,11 +1091,12 @@ async function providerForm(existing){
  try{const list=await catalog();if(!modelIDs.length){const known=list.find(p=>p.id===(existing||'agentrouter'));modelIDs=known?Object.keys(known.models||{}).filter(id=>/^gpt-/.test(id)).slice(0,4):[]}}catch(x){}
  const router=!existing||/router/i.test(existing),preset=router?'agentrouter':'custom';
  sheet(`<h3>${existing?'Edit provider':'Add provider'}</h3><label class="fld" for="providerPreset">Provider</label><select class="in" id="providerPreset"><option value="agentrouter" ${preset==='agentrouter'?'selected':''}>AgentRouter</option><option value="openai">OpenAI</option><option value="custom" ${preset==='custom'?'selected':''}>Custom</option></select>
+ <label class="fld" for="pnn">Display name</label><input class="in" id="pnn" value="${esc(meta.name&&meta.name!==existing?meta.name:'')}" placeholder="Shown in the model picker" autocomplete="off">
  <label class="fld" for="pk">API key</label><input class="in" id="pk" type="password" placeholder="${existing?'Leave empty to keep your key':'Enter your API key'}" autocomplete="off" autocapitalize="none" spellcheck="false">
  <label class="fld" for="pm">Model IDs</label><input class="in" id="pm" value="${esc(modelIDs.join(', '))}" placeholder="Models available in your account" autocomplete="off" spellcheck="false">
  <details><summary class="opt">Advanced settings</summary><label class="fld" for="pi">Provider ID</label><input class="in" id="pi" value="${esc(existing||'agentrouter')}" autocomplete="off" spellcheck="false"><label class="fld" for="pu">API base URL</label><input class="in" id="pu" value="${esc(meta.baseURL||(router?'https://agentrouter.org/v1':''))}" type="url" autocomplete="off" spellcheck="false"><label class="fld" for="pf">API format</label><select class="in" id="pf"><option value="@ai-sdk/openai" ${meta.npm!=='@ai-sdk/openai-compatible'?'selected':''}>Responses</option><option value="@ai-sdk/openai-compatible" ${meta.npm==='@ai-sdk/openai-compatible'?'selected':''}>Chat Completions</option></select></details>
  <p class="note">Keys stay in opencode. Provider settings apply to all projects.</p><p class="note error-note" id="pe" role="status"></p><div class="btns"><button class="btn p" id="ps">Save provider</button><button class="btn" id="pc">Back</button></div>`);
- $('#providerPreset').onchange=async e=>{const v=e.target.value;if(v==='custom'){$('#sheet details').open=true;return}$('#pi').value=v;$('#pu').value=v==='agentrouter'?'https://agentrouter.org/v1':'https://api.openai.com/v1';$('#pf').value='@ai-sdk/openai';const p=(await catalog()).find(p=>p.id===v);$('#pm').value=p?Object.keys(p.models||{}).filter(id=>/^gpt-/.test(id)).slice(0,4).join(', '):''};
+ $('#providerPreset').onchange=async e=>{const v=e.target.value;if(v==='custom'){$('#sheet details').open=true;return}$('#pi').value=v;$('#pnn').value=v==='agentrouter'?'AgentRouter':v==='openai'?'OpenAI':'';$('#pu').value=v==='agentrouter'?'https://agentrouter.org/v1':'https://api.openai.com/v1';$('#pf').value='@ai-sdk/openai';const p=(await catalog()).find(p=>p.id===v);$('#pm').value=p?Object.keys(p.models||{}).filter(id=>/^gpt-/.test(id)).slice(0,4).join(', '):''};
  $('#sheet').onclick=async e=>{
   if(e.target.id==='pc'){providerSheet();return}if(e.target.id!=='ps')return;
   const save=$('#ps'),error=$('#pe');save.disabled=true;let key='';
@@ -1109,7 +1122,7 @@ async function providerForm(existing){
     }
     models[modelID]=model;
    }
-   const config={provider:{[id]:{name:meta.name||id,npm,options:{baseURL:url.href.replace(/\/$/,'')},models,whitelist:ids}}};
+   const config={provider:{[id]:{name:$('#pnn').value.trim()||meta.name||id,npm,options:{baseURL:url.href.replace(/\/$/,'')},models,whitelist:ids}}};
    key=$('#pk').value.trim();
    if(key)await api('/auth/'+encodeURIComponent(id),{method:'PUT',body:{type:'api',key}});
    await api('/global/config',{method:'PATCH',body:config});
@@ -1132,10 +1145,10 @@ async function connectionSheet(manage=false){
  let h='<h3>Environment</h3>';
  if(!manage){
   const agents=[['build','Build','Edit files and run commands'],['plan','Plan','Read only, no changes']];
-  h+='<div class="sheet-sec-title">Agent</div>'+agents.map(([id,lbl,sub])=>`<button class="opt ${S.agent===id?'sel':''}" data-agent="${id}">${lbl}<span class="m">${sub}</span></button>`).join('')+'<div class="sheet-sec-title">Connection</div><button class="opt '+(S.agent!=='auto'&&!conn?'sel':'')+'" data-connection=""><svg viewBox="0 0 24 24" style="width:18px;height:18px;stroke:currentColor;fill:none;stroke-width:1.8;stroke-linecap:round;stroke-linejoin:round;flex:none"><rect x="4" y="4" width="16" height="16" rx="2"/><rect x="9" y="9" width="6" height="6"/></svg>Local<span class="m">This device</span></button>';
+  h+='<div class="sheet-sec-title">Agent</div>'+agents.map(([id,lbl,sub])=>`<button class="opt ${S.agent===id?'sel':''}" data-agent="${id}">${lbl}<span class="r">${S.agent===id?OPT_CK:''}<span class="m">${sub}</span></span></button>`).join('')+'<div class="sheet-sec-title">Connection</div><button class="opt '+(S.agent!=='auto'&&!conn?'sel':'')+'" data-connection=""><svg viewBox="0 0 24 24" style="width:18px;height:18px;stroke:currentColor;fill:none;stroke-width:1.8;stroke-linecap:round;stroke-linejoin:round;flex:none"><rect x="4" y="4" width="16" height="16" rx="2"/><rect x="9" y="9" width="6" height="6"/></svg>Local<span class="r">'+(S.agent!=='auto'&&!conn?OPT_CK:'')+'<span class="m">This device</span></span></button>';
   if(!S.connections.length)h+='<div class="note" style="padding:0 var(--s-8)">No SSH connections</div>';
  }
- h+=S.connections.map(c=>`<button class="opt ${c.id===S.connectionID?'sel':''}" data-connection="${esc(c.id)}">${I.term}${esc(c.name)}<span class="m">${manage?'Edit':esc(c.host)}</span></button>`).join('')+'<div class="btns"><button class="btn p" id="sa">'+(S.connections.length?'Add connection':'Add SSH connection')+'</button>'+(manage?'<button class="btn" id="settingsBack">Back</button>':'')+'</div>';
+ h+=S.connections.map(c=>`<button class="opt ${c.id===S.connectionID?'sel':''}" data-connection="${esc(c.id)}">${I.term}${esc(c.name)}<span class="r">${c.id===S.connectionID?OPT_CK:''}<span class="m">${manage?'Edit':esc(c.host)}</span></span></button>`).join('')+'<div class="btns"><button class="btn p" id="sa">'+(S.connections.length?'Add connection':'Add SSH connection')+'</button>'+(manage?'<button class="btn" id="settingsBack">Back</button>':'')+'</div>';
  sheet(h);
  $('#sheet').onclick=e=>{
   const b=e.target.closest('button');if(!b)return;
@@ -1264,7 +1277,7 @@ function projectPickerSheet(){
  let h='<h3>Switch project</h3>';
  list.forEach(p=>{
   const isCur=p.worktree===S.dir;
-  h+=`<button class="opt ${isCur?'sel':''}" data-dir="${esc(p.worktree)}"><svg viewBox="0 0 24 24" style="width:18px;height:18px;stroke:currentColor;fill:none;stroke-width:1.8;stroke-linecap:round;stroke-linejoin:round;flex:none"><path d="M4 20h16a2 2 0 0 0 2-2V8a2 2 0 0 0-2-2h-7.93a2 2 0 0 1-1.66-.9l-.82-1.2A2 2 0 0 0 7.93 3H4a2 2 0 0 0-2 2v13c0 1.1.9 2 2 2Z"/></svg>${esc(projName(p.worktree))}${isCur?'<span class="m">Current</span>':''}</button>`;
+  h+=`<button class="opt ${isCur?'sel':''}" data-dir="${esc(p.worktree)}"><svg viewBox="0 0 24 24" style="width:18px;height:18px;stroke:currentColor;fill:none;stroke-width:1.8;stroke-linecap:round;stroke-linejoin:round;flex:none"><path d="M4 20h16a2 2 0 0 0 2-2V8a2 2 0 0 0-2-2h-7.93a2 2 0 0 1-1.66-.9l-.82-1.2A2 2 0 0 0 7.93 3H4a2 2 0 0 0-2 2v13c0 1.1.9 2 2 2Z"/></svg>${esc(projName(p.worktree))}<span class="r">${isCur?OPT_CK:''}</span></button>`;
  });
  h+='<div class="btns"><button class="btn p" id="ppAdd">Add project</button></div>';
  sheet(h);
@@ -1566,10 +1579,7 @@ function fireContextMenu(target){
   contextMenu('Message',[
    {label:'Copy',fn:()=>copyText(raw)},
    {label:'Retry',fn:()=>{const t=lastUserText();if(t)resendPrompt(t)}},
-   {label:'Retry with another model…',fn:()=>{
-    const L=allModels();if(!L.length)return;
-    options('Model',L.map(x=>x.mn),null,i=>{S.model={p:L[i].p,m:L[i].m};lset('oc_model',S.model);chips();const t=lastUserText();if(t)resendPrompt(t)},L.map(x=>x.pn));
-   }},
+   {label:'Retry with another model…',fn:()=>{modelSheet(x=>{const t=lastUserText();if(t)resendPrompt(t)})}},
    am.dataset.mid?{label:'Fork from here',fn:()=>forkAndOpen(am.dataset.mid)}:null,
    {label:'Select text',fn:()=>selectText(am)}
   ]);return;
