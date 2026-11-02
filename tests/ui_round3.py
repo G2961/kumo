@@ -250,6 +250,39 @@ async def main():
                 check(f'{theme}_error_card_retry', 'Retry' in err_card and 'Switch model' in err_card, err_card[:150])
                 check(f'{theme}_error_card_code', '429' in err_card)
                 check(f'{theme}_error_no_working_spinner', 'Working...' not in await page.eval_on_selector('#main', 'e=>e.innerText'))
+                # thinking block: two states + topics from real tool events
+                await page.evaluate("""() => {
+                  const a=S.msgs.get('m2');
+                  a.info.time={created:1000,completed:7500};
+                  a.parts.set('p5',{id:'p5',type:'reasoning',text:'The user wants a quick check.',time:{start:1000,end:7000}});
+                  renderMsgs(true);
+                }""")
+                await page.wait_for_timeout(200)
+                head = await page.eval_on_selector('.think-head', 'e=>e.innerText')
+                check(f'{theme}_think_done_label', 'Thought for 7s' in head, head)
+                brain = await page.evaluate("!!document.querySelector('.think-head .think-icon')")
+                check(f'{theme}_think_done_brain', brain)
+                open_now = await page.evaluate("document.querySelector('.think').hasAttribute('data-open')")
+                check(f'{theme}_think_done_collapsed', not open_now)
+                await page.click('.think-head')
+                await page.wait_for_timeout(300)
+                panel = await page.eval_on_selector('.think-panel', 'e=>e.innerText')
+                check(f'{theme}_think_topics', 'Running df -h' in panel and 'Editing login.js' in panel and 'The user wants a quick check.' in panel, panel[:200])
+                check(f'{theme}_think_topic_marks', await page.evaluate("document.querySelectorAll('.think .topic.done').length") == 2)
+                await page.click('.think-head')
+                await page.wait_for_timeout(250)
+                check(f'{theme}_think_closes', not await page.evaluate("document.querySelector('.think').hasAttribute('data-open')"))
+                # actions bar under the assistant text
+                acts = await page.eval_on_selector_all('.msg-actions button', 'els=>els.length')
+                check(f'{theme}_actions_bar', acts == 5, str(acts))
+                await page.click('.msg-actions [data-ma="like"]')
+                await page.wait_for_timeout(200)
+                lk = await page.evaluate("({r:S.reactions,p:localStorage.getItem('oc_reactions')})")
+                check(f'{theme}_like_persists', lk['r'].get('msg_a1') == 'like' and lk['p'] and 'like' in lk['p'], str(lk))
+                await page.click('.msg-actions [data-ma="copy"]')
+                await page.wait_for_timeout(250)
+                clip2 = await page.evaluate("navigator.clipboard.readText()")
+                check(f'{theme}_actions_copy', 'Here is the **fix**' in clip2, clip2[:80])
                 # ghost-card fix: completed edit w/o recorded diff renders compact, no empty details body
                 change_cards = await page.eval_on_selector_all('.change-card', "els=>els.map(e=>e.innerText)")
                 check(f'{theme}_no_empty_diff_details', all('No diff recorded' not in c for c in change_cards), str(change_cards))
@@ -592,9 +625,8 @@ async def main():
               S.msgs.set('m9',{info:{id:'msg_a9',sessionID:'x',role:'assistant',tokens:{input:30000,output:2000,reasoning:1000,cache:{read:40000,write:1000}}},parts:new Map()});
               S.sid='x';chips();renderMsgs(true)}""")
             await page.wait_for_timeout(250)
-            ring = await page.evaluate("({hidden:document.querySelector('#ctxRing').hidden,dash:document.querySelector('#ctxRing .fg').style.strokeDasharray,warn:document.querySelector('#ctxRing').classList.contains('warn')})")
-            check('ctx_ring_visible', not ring['hidden'] and ring['dash'].startswith('37.'), str(ring))
-            check('ctx_ring_not_warn', not ring['warn'], str(ring))
+            ring = await page.evaluate("({hidden:document.querySelector('#ctxRing').hidden,rot:document.querySelector('#ctxDot').style.transform})")
+            check('ctx_ring_visible', not ring['hidden'] and ring['rot'] == 'rotate(266deg)', str(ring))
             await page.click('#ctxRing')
             await page.wait_for_timeout(300)
             ctx_txt = await page.eval_on_selector('#sheet', 'e=>e.innerText')
