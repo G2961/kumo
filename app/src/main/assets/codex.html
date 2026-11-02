@@ -354,7 +354,7 @@ const S={
  projects:[],sessions:[],sid:null,
  msgs:new Map(),perms:new Map(),
  running:false,live:false,errors:[],status:{type:'idle'},view:0,revision:0,sending:false,
- provs:[],model:LS('oc_model'),agent:LS('oc_agent')||'build',
+ provs:[],model:LS('oc_model'),agent:(()=>{const a=LS('oc_agent');return ['build','plan','auto'].includes(a)?a:'build'})(),
  spec:null,specErr:null,health:null
 };
 S.savedProjects=LS('oc_projects')||[];S.attachments=[];S.connections=[];S.connectionID=LS('oc_connection');
@@ -1050,6 +1050,7 @@ $('#ctxRing').onclick=()=>{
  $('#sheet').onclick=null;
 };
 function chips(){
+ if(!['build','plan','auto'].includes(S.agent)){S.agent='build';lset('oc_agent','build')}
  const m=currentModel();
  const modelName=m?m.mn:(S.model?S.model.m:'Default model');
  const cleanModel=String(modelName).replace(/\s*(?:Free|Basic)\s*[·]?\s*$/i,'').trim()||modelName;
@@ -2078,7 +2079,7 @@ async function submit(){
   // Explicit session rules keep remote commands and file writes behind approval.
   await localPolicy(sid,dir);
   const auto=S.agent==='auto';
-  body.agent=auto?'build':S.agent;
+  body.agent=auto?'build':(S.agent==='plan'?'plan':'build');
   const permission=Object.entries(body.tools).map(([tool,enabled])=>({permission:tool,pattern:'*',action:enabled?(auto?'allow':['mobile_ssh_ssh_exec','mobile_ssh_ssh_write_file'].includes(tool)?'ask':'allow'):'deny'}));
   if(!connection)permission.push(...await restoreLocalRules(sid,dir,body.agent,auto));
   delete body.tools;
