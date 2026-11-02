@@ -158,9 +158,9 @@ footer::before{content:'';position:absolute;top:-24px;left:0;right:0;height:24px
 .think-body{display:grid;grid-template-rows:0fr;transition:grid-template-rows 200ms ease;overflow:hidden}
 .think[data-open] .think-body,.think[data-live] .think-body{grid-template-rows:1fr}
 .think-inner{min-height:0;overflow:hidden}
-.think-panel{background:var(--surface-1);border-radius:var(--r-12);padding:6px 10px;margin-top:var(--s-4);width:fit-content;max-width:100%;min-width:min(240px,100%)}
+.think-panel{background:var(--surface-1);border-radius:var(--r-12);padding:6px 10px;margin-top:var(--s-4);width:fit-content;max-width:100%;min-width:0}
 .think-topics{display:flex;flex-direction:column}
-.rtext{font-size:var(--fs-13);color:var(--text-2);white-space:pre-wrap;overflow-wrap:anywhere;line-height:1.5;padding:2px 2px 6px}
+.rtext{font-size:var(--fs-13);color:var(--text-2);white-space:pre-wrap;overflow-wrap:anywhere;line-height:1.5;padding:2px 2px 6px;max-width:40ch}
 .topic{display:block;min-height:26px}
 .topic>summary.tsum{display:flex;align-items:center;gap:8px;min-height:26px;list-style:none;cursor:pointer;min-width:0}
 .topic>summary.tsum::-webkit-details-marker{display:none}
@@ -168,14 +168,10 @@ footer::before{content:'';position:absolute;top:-24px;left:0;right:0;height:24px
 .tout .change-preview{max-height:40vh}
 .tcaret{width:12px;height:12px;color:var(--text-2);flex:none;transition:transform .2s;stroke-width:2}
 .topic[open] .tcaret{transform:rotate(180deg)}
-.qcard{background:var(--base);border-radius:14px}
-.qcard .qhead{display:flex;align-items:center;gap:var(--s-8);width:100%;padding:12px 14px;background:none;border:none;color:var(--text-2);font-size:var(--fs-13);font-weight:500;cursor:pointer;text-align:left;box-sizing:border-box}
-.qcard .qhead svg{width:14px;height:14px;margin-left:auto;flex:none;transition:transform .2s}
-.qcard[data-collapsed] .qhead svg{transform:rotate(180deg)}
-.qcard .qbody-wrap{padding:0 14px 12px;display:flex;flex-direction:column;gap:16px}
-.qcard[data-collapsed] .qbody-wrap{display:none}
+.qsheet-head{display:flex;align-items:center;color:var(--text-2);font-size:var(--fs-13);font-weight:500}
+.qsheet-head .qcount{margin-left:auto;font-size:var(--fs-12);font-weight:500}
 .qsec{display:flex;flex-direction:column}
-.qq{font-size:var(--fs-14);font-weight:600;color:var(--text)}
+.qq{font-size:var(--fs-14);font-weight:600;color:var(--text);margin-top:var(--s-8)}
 .qhint{font-size:var(--fs-12);color:var(--text-2);margin-top:3px}
 .qopts{display:flex;flex-direction:column;gap:8px;margin-top:12px}
 .qopt{display:flex;align-items:flex-start;gap:10px;padding:10px 12px;border:1px solid var(--border);border-radius:10px;background:var(--surface-1);cursor:pointer;text-align:left;color:var(--text);width:100%;box-sizing:border-box;min-height:44px}
@@ -196,8 +192,10 @@ footer::before{content:'';position:absolute;top:-24px;left:0;right:0;height:24px
 .qfoot{display:flex;align-items:center;justify-content:space-between;gap:var(--s-8);margin-top:14px}
 .qdismiss{background:none;border:none;color:var(--text-2);font-size:var(--fs-13);font-weight:500;padding:9px 12px;border-radius:var(--r-8);cursor:pointer}
 .qdismiss:active{color:var(--text);background:var(--surface-active)}
-.qsend{border-radius:var(--r-full);padding:9px 20px}
-.qsend:disabled{opacity:.4}
+#sheet .btn:disabled{opacity:.4}
+.q-pending{display:flex;align-items:center;gap:8px;align-self:flex-start;background:var(--surface-1);border:none;border-radius:var(--r-full);padding:9px 14px;margin:6px 0;font-size:var(--fs-13);font-weight:500;color:var(--text);cursor:pointer;max-width:100%;text-align:left;box-sizing:border-box}
+.q-pending .dot{flex:none}
+.q-pending .qlbl{overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
 .topic .tl{width:16px;flex:none;display:flex;flex-direction:column;align-items:center}
 .topic .tl .mark{width:14px;height:14px;flex:none;display:grid;place-items:center;margin-top:5px}
 .topic .tl .mark .dot{width:6px;height:6px;border-radius:50%;background:var(--text-2);animation:tk-pulse 1.2s ease-in-out infinite}
@@ -424,6 +422,7 @@ const S={
  dir:dirFromHash()||LS('oc_dir')||'',
  projects:[],sessions:[],sid:null,
  msgs:new Map(),perms:new Map(),questions:new Map(),
+ qFlow:null,qSel:{},qSheetOpen:false,qDismissedFor:null,
  running:false,live:false,errors:[],status:{type:'idle'},view:0,revision:0,sending:false,
  provs:[],model:LS('oc_model'),agent:(()=>{const a=LS('oc_agent');return ['build','plan','auto'].includes(a)?a:'build'})(),
  spec:null,specErr:null,health:null
@@ -578,9 +577,11 @@ function onEvent(ev){
  }else if(t==='permission.asked'){
   if(p.sessionID!==S.sid)return;rememberChangeHint(p);S.revision++;S.perms.set(p.id,p);sched();
  }else if(t==='question.asked'){
-  if(p.sessionID!==S.sid)return;S.revision++;S.questions.set(p.id,p);sched();
+  if(p.sessionID!==S.sid)return;S.revision++;S.questions.set(p.id,p);maybeOpenQuestion(p.id);sched();
  }else if(t==='question.replied'||t==='question.rejected'){
-  if(p.sessionID!==S.sid)return;S.revision++;S.questions.delete(p.requestID||p.id);sched();
+  if(p.sessionID!==S.sid)return;S.revision++;const qid=p.requestID||p.id;S.questions.delete(qid);
+  if(S.qFlow&&S.qFlow.qid===qid){S.qFlow=null;S.qSel={};if(S.qSheetOpen){S.qSheetOpen=false;closeSheet()}}
+  sched();
  }else if(t==='permission.replied'){
   if(p.sessionID!==S.sid)return;S.revision++;S.perms.delete(p.requestID);sched();
  }else if(t==='message.removed'){
@@ -595,6 +596,8 @@ function sched(){if(raf)return;raf=requestAnimationFrame(()=>{raf=0;try{renderMs
 /* ---------- sessions ---------- */
 function resetThread(id=null){
  S.view++;S.revision++;S.sid=id;S.msgs=new Map();S.perms=new Map();S.questions=new Map();S.running=false;
+ S.qFlow=null;S.qSel={};S.qDismissedFor=null;
+ if(S.qSheetOpen){S.qSheetOpen=false;$('#sheet').classList.remove('on');resetSheetSwipe()}
  S.historyFiles=new Map();S.changeHints=new Map();
  S.status={type:'idle'};S.lastErr=null;S.pendingUser=null;S.sending=false;setRun();
  S.attachments=[];renderAttachments();
@@ -638,6 +641,11 @@ async function syncSession(){
   if(statuses.status==='fulfilled'){S.status=statuses.value[sid]||{type:'idle'};S.running=S.status.type!=='idle'}
   if(permissions.status==='fulfilled')S.perms=new Map((permissions.value||[]).filter(p=>p.sessionID===sid).map(p=>[p.id,p]));
   if(questions.status==='fulfilled')S.questions=new Map((questions.value||[]).filter(q=>q.sessionID===sid).map(q=>[q.id,q]));
+  const pq=[...S.questions.values()][0];
+  if(pq){
+   if(!S.qFlow||S.qFlow.qid!==pq.id)maybeOpenQuestion(pq.id);
+   else if(!S.qSheetOpen&&S.qDismissedFor!==pq.id)openQuestionSheet();
+  }else{S.qFlow=null;S.qSel={}}
   for(const p of S.perms.values())rememberChangeHint(p);
   setRun();renderMsgs();
  }catch(e){if(view===S.view)err('messages: '+e.message)}
@@ -999,8 +1007,10 @@ function resetSheetSwipe(){
  isDraggingSheet=false;sheetTouchDeltaY=0;
 }
 function sheet(html){$('#sheet').innerHTML='<div class="grab"></div>'+html;$('#sheet').classList.add('on');$('#dim').classList.add('on');initSheetSwipe()}
-function closeSheet(){$('#sheet').classList.remove('on');resetSheetSwipe();if(!$('#drawer').classList.contains('on'))$('#dim').classList.remove('on')}
-function closeAll(){$('#sheet').classList.remove('on');$('#drawer').classList.remove('on');$('#dim').classList.remove('on');resetSheetSwipe();S.drawerSearch=false}
+function qsheet(html){$('#sheet').innerHTML='<div class="grab"></div>'+html;$('#sheet').classList.add('on');$('#dim').classList.remove('on');initSheetSwipe();S.qSheetOpen=true}
+function markQuestionDismissed(){if(S.qSheetOpen){S.qSheetOpen=false;const pq=pendingQuestion();if(pq)S.qDismissedFor=pq.id}}
+function closeSheet(){$('#sheet').classList.remove('on');resetSheetSwipe();if(!$('#drawer').classList.contains('on'))$('#dim').classList.remove('on');markQuestionDismissed()}
+function closeAll(){$('#sheet').classList.remove('on');$('#drawer').classList.remove('on');$('#dim').classList.remove('on');resetSheetSwipe();S.drawerSearch=false;markQuestionDismissed()}
 $('#dim').onclick=()=>{if($('#sheet').classList.contains('on'))closeSheet();else drawer(false)};
 function options(title,list,cur,cb,sub){
  sheet(`<h3>${title}</h3><div class="sheet-scroll">`+list.map((o,i)=>`<button class="opt ${o===cur?'sel':''}" data-i="${i}">${esc(o)}<span class="r">${o===cur?OPT_CK:''}${sub&&sub[i]?`<span class="m">${esc(sub[i])}</span>`:''}</span></button>`).join('')+'</div>');
@@ -1796,28 +1806,80 @@ function toolCard(p,claimedRuns){
  const brief=inp.filePath||inp.pattern||inp.path||inp.url||inp.description||inp.query||'';
  return `<div class="card">${head(I.file,st.title||tool,brief?`<small class="m">&middot; ${esc(String(brief).slice(0,40))}</small>`:'')}${isErr?`<pre class="er-body">${esc(errText)}</pre>`:''}</div>`;
 }
-function questionCard(q){
- const qs=q.questions||[];
- let body='';
- qs.forEach((qi,qidx)=>{
-  const opts=qi.options||[],multi=!!qi.multiple;
-  body+=`<div class="qsec"><div class="qq">${esc(qi.question||'')}</div><div class="qhint">${multi?'Select one or more answers':'Select one answer'}</div><div class="qopts">`;
-  opts.forEach((o,oi)=>{
-   body+=`<button class="qopt${multi?' multi':''}" type="button" data-qsel="${qidx}:${oi}"><span class="qradio${multi?' cb':''}"></span><span class="qbody"><span class="qlabel">${esc(o.label)}</span>${o.description?`<span class="qdesc">${esc(o.description)}</span>`:''}</span><span class="qnum">${oi+1}</span></button>`;
-  });
-  body+=`<button class="qopt qopt-custom${multi?' multi':''}" type="button" data-qcustom-opt="${qidx}"><span class="qradio${multi?' cb':''}"></span><span class="qbody"><span class="qlabel">Type your own answer…</span></span><span class="qnum">${opts.length+1}</span></button>`;
-  body+=`<div class="qcustom-wrap" data-qcustom-wrap="${qidx}"><input class="in qcustom" data-qcustom="${qidx}" placeholder="Your own answer" autocomplete="off"></div>`;
-  body+=`</div></div>`;
- });
- return `<div class="card qcard" data-qid="${esc(q.id)}"><button class="qhead" type="button"><span>Question</span>${I.chev}</button><div class="qbody-wrap">${body}<div class="qfoot"><button class="qdismiss" type="button" data-qact="reject">Закрыть</button><button class="btn p qsend" type="button" data-qact="send" disabled>Отправить</button></div></div></div>`;
+function pendingQuestion(){for(const q of S.questions.values())return q;return null}
+function qCurrentAnswer(sh,qi,qidx){
+ const wrap=sh.querySelector(`[data-qcustom-wrap="${qidx}"]`);
+ const custom=wrap?wrap.querySelector('input'):null;
+ const customText=custom?custom.value.trim():'';
+ if(wrap&&wrap.classList.contains('on')&&customText)return {custom:customText};
+ const labels=[...sh.querySelectorAll('.qopt.sel')].filter(b=>b.dataset.qsel&&b.dataset.qsel.split(':')[0]===String(qidx)).map(b=>((qi.options||[])[+b.dataset.qsel.split(':')[1]]||{}).label).filter(Boolean);
+ return labels.length?{labels}:null;
 }
-function updateQSend(card){
- if(!card)return;
- const send=card.querySelector('.qsend');if(!send)return;
- const hasSel=!!card.querySelector('.qopt[data-qsel].sel');
- let customOk=false;
- card.querySelectorAll('[data-qcustom-wrap]').forEach(w=>{if(w.classList.contains('on')){const i=w.querySelector('input');if(i&&i.value.trim())customOk=true}});
- send.disabled=!(hasSel||customOk);
+function openQuestionSheet(){
+ const q=pendingQuestion();if(!q)return;
+ if(!S.qFlow||S.qFlow.qid!==q.id){S.qFlow={qid:q.id,idx:0};S.qSel={}}
+ renderQuestionSheet();
+}
+function maybeOpenQuestion(qid){
+ S.qFlow={qid,idx:0};S.qSel={};S.qDismissedFor=null;
+ if(!S.qSheetOpen)renderQuestionSheet();
+}
+function renderQuestionSheet(){
+ const q=pendingQuestion();if(!q){closeSheet();return}
+ if(!S.qFlow||S.qFlow.qid!==q.id){S.qFlow={qid:q.id,idx:0};S.qSel={}}
+ const qs=q.questions||[];
+ const idx=Math.min(S.qFlow.idx||0,Math.max(0,qs.length-1));
+ const qi=qs[idx]||{},multi=!!qi.multiple,opts=qi.options||[],pre=S.qSel[idx]||{};
+ const customSel=!!pre.custom;
+ let h=`<div class="qsheet" data-qsid="${esc(q.id)}"><div class="qsheet-head"><span>Question</span>${qs.length>1?`<span class="qcount">${idx+1} / ${qs.length}</span>`:''}</div>`;
+ h+=`<div class="qq">${esc(qi.question||'')}</div><div class="qhint">${multi?'Select one or more answers':'Select one answer'}</div><div class="qopts">`;
+ opts.forEach((o,oi)=>{
+  const sel=pre.labels?pre.labels.includes(o.label):false;
+  h+=`<button class="qopt${multi?' multi':''}${sel?' sel':''}" type="button" data-qsel="${idx}:${oi}"><span class="qradio${multi?' cb':''}"></span><span class="qbody"><span class="qlabel">${esc(o.label)}</span>${o.description?`<span class="qdesc">${esc(o.description)}</span>`:''}</span><span class="qnum">${oi+1}</span></button>`;
+ });
+ h+=`<button class="qopt qopt-custom${multi?' multi':''}${customSel?' sel':''}" type="button" data-qcustom-opt="${idx}"><span class="qradio${multi?' cb':''}"></span><span class="qbody"><span class="qlabel">Type your own answer…</span></span><span class="qnum">${opts.length+1}</span></button>`;
+ h+=`<div class="qcustom-wrap${customSel?' on':''}" data-qcustom-wrap="${idx}"><input class="in qcustom" data-qcustom="${idx}" placeholder="Your own answer" autocomplete="off" value="${customSel?esc(pre.custom):''}"></div>`;
+ h+=`</div><div class="qfoot"><button class="qdismiss" type="button" data-qreject>Закрыть</button><button class="btn p" type="button" data-qnext>${idx<qs.length-1?'Далее':'Готово'}</button></div></div>`;
+ qsheet(h);
+ const sh=$('#sheet');
+ const updateBtn=()=>{const b=sh.querySelector('[data-qnext]');if(b)b.disabled=!qCurrentAnswer(sh,qi,idx)};
+ sh.onclick=async e=>{
+  const qo=e.target.closest('.qopt');
+  if(qo){
+   const multi=qo.classList.contains('multi');
+   if(!multi)sh.querySelectorAll('.qopt').forEach(b=>b.classList.remove('sel'));
+   if(multi)qo.classList.toggle('sel');else qo.classList.add('sel');
+   sh.querySelectorAll('[data-qcustom-wrap]').forEach(w=>{
+    const widx=w.getAttribute('data-qcustom-wrap');
+    const opt=sh.querySelector(`[data-qcustom-opt="${widx}"]`);
+    w.classList.toggle('on',!!(opt&&opt.classList.contains('sel')));
+   });
+   updateBtn();
+   return;
+  }
+  const nx=e.target.closest('[data-qnext]');
+  if(nx){
+   const ans=qCurrentAnswer(sh,qi,idx);
+   if(!ans)return;
+   S.qSel[idx]=ans;S.qFlow={qid:q.id,idx:idx+1};
+   if(idx+1<qs.length){renderQuestionSheet();return}
+   nx.disabled=true;
+   const answers=qs.map((_,i)=>{const a=S.qSel[i];return a?(a.custom?[a.custom]:a.labels||[]):[]});
+   try{await api('/question/'+encodeURIComponent(q.id)+'/reply',{method:'POST',body:{answers},directory:S.dir})}catch(x){err('question: '+x.message);renderQuestionSheet();return}
+   S.questions.delete(q.id);S.qFlow=null;S.qSel={};S.qSheetOpen=false;closeSheet();renderMsgs();
+   return;
+  }
+  const rj=e.target.closest('[data-qreject]');
+  if(rj){
+   rj.disabled=true;
+   try{await api('/question/'+encodeURIComponent(q.id)+'/reject',{method:'POST',body:{},directory:S.dir})}catch(x){err('question: '+x.message)}
+   S.questions.delete(q.id);S.qFlow=null;S.qSel={};S.qSheetOpen=false;closeSheet();renderMsgs();
+   return;
+  }
+ };
+ sh.oninput=()=>updateBtn();
+ if(customSel)setTimeout(()=>{const i=sh.querySelector('.qcustom');if(i)i.focus()},150);
+ updateBtn();
 }
 function permCard(p){
  const pats=p.patterns||(p.pattern?[].concat(p.pattern):[]);
@@ -2104,7 +2166,7 @@ function renderMsgs(force){
   }
  });
  [...S.perms.values()].forEach(p=>{h+=permCard(p)});
- [...S.questions.values()].forEach(q=>{h+=questionCard(q)});
+ if(S.questions.size&&!S.qSheetOpen){const q0=[...S.questions.values()][0];const qs0=(q0.questions||[])[0]||{};h+=`<button class="q-pending" type="button" data-qopen="1"><span class="dot"></span><span class="qlbl">${esc(qs0.question||'Question')}</span></button>`}
  for(const r of S.remoteRuns.values())if(r.sessionID===S.sid&&!S.renderedRemoteRuns.has(r.id)&&r.status==='running')h+=remoteCard(r);
  if(S.lastErr&&!hadMsgError)h+=`<div class="card error-card"><div class="ch er">Error<span class="m er">Failed</span></div><pre class="er-body">${esc(readableError(S.lastErr))}</pre></div>`;
  if(!LS('oc_lp_hint'))h+='<div class="lp-hint">Long-press a message for actions</div>';
@@ -2126,42 +2188,8 @@ $('#main').addEventListener('toggle',async e=>{
 $('#main').onclick=async e=>{
  const th=e.target.closest('.think-head');
  if(th){const w=th.closest('.think');if(w.hasAttribute('data-open')||w.hasAttribute('data-live')){w.removeAttribute('data-open');w.removeAttribute('data-live');w.setAttribute('data-closed','1')}else{w.removeAttribute('data-closed');w.setAttribute('data-open','1')}return}
- const qh=e.target.closest('.qhead');
- if(qh){const c=qh.closest('.qcard');if(c.hasAttribute('data-collapsed'))c.removeAttribute('data-collapsed');else c.setAttribute('data-collapsed','1');return}
- const qo=e.target.closest('.qopt');
- if(qo){
-  const card=qo.closest('.qcard');const multi=qo.classList.contains('multi');
-  if(!multi){card.querySelectorAll('.qopt').forEach(b=>b.classList.remove('sel'));qo.classList.add('sel')}
-  else qo.classList.toggle('sel');
-  card.querySelectorAll('[data-qcustom-wrap]').forEach(w=>{
-   const idx=w.getAttribute('data-qcustom-wrap');
-   const opt=card.querySelector(`[data-qcustom-opt="${idx}"]`);
-   w.classList.toggle('on',!!(opt&&opt.classList.contains('sel')));
-   if(w.classList.contains('on'))setTimeout(()=>{const i=w.querySelector('input');if(i)i.focus()},60);
-  });
-  updateQSend(card);
-  return;
- }
- const qa=e.target.closest('[data-qact]');
- if(qa){
-  const card=qa.closest('[data-qid]');const q=card&&S.questions.get(card.dataset.qid);if(!q)return;
-  qa.disabled=true;
-  if(qa.dataset.qact==='reject'){
-   try{await api('/question/'+encodeURIComponent(q.id)+'/reject',{method:'POST',body:{},directory:S.dir})}catch(x){err('question: '+x.message)}
-   S.questions.delete(q.id);renderMsgs();return;
-  }
-  const qs=q.questions||[];
-  const answers=qs.map((qi,qidx)=>{
-   const wrap=card.querySelector(`[data-qcustom-wrap="${qidx}"]`);
-   const custom=wrap?wrap.querySelector('input'):null;
-   const customText=custom?custom.value.trim():'';
-   if(wrap&&wrap.classList.contains('on')&&customText)return [customText];
-   return [...card.querySelectorAll('.qopt.sel')].filter(b=>b.dataset.qsel&&b.dataset.qsel.split(':')[0]===String(qidx)).map(b=>((qi.options||[])[+b.dataset.qsel.split(':')[1]]||{}).label).filter(Boolean);
-  });
-  try{await api('/question/'+encodeURIComponent(q.id)+'/reply',{method:'POST',body:{answers},directory:S.dir})}catch(x){err('question: '+x.message);qa.disabled=false;return}
-  S.questions.delete(q.id);renderMsgs();
-  return;
- }
+ const qop=e.target.closest('[data-qopen]');
+ if(qop){openQuestionSheet();return}
  const ma=e.target.closest('[data-ma]');
  if(ma){
   const bar=ma.closest('.msg-actions'),mid=bar.dataset.amid,raw=bar.dataset.araw;
@@ -2196,10 +2224,9 @@ async function replyPerm(p,r){
  else await api('/session/'+encodeURIComponent(p.sessionID)+'/permissions/'+encodeURIComponent(p.id),{method:'POST',body:{response:r}});
  S.perms.delete(p.id);renderMsgs();
 }
-$('#main').addEventListener('input',e=>{if(e.target.classList&&e.target.classList.contains('qcustom'))updateQSend(e.target.closest('.qcard'))});
 document.addEventListener('keydown',e=>{
  const t=e.target;if(t&&(t.tagName==='INPUT'||t.tagName==='TEXTAREA'||t.isContentEditable))return;
- const card=document.querySelector('.qcard:not([data-collapsed])');if(!card)return;
+ const card=document.querySelector('#sheet.on .qsheet');if(!card)return;
  const n=parseInt(e.key,10);if(isNaN(n)||n<1)return;
  const opts=card.querySelectorAll('.qopt');if(n>opts.length)return;
  opts[n-1].click();e.preventDefault();
