@@ -140,6 +140,13 @@ footer::before{content:'';position:absolute;top:-24px;left:0;right:0;height:24px
 .comp-info-btn svg{width:12px;height:12px;flex:none;stroke:currentColor;fill:none;stroke-width:2;stroke-linecap:round;stroke-linejoin:round}
 .comp-info-btn.danger{color:var(--accent)}
 .send{width:44px;height:44px;min-width:44px;min-height:44px;border-radius:var(--r-full);background:var(--send-bg);color:var(--send-tx);border:none;display:grid;place-items:center;margin-left:auto;flex:none;cursor:pointer}
+.ctx-ring{width:44px;height:44px;min-width:44px;min-height:44px;display:grid;place-items:center;background:none;border:none;cursor:pointer;flex:none;color:var(--text-2);margin-left:auto;padding:0}
+.ctx-ring svg{width:22px;height:22px;transform:rotate(-90deg)}
+.ctx-ring circle{fill:none;stroke-width:2.5}
+.ctx-ring .bg{stroke:var(--surface-2)}
+.ctx-ring .fg{stroke:var(--text-2);stroke-linecap:round}
+.ctx-ring.warn .fg{stroke:var(--err)}
+.ctx-ring[hidden]{display:none}
 .hidden-chips{position:absolute;width:44px;height:44px;opacity:0;pointer-events:none;z-index:-1}
 #dim{position:absolute;inset:0;background:var(--dim);opacity:0;pointer-events:none;transition:opacity 250ms;z-index:5}
 #dim.on{opacity:1;pointer-events:auto}
@@ -287,7 +294,8 @@ span.ib-right-col{font-size:var(--fs-12);color:var(--text-2)}
       <div class="crow">
         <button class="ib comp-plus" id="plus" aria-label="Add attachment"><svg viewBox="0 0 24 24"><path d="M12 5v14M5 12h14"/></svg></button>
         <button class="chip" id="cModel"><span>Default model</span><svg viewBox="0 0 24 24"><path d="m6 9 6 6 6-6"/></svg></button>
-        <button class="chip comp-eff" id="cEff"><span>Default</span><svg viewBox="0 0 24 24"><path d="m6 9 6 6 6-6"/></svg></button>
+        <button class="chip comp-eff" id="cEff" hidden><span>Default</span><svg viewBox="0 0 24 24"><path d="m6 9 6 6 6-6"/></svg></button>
+        <button class="ctx-ring" id="ctxRing" hidden aria-label="Context usage"><svg viewBox="0 0 20 20"><circle class="bg" cx="10" cy="10" r="8"/><circle class="fg" cx="10" cy="10" r="8"/></svg></button>
         <button class="send" id="send" aria-label="Send message"><svg viewBox="0 0 24 24"><path d="M12 19V5M5 12l7-7 7 7"/></svg></button>
       </div>
     </div>
@@ -427,7 +435,7 @@ async function loadProviders(){
  const dir=S.dir;
  try{
   const r=await api('/config/providers',{directory:dir});if(dir!==S.dir)return;
-  S.provs=(r.providers||[]).map(p=>({id:p.id,name:p.name||p.id,models:Object.values(p.models||{}).map(m=>({id:m.id,name:m.name||m.id,capabilities:m.capabilities||{},variants:m.variants||{}}))}));
+  S.provs=(r.providers||[]).map(p=>({id:p.id,name:p.name||p.id,models:Object.values(p.models||{}).map(m=>({id:m.id,name:m.name||m.id,capabilities:m.capabilities||{},variants:m.variants||{},limit:m.limit}))}));
   S.defModel=r.default||{};
   if(!S.model||!allModels().some(m=>m.p===S.model.p&&m.m===S.model.m)){
    S.model=null;const config=await api('/config',{directory:dir});if(dir!==S.dir)return;
@@ -504,7 +512,7 @@ function onEvent(ev){
  }
 }
 let raf=0;
-function sched(){if(raf)return;raf=requestAnimationFrame(()=>{raf=0;renderMsgs()})}
+function sched(){if(raf)return;raf=requestAnimationFrame(()=>{raf=0;renderMsgs();updateCtxRing()})}
 
 /* ---------- sessions ---------- */
 function resetThread(id=null){
@@ -947,7 +955,7 @@ function modelSheet(onPick){
   S.model={p:b.dataset.p,m:b.dataset.m};lset('oc_model',S.model);chips();closeAll();if(onPick)onPick();
  };
 }
-function allModels(){const o=[];S.provs.forEach(p=>p.models.forEach(m=>o.push({p:p.id,pn:p.name,m:m.id,mn:m.name,capabilities:m.capabilities,variants:m.variants})));return o}
+function allModels(){const o=[];S.provs.forEach(p=>p.models.forEach(m=>o.push({p:p.id,pn:p.name,m:m.id,mn:m.name,capabilities:m.capabilities,variants:m.variants,limit:m.limit})));return o}
 $('#cModel').onclick=()=>modelSheet();
 function effortOptions(){
  const m=currentModel(),keys=modelEffortKeys(m);
@@ -1007,6 +1015,40 @@ function updateCommitButton(){
  btn.innerHTML=add>0||del>0?`${icon}<span>+${add} &minus;${del}</span>`:`${icon}<span>Commit</span>`;
 }
 
+function contextInfo(){
+ const m=currentModel();if(!m)return null;
+ const limit=m.limit&&m.limit.context;if(!limit)return null;
+ const list=[...S.msgs.values()].filter(x=>x.info.role==='assistant'&&x.info.tokens);
+ const last=list[list.length-1];if(!last)return null;
+ const t=last.info.tokens;
+ const used=(t.input||0)+(t.output||0)+(t.reasoning||0)+((t.cache&&t.cache.read)||0)+((t.cache&&t.cache.write)||0);
+ if(!used)return null;
+ return {used,limit,pct:Math.min(100,used/limit*100),t};
+}
+function fmtTok(n){return n>=1000?(n/1000).toFixed(n>=100000?0:1)+'k':String(n)}
+function updateCtxRing(){
+ const ring=$('#ctxRing');if(!ring)return;
+ const info=contextInfo();
+ ring.hidden=!info;
+ if(!info)return;
+ const C=2*Math.PI*8,fg=ring.querySelector('.fg');
+ fg.style.strokeDasharray=`${(info.pct/100)*C} ${C}`;
+ ring.classList.toggle('warn',info.pct>80);
+}
+$('#ctxRing').onclick=()=>{
+ const info=contextInfo();if(!info){sheet('<h3>Context</h3><p class="note">No context usage yet.</p>');return}
+ const m=currentModel();
+ const row=(l,v)=>rowHtml('',l,`<span class="m mono">${v}</span>`);
+ sheet(`<h3>Context</h3><p class="note">${m?esc(m.mn):''}</p><div class="set-card">`
+  +rowHtml('','Used',`<span class="m mono">${fmtTok(info.used)} / ${fmtTok(info.limit)} · ${Math.round(info.pct)}%</span>`)
+  +rowHtml('','Input',`<span class="m mono">${fmtTok(info.t.input||0)}</span>`)
+  +rowHtml('','Output',`<span class="m mono">${fmtTok(info.t.output||0)}</span>`)
+  +rowHtml('','Reasoning',`<span class="m mono">${fmtTok(info.t.reasoning||0)}</span>`)
+  +rowHtml('','Cache read',`<span class="m mono">${fmtTok((info.t.cache&&info.t.cache.read)||0)}</span>`)
+  +rowHtml('','Cache write',`<span class="m mono">${fmtTok((info.t.cache&&info.t.cache.write)||0)}</span>`)
+  +'</div><p class="note">Estimated from the last model response. The context clears when the thread compacts.</p>');
+ $('#sheet').onclick=null;
+};
 function chips(){
  const m=currentModel();
  const modelName=m?m.mn:(S.model?S.model.m:'Default model');
@@ -1037,6 +1079,7 @@ function chips(){
  if(cPerm){const s=cPerm.querySelector('span');if(s)s.textContent=S.agent==='plan'?'Plan':S.agent==='auto'?'Auto-approve':'Ask first';cPerm.classList.toggle('danger',S.agent==='auto')}
  const cSearch=$('#cSearch');
  if(cSearch)cSearch.hidden=!S.webSearch;
+ updateCtxRing();
  updateCommitButton();
 }
 
@@ -1207,6 +1250,14 @@ $('#commit').onclick=async()=>{
 function settingsSheet(){closeSheet();openSettings()}
 function diagnosticsJSON(){return JSON.stringify({ua:navigator.userAgent,theme:LS('oc_theme')||'light',fontScale:Number(LS('oc_font_scale'))||1,dir:S.dir,sid:S.sid,model:S.model,agent:S.agent,webSearch:S.webSearch,haptics:S.haptics,health:S.health,live:S.live,providers:S.provs.map(p=>p.id),connections:S.connections.map(c=>({id:c.id,name:c.name,host:c.host})),errors:S.errors},null,2)}
 function errorsSheet(){sheet('<h3>Diagnostics</h3>'+(S.errors.length?S.errors.map(x=>`<pre style="white-space:pre-wrap;font-size:var(--fs-12);background:var(--surface-1);padding:8px;border-radius:8px;margin:6px 0">${esc(x)}</pre>`).join(''):'<p class="note">No errors logged.</p>'))}
+async function serverLogSheet(){
+ sheet('<h3>Server log</h3><p class="note">Loading…</p>');
+ let log='';
+ if(window.CodexNative){try{log=(await nativeCall('logs')).log||''}catch(e){log='Could not read the log: '+e.message}}
+ else log='The server log is available in the Android app.';
+ sheet('<h3>Server log</h3><pre class="skill-content" style="max-height:50vh">'+esc(log||'Empty')+'</pre><div class="btns"><button class="btn p" id="copyLog">Copy log</button><button class="btn" id="settingsBack">Back</button></div>');
+ $('#sheet').onclick=e=>{if(e.target.id==='copyLog')copyText(log);if(e.target.id==='settingsBack')settingsSheet()};
+}
 function openSettings(){renderSettings();$('#settingsScreen').hidden=false}
 function closeSettings(){$('#settingsScreen').hidden=true}
 function renderSettings(){
@@ -1229,6 +1280,7 @@ function renderSettings(){
   <div class="set-card">
    <div class="opt settings-row"><span class="ic-wrap">${I.bot}</span><span>Server</span><span class="r"><span class="m">${esc((S.health&&S.health.version)||'?')} · ${S.live?'SSE live':'offline'}</span></span></div>
    <button class="opt settings-row" data-sa="errors"><span class="ic-wrap">${I.file}</span><span>Errors</span><span class="r"><span class="m">${S.errors.length}</span>${I.chev}</span></button>
+   <button class="opt settings-row" data-sa="serverlog"><span class="ic-wrap">${I.term}</span><span>Server log</span><span class="r">${I.chev}</span></button>
    <button class="opt settings-row" data-sa="copydiag"><span class="ic-wrap">${I.copy}</span><span>Copy diagnostics</span></button>
   </div>
   <div class="set-sec">Danger zone</div>
@@ -1255,6 +1307,7 @@ $('#settingsScreen').onclick=e=>{
  else if(a==='font')fontSheet();
  else if(a==='providers')providerSheet();
  else if(a==='errors')errorsSheet();
+ else if(a==='serverlog')serverLogSheet();
  else if(a==='copydiag')copyText(diagnosticsJSON());
  else if(a==='reset'){
   if(b.dataset.armed){localStorage.clear();location.reload();return}
@@ -1394,20 +1447,42 @@ async function providerForm(existing){
  sheet(`<h3>${existing?'Edit provider':'Add provider'}</h3><label class="fld" for="providerPreset">Provider</label><select class="in" id="providerPreset"><option value="agentrouter" ${preset==='agentrouter'?'selected':''}>AgentRouter</option><option value="openai">OpenAI</option><option value="custom" ${preset==='custom'?'selected':''}>Custom</option></select>
  <label class="fld" for="pnn">Display name</label><input class="in" id="pnn" value="${esc(meta.name&&meta.name!==existing?meta.name:'')}" placeholder="Shown in the model picker" autocomplete="off">
  <label class="fld" for="pk">API key</label><input class="in" id="pk" type="password" placeholder="${existing?'Leave empty to keep your key':'Enter your API key'}" autocomplete="off" autocapitalize="none" spellcheck="false">
- <label class="fld" for="pm">Model IDs</label><input class="in" id="pm" value="${esc(modelIDs.join(', '))}" placeholder="Models available in your account" autocomplete="off" spellcheck="false">
+ <p class="note" id="pmStatus">Models are fetched from the provider automatically on save.</p>
+ <details id="pmManual" hidden><summary class="opt">Enter model IDs manually</summary><label class="fld" for="pm">Model IDs</label><input class="in" id="pm" value="${esc(modelIDs.join(', '))}" placeholder="Models available in your account" autocomplete="off" spellcheck="false"></details>
  <details><summary class="opt">Advanced settings</summary><label class="fld" for="pi">Provider ID</label><input class="in" id="pi" value="${esc(existing||'agentrouter')}" autocomplete="off" spellcheck="false"><label class="fld" for="pu">API base URL</label><input class="in" id="pu" value="${esc(meta.baseURL||(router?'https://agentrouter.org/v1':''))}" type="url" autocomplete="off" spellcheck="false"><label class="fld" for="pf">API format</label><select class="in" id="pf"><option value="@ai-sdk/openai" ${meta.npm!=='@ai-sdk/openai-compatible'?'selected':''}>Responses</option><option value="@ai-sdk/openai-compatible" ${meta.npm==='@ai-sdk/openai-compatible'?'selected':''}>Chat Completions</option></select></details>
  <p class="note">Keys stay in opencode. Provider settings apply to all projects.</p><p class="note error-note" id="pe" role="status"></p><div class="btns"><button class="btn p" id="ps">Save provider</button><button class="btn" id="pc">Back</button></div>`);
- $('#providerPreset').onchange=async e=>{const v=e.target.value;if(v==='custom'){$('#sheet details').open=true;return}$('#pi').value=v;$('#pnn').value=v==='agentrouter'?'AgentRouter':v==='openai'?'OpenAI':'';$('#pu').value=v==='agentrouter'?'https://agentrouter.org/v1':'https://api.openai.com/v1';$('#pf').value='@ai-sdk/openai';const p=(await catalog()).find(p=>p.id===v);$('#pm').value=p?Object.keys(p.models||{}).filter(id=>/^gpt-/.test(id)).slice(0,4).join(', '):''};
+ async function fetchProviderModels(url,key){
+  try{
+   const r=await fetch(url.replace(/\/$/,'')+'/models',{headers:key?{Authorization:'Bearer '+key}:{}});
+   if(!r.ok)throw new Error('HTTP '+r.status);
+   const j=await r.json();
+   const arr=Array.isArray(j)?j:(j.data||j.models||[]);
+   const ids=arr.map(m=>typeof m==='string'?{id:m}:m).filter(m=>m&&m.id).map(m=>({id:m.id,context:m.context_length||m.max_context_length||m.context_window||undefined}));
+   return ids.length?ids:null;
+  }catch(e){return null}
+ }
+ $('#providerPreset').onchange=async e=>{const v=e.target.value;if(v==='custom'){$('#sheet details').open=true;return}$('#pi').value=v;$('#pnn').value=v==='agentrouter'?'AgentRouter':v==='openai'?'OpenAI':'';$('#pu').value=v==='agentrouter'?'https://agentrouter.org/v1':'https://api.openai.com/v1';$('#pf').value='@ai-sdk/openai';$('#pmManual').hidden=false};
  $('#sheet').onclick=async e=>{
   if(e.target.id==='pc'){providerSheet();return}if(e.target.id!=='ps')return;
   const save=$('#ps'),error=$('#pe');save.disabled=true;let key='';
   try{
    if(dir!==S.dir)throw new Error('Project changed. Open the provider again.');
-   const id=$('#pi').value.trim(),url=new URL($('#pu').value.trim()),npm=$('#pf').value,ids=[...new Set($('#pm').value.split(/[,\n]/).map(v=>v.trim()).filter(Boolean))];
+   const id=$('#pi').value.trim(),url=new URL($('#pu').value.trim()),npm=$('#pf').value;
    if(!/^[A-Za-z0-9._-]+$/.test(id)||['__proto__','constructor','prototype'].includes(id))throw new Error('Enter a valid provider ID.');
    if(!['https:','http:'].includes(url.protocol)||url.username||url.password||url.search||url.hash)throw new Error('Enter an API URL without credentials.');
-   if(!ids.length||ids.some(v=>/\s/.test(v)||['__proto__','constructor','prototype'].includes(v)))throw new Error('Enter model IDs from your provider account.');
    const list=await catalog(),models={};
+   key=$('#pk').value.trim();
+   $('#pmStatus').textContent='Fetching models from '+url.host+'…';
+   let fetched=await fetchProviderModels(url.href,key);
+   if(!fetched){
+    const manual=$('#pm')&&$('#pmManual')&&!$('#pmManual').hidden?$('#pm').value.split(/[,\n]/).map(v=>v.trim()).filter(Boolean):[];
+    const known=list.find(p=>p.id===id);
+    fetched=(known?Object.keys(known.models||{}):[]).map(mid=>({id:mid}));
+    if(!fetched.length&&manual.length)fetched=manual.map(mid=>({id:mid}));
+    if(!fetched.length)throw new Error('Could not fetch models from the provider. Check the key and URL, or enter model IDs manually.');
+    $('#pmStatus').textContent='Provider did not return models. Using the opencode catalog.';
+   }else{$('#pmStatus').textContent='Found '+fetched.length+' models.'}
+   const ids=[...new Set(fetched.map(m=>m.id))];
    for(const modelID of ids){
     const candidates=list.flatMap(p=>Object.values(p.models||{})).filter(m=>m.id===modelID),known=candidates.find(m=>m.capabilities?.reasoning)||candidates[0];
     const model={name:known?.name||modelID};
@@ -1416,6 +1491,10 @@ async function providerForm(existing){
      model.modalities={input:Object.keys(known.capabilities?.input||{}).filter(k=>known.capabilities.input[k]),output:Object.keys(known.capabilities?.output||{}).filter(k=>known.capabilities.output[k])};
      if(known.variants&&Object.keys(known.variants).length)model.variants=known.variants;
      else if(npm==='@ai-sdk/openai'){const openai=candidates.find(m=>m.api?.npm==='@ai-sdk/openai'&&Object.keys(m.variants||{}).length);if(openai)model.variants=openai.variants}
+    }
+    const fetchedEntry=fetched.find(f=>f.id===modelID);
+    if(fetchedEntry&&fetchedEntry.context){
+     model.limit={...(model.limit||{}),context:fetchedEntry.context};
     }
     if(!model.variants||!Object.keys(model.variants).length){
      const xh=modelSupportsXhigh({m:modelID,variants:known?.variants});
@@ -1575,6 +1654,7 @@ appearance();
 function renderHome(){
  $('#title').textContent='New thread';
  updateCommitButton();
+ updateCtxRing();
  const m=$('#main');
  const proj=projName(S.dir);
  m.innerHTML=`<div class="home">
@@ -1813,6 +1893,7 @@ function renderMsgs(force){
  if(S.pendingUser)h+=`<div class="msg user">${esc(S.pendingUser)}</div>`;
  m.innerHTML=h;
  if(near)m.scrollTop=m.scrollHeight;
+ updateCtxRing();
 }
 $('#main').addEventListener('toggle',async e=>{
  const card=e.target;if(!card.matches('details[data-history-commit]')||!card.open||card.dataset.loaded)return;

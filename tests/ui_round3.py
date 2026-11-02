@@ -340,6 +340,12 @@ async def main():
                 await route.fulfill(status=200, content_type='application/json', body=json.dumps({'providers': [{'id': 'testprov', 'name': 'Test', 'models': {'m1': {'id': 'm1', 'name': 'Model 1'}}}], 'default': {}}))
                 slow_provs.append(1)
             await page.route('**/config/providers', slow_providers)
+            saved_config = []
+            async def cap_cfg(route):
+                saved_config.append(route.request.post_data_json)
+                await route.fulfill(status=200, content_type='application/json', body='{}')
+            await page.route('**/global/config', cap_cfg)
+            await page.route('**/v1/models', lambda route: route.fulfill(status=200, content_type='application/json', body=json.dumps({'data': [{'id': 'm1', 'context_length': 128000}, {'id': 'm2'}]})))
             await page.evaluate("providerForm()")
             await page.evaluate("""() => {
               document.querySelector('#pi').value='testprov';
@@ -353,6 +359,9 @@ async def main():
             check('provider_save_closes_fast', sheet_open is False and not slow_provs, f'sheet={sheet_open} slowLoaded={bool(slow_provs)}')
             key_after = await page.evaluate("document.querySelector('#pk') ? document.querySelector('#pk').value : ''")
             check('provider_key_cleared_after_save', key_after == '', repr(key_after))
+            cfg = (saved_config[-1] or {}).get('provider', {}).get('testprov', {}) if saved_config else {}
+            check('provider_models_fetched', 'm1' in cfg.get('models', {}) and 'm2' in cfg.get('models', {}), str(list(cfg.get('models', {}))))
+            check('provider_context_from_endpoint', cfg.get('models', {}).get('m1', {}).get('limit', {}).get('context') == 128000, str(cfg.get('models', {}).get('m1', {}).get('limit')))
             await page.wait_for_timeout(9000)
             err_count = await page.evaluate("S.errors.length")
             check('provider_slow_refresh_no_crash', err_count >= 0)
@@ -577,6 +586,19 @@ async def main():
             cid = await page.evaluate("S.connectionID")
             check('det_ssh_set_active', cid == 'c1', str(cid))
             await page.screenshot(path=str(EVIDENCE / 'detail-ssh-dark.png'))
+            await page.evaluate("closeDetail()")
+            # context ring
+            await page.evaluate("""()=>{S.provs=[{id:'p1',name:'Prov',models:[{id:'m1',name:'Model One',capabilities:{reasoning:true},variants:{low:{},high:{}},limit:{context:100000,output:32000}}]}];S.model={p:'p1',m:'m1'};
+              S.msgs.set('m9',{info:{id:'msg_a9',sessionID:'x',role:'assistant',tokens:{input:30000,output:2000,reasoning:1000,cache:{read:40000,write:1000}}},parts:new Map()});
+              S.sid='x';chips();renderMsgs(true)}""")
+            await page.wait_for_timeout(250)
+            ring = await page.evaluate("({hidden:document.querySelector('#ctxRing').hidden,dash:document.querySelector('#ctxRing .fg').style.strokeDasharray,warn:document.querySelector('#ctxRing').classList.contains('warn')})")
+            check('ctx_ring_visible', not ring['hidden'] and ring['dash'].startswith('37.'), str(ring))
+            check('ctx_ring_not_warn', not ring['warn'], str(ring))
+            await page.click('#ctxRing')
+            await page.wait_for_timeout(300)
+            ctx_txt = await page.eval_on_selector('#sheet', 'e=>e.innerText')
+            check('ctx_ring_sheet', 'Context' in ctx_txt and '74' in ctx_txt and '100k' in ctx_txt, ctx_txt[:150])
             await browser.close()
 
             # auto mode maps to the build agent on the wire (createUserMessage fix)

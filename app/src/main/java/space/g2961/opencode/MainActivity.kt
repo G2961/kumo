@@ -156,6 +156,7 @@ class MainActivity : ComponentActivity(), LocalRuntime.Listener {
 
     @SuppressLint("SetJavaScriptEnabled")
     private fun configureWebview(wv: WebView) {
+        WebView.setWebContentsDebuggingEnabled(true)
         wv.overScrollMode = View.OVER_SCROLL_NEVER
         wv.settings.apply {
             javaScriptEnabled = true
@@ -281,6 +282,7 @@ class MainActivity : ComponentActivity(), LocalRuntime.Listener {
                             }
                             JSONObject().put("saved", true)
                         }
+                        "logs" -> JSONObject().put("log", runtime.logSnapshot(400))
                         else -> if (request.getString("action").startsWith("history")) runtime.changeHistory.action(request) else sshTools.action(request)
                     }
                     nativeResult(id, result)
@@ -441,7 +443,9 @@ class MainActivity : ComponentActivity(), LocalRuntime.Listener {
         }
     }
 
-    override fun onLog(line: String) {}
+    override fun onLog(line: String) {
+        runtime.appendLogPublic("[opencode] $line")
+    }
 
     override fun onReady(port: Int, password: String) {
         showWeb(port)
