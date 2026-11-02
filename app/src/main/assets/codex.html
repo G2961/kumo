@@ -182,6 +182,7 @@ footer::before{content:'';position:absolute;top:-24px;left:0;right:0;height:24px
 .ic-wrap svg{color:var(--text-2)}
 .mono{font-family:ui-monospace,Menlo,monospace;font-size:var(--fs-12)}
 .skill-content{white-space:pre-wrap;overflow-wrap:anywhere;background:var(--card-grp);border-radius:16px;padding:var(--s-12);font:var(--fs-12)/1.5 ui-monospace,Menlo,monospace;user-select:text;-webkit-user-select:text;max-height:60vh;overflow:auto;margin:0}
+.det-para{margin:0;background:var(--card-grp);border-radius:16px;padding:var(--s-12);font-size:var(--fs-13);line-height:1.5;color:var(--text);white-space:pre-wrap;overflow-wrap:anywhere;user-select:text;-webkit-user-select:text}
 .det-cell{max-width:170px;text-align:right;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
 .switch{position:relative;width:44px;height:26px;flex:none}
 .switch input{opacity:0;width:44px;height:26px;margin:0;position:absolute;inset:0;cursor:pointer;z-index:1}
@@ -753,7 +754,7 @@ async function pluginsSheet(){
   const r=await api('/mcp');S.mcpStatus=r||{};
   const names=Object.keys(S.mcpStatus);
   sheet('<h3>Plugins</h3>'+(names.length?names.map(name=>`<button class="opt settings-row" data-mcpd="${esc(name)}"><span class="tool-action" style="flex:none">${esc(name)}</span><span class="r"><span class="m">${esc((S.mcpStatus[name]||{}).status||'')}</span>${I.chev}</span></button>`).join(''):'<p class="note">No MCP servers configured.</p>')+'<div class="btns"><button class="btn" id="settingsBack">Back</button></div>');
-  $('#sheet').onclick=e=>{const mb=e.target.closest('[data-mcpd]');if(mb){closeSheet();openPluginDetail(mb.dataset.mcpd);return}if(e.target.id==='settingsBack')settingsSheet()};
+  $('#sheet').onclick=e=>{const mb=e.target.closest('[data-mcpd]');if(mb){closeSheet();drawer(false);openPluginDetail(mb.dataset.mcpd);return}if(e.target.id==='settingsBack')settingsSheet()};
  }catch(e){sheet('<h3>Plugins</h3><p class="note error-note">'+esc(redact(e.message))+'</p><div class="btns"><button class="btn" id="settingsBack">Back</button></div>');$('#sheet').onclick=()=>settingsSheet()}
 }
 async function skillsSheet(){
@@ -762,7 +763,7 @@ async function skillsSheet(){
   const list=await api('/skill');
   const arr=Array.isArray(list)?list:[];S.skillsList=arr;
   sheet('<h3>Skills</h3>'+(arr.length?arr.map((s,i)=>`<button class="opt settings-row" data-skill="${i}"><span class="tool-action" style="flex:none">${esc(s.name)}</span><span class="r"><span class="m skill-desc">${s.description?esc(String(s.description).slice(0,60)):''}</span></span></button>`).join(''):'<p class="note">No skills installed.</p>')+'<div class="btns"><button class="btn" id="settingsBack">Back</button></div>');
-  $('#sheet').onclick=e=>{const sb=e.target.closest('[data-skill]');if(sb){closeSheet();openSkillDetail(+sb.dataset.skill);return}if(e.target.id==='settingsBack')settingsSheet()};
+  $('#sheet').onclick=e=>{const sb=e.target.closest('[data-skill]');if(sb){closeSheet();drawer(false);openSkillDetail(+sb.dataset.skill);return}if(e.target.id==='settingsBack')settingsSheet()};
  }catch(e){sheet('<h3>Skills</h3><p class="note error-note">'+esc(redact(e.message))+'</p><div class="btns"><button class="btn" id="settingsBack">Back</button></div>');$('#sheet').onclick=()=>settingsSheet()}
 }
 /* ---------- detail screens ---------- */
@@ -793,10 +794,9 @@ function renderSshDetail(){
 function openSshDetail(id){const c=S.connections.find(x=>x.id===id);if(!c)return;S.detailConn=id;S.detailPw=false;S.detailSecrets=null;renderSshDetail()}
 function openSkillDetail(i){
  const s=(S.skillsList||[])[i];if(!s)return;
- let card=rowHtml(I.book,'Name',`<span class="m det-cell">${esc(s.name)}</span>`);
- if(s.description)card+=rowHtml(I.file,'What it does',`<span class="m det-cell" style="white-space:normal;line-height:1.4">${esc(s.description)}</span>`);
- if(s.location)card+=rowHtml(I.folder,'Location',`<span class="m mono det-cell" title="${esc(s.location)}">${esc(s.location)}</span>`);
- openDetail(card,'Skill',`<div class="set-sec">Instructions</div><pre class="skill-content">${esc(s.content||'No instructions')}</pre>`);
+ const card=rowHtml(I.book,'Name',`<span class="m det-cell">${esc(s.name)}</span>`)+(s.location?rowHtml(I.folder,'Location',`<span class="m mono det-cell" title="${esc(s.location)}">${esc(s.location)}</span>`):'');
+ const extra=(s.description?`<div class="set-sec">What it does</div><p class="det-para">${esc(s.description)}</p>`:'')+`<div class="set-sec">Instructions</div><pre class="skill-content">${esc(s.content||'No instructions')}</pre>`;
+ openDetail(card,'Skill',extra);
 }
 async function openPluginDetail(name){
  S.detailPlugin=name;
@@ -804,9 +804,9 @@ async function openPluginDetail(name){
  const canToggle=!!specFind(/^\/mcp\/\{[^}]+\}\/disconnect$/,'post')&&!!specFind(/^\/mcp\/\{[^}]+\}\/connect$/,'post');
  let card=rowHtml(I.plug,'Name',`<span class="m det-cell">${esc(name)}</span>`);
  card+=rowHtml(I.bot,'Status',`<span class="m">${esc(s)}</span>`);
- if(st.error)card+=rowHtml(I.file,'Error',`<span class="m det-cell" style="white-space:normal;line-height:1.4">${esc(st.error)}</span>`);
+ const extra=st.error?`<div class="set-sec">Error</div><p class="det-para er">${esc(st.error)}</p>`:'';
  const actions=canToggle?`<div class="btns"><button class="btn p" data-da="mcpToggle">${s==='connected'?'Disconnect':'Connect'}</button></div>`:'';
- openDetail(card,'Plugin',actions);
+ openDetail(card,'Plugin',extra+actions);
 }
 $('#detailScreen').onclick=async e=>{
  if(e.target.closest('#detEye')){
@@ -1159,7 +1159,7 @@ async function localPolicy(sid,directory){
  }
  return S.localPolicies[key];
 }
-async function restoreLocalRules(sid,directory,agent){
+async function restoreLocalRules(sid,directory,agent,auto=false){
  const baseline=await localPolicy(sid,directory);
  const config=await api('/config',{directory});
  const base=[{permission:'*',pattern:'*',action:'allow'},
@@ -1169,6 +1169,7 @@ async function restoreLocalRules(sid,directory,agent){
   const rules=base.filter(r=>permissionNameMatches(r.permission,permission)).map(r=>({permission,pattern:r.pattern,action:r.action}));
   if(['write','edit','apply_patch'].includes(permission)){
    if(agent==='plan')return [{permission,pattern:'*',action:'deny'}];
+   if(auto)return [{permission,pattern:'*',action:'allow'}];
    return rules.map(r=>({...r,action:r.action==='allow'?'ask':r.action}));
   }
   return rules;
@@ -1939,6 +1940,7 @@ $('#main').addEventListener('pointermove',e=>{if(lpTimer&&lpXY&&(Math.abs(e.clie
 $('#main').addEventListener('pointerup',lpCancel,{passive:true});
 $('#main').addEventListener('pointercancel',lpCancel,{passive:true});
 async function submit(){
+ if(S.bootP){try{await S.bootP}catch(e){}S.bootP=null}
  const dir=S.dir,view=S.view;
  if(S.sending)return;
  if(S.running){
@@ -1995,8 +1997,9 @@ async function submit(){
   // Explicit session rules keep remote commands and file writes behind approval.
   await localPolicy(sid,dir);
   const auto=S.agent==='auto';
+  body.agent=auto?'build':S.agent;
   const permission=Object.entries(body.tools).map(([tool,enabled])=>({permission:tool,pattern:'*',action:enabled?(auto?'allow':['mobile_ssh_ssh_exec','mobile_ssh_ssh_write_file'].includes(tool)?'ask':'allow'):'deny'}));
-  if(!connection)permission.push(...await restoreLocalRules(sid,dir,body.agent));
+  if(!connection)permission.push(...await restoreLocalRules(sid,dir,body.agent,auto));
   delete body.tools;
   if(view!==S.view||dir!==S.dir)return;
   await api('/session/'+sid,{method:'PATCH',body:{permission},directory:dir});
@@ -2014,7 +2017,7 @@ $('#inp').addEventListener('input',autosize);
 window.addEventListener('error',e=>err('js: '+e.message));
 window.addEventListener('unhandledrejection',e=>err('promise: '+(e.reason&&e.reason.message||e.reason)));
 
-chips();setRun();render();boot();
+chips();setRun();render();S.bootP=boot();
 </script>
 </body>
 </html>

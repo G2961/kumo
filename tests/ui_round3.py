@@ -579,6 +579,22 @@ async def main():
             await page.screenshot(path=str(EVIDENCE / 'detail-ssh-dark.png'))
             await browser.close()
 
+            # auto mode maps to the build agent on the wire (createUserMessage fix)
+            browser, context, page, errors = await boot_page(pw, origin, 'dark')
+            captured2 = []
+            async def cap2(route):
+                captured2.append(route.request.post_data_json)
+                await route.fulfill(status=204)
+            await page.route('**/prompt_async*', cap2)
+            await page.evaluate("""()=>{nativeCall=async(a,d)=>({saved:true});S.agent='auto';lset('oc_agent','auto');chips();
+              S.connections=[{id:'c1',name:'aeza',host:'192.0.2.9',port:22,user:'root',directory:''}];S.connectionID='c1';chips();
+              document.querySelector('#inp').value='test auto'}""")
+            await page.click('#send')
+            await page.wait_for_timeout(2000)
+            pb = captured2[-1] if captured2 else None
+            check('auto_maps_to_build_agent', bool(pb) and pb.get('agent') == 'build', str(pb)[:150])
+            await browser.close()
+
         # spec check: fork endpoint really exists (Block F: API not invented)
         with urllib.request.urlopen(origin + '/doc', timeout=15) as r:
             spec = json.load(r)
