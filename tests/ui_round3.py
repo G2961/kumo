@@ -139,6 +139,32 @@ async def main():
                 eff2 = await page.eval_on_selector('#cEff span', 'e=>e.textContent')
                 check(f'{theme}_effort_chip_value', eff2 not in ('', 'Reasoning'), eff2)
 
+                # effort sheet shows rows; then gesture behavior: content swipe never closes, grab swipe closes
+                await open_sheet(page, '#cEnv')
+                content_swipe = await page.evaluate("""() => {
+                  const sh=document.querySelector('#sheet');
+                  const el=sh.querySelector('.opt')||sh;
+                  const r=el.getBoundingClientRect();
+                  const t=(x,y)=>new Touch({identifier:1,target:el,clientX:x,clientY:y});
+                  sh.dispatchEvent(new TouchEvent('touchstart',{touches:[t(r.x,r.y)],bubbles:true}));
+                  sh.dispatchEvent(new TouchEvent('touchmove',{touches:[t(r.x,r.y+120)],bubbles:true,cancelable:true}));
+                  sh.dispatchEvent(new TouchEvent('touchend',{touches:[],changedTouches:[t(r.x,r.y+120)],bubbles:true}));
+                  return sh.classList.contains('on');
+                }""")
+                check(f'{theme}_content_swipe_keeps_sheet', content_swipe is True)
+                grab_swipe = await page.evaluate("""() => {
+                  const sh=document.querySelector('#sheet');
+                  const el=sh.querySelector('.grab');
+                  const r=el.getBoundingClientRect();
+                  const t=(x,y)=>new Touch({identifier:2,target:el,clientX:x,clientY:y});
+                  const ev=(type,y,extra)=>el.dispatchEvent(new TouchEvent(type,{touches:type==='touchend'?[]:[t(r.x+19,y)],changedTouches:[t(r.x+19,y)],bubbles:true,cancelable:true,...extra}));
+                  ev('touchstart',r.y+11);
+                  ev('touchmove',r.y+131);
+                  ev('touchend',r.y+131);
+                  return sh.classList.contains('on');
+                }""")
+                check(f'{theme}_grab_swipe_closes_sheet', grab_swipe is False)
+
                 # environment sheet (Block A2)
                 await open_sheet(page, '#cEnv')
                 await shot('env-sheet')
