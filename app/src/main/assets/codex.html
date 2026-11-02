@@ -164,6 +164,17 @@ footer::before{content:'';position:absolute;top:-24px;left:0;right:0;height:24px
 .drawer-bottom::before{content:'';position:absolute;top:-28px;left:-8px;right:-8px;height:28px;background:linear-gradient(to bottom,rgba(var(--side-rgb),0),rgba(var(--side-rgb),1));pointer-events:none}
 .drawer-gear{width:52px;height:52px;min-width:52px;min-height:52px;border-radius:var(--r-full);display:grid;place-items:center;color:var(--text-2);background:var(--surface-2);border:none;cursor:pointer}
 .drawer-gear:active{background:var(--surface-active)}
+#settingsScreen{position:absolute;inset:0;background:var(--base);z-index:4;display:flex;flex-direction:column;overflow-y:auto;overscroll-behavior:contain;-webkit-overflow-scrolling:touch;padding:max(var(--s-8),env(safe-area-inset-top)) var(--s-12) var(--s-24);box-sizing:border-box}
+#settingsScreen[hidden]{display:none}
+#settingsScreen header h1{font-size:var(--fs-16)}
+#settingsScreen .sheet-sec-title{margin:var(--s-16) 0 var(--s-4)}
+.switch{position:relative;width:44px;height:26px;flex:none}
+.switch input{opacity:0;width:44px;height:26px;margin:0;position:absolute;inset:0;cursor:pointer;z-index:1}
+.switch .knob{position:absolute;inset:0;border-radius:var(--r-full);background:var(--surface-2);border:1px solid var(--border);transition:background .15s}
+.switch .knob::after{content:'';position:absolute;top:2px;left:2px;width:20px;height:20px;border-radius:var(--r-full);background:#FFFFFF;box-shadow:0 1px 2px rgba(0,0,0,.3);transition:transform .15s}
+.switch input:checked+.knob{background:var(--accent);border-color:var(--accent)}
+.switch input:checked+.knob::after{transform:translateX(18px)}
+.btn.sel{background:var(--surface-2);color:var(--text)}
 .btn-new-thread{flex:none;display:flex;align-items:center;justify-content:center;gap:var(--s-8);height:50px;min-height:50px;padding:0 var(--s-16);border-radius:var(--r-full);background:var(--send-bg);color:var(--send-tx);font-size:var(--fs-14);font-weight:600;border:none;cursor:pointer}
 .btn-new-thread:active{opacity:0.85}
 .sec{display:flex;align-items:center;color:var(--text-2);font-size:var(--fs-14);font-weight:500;padding:var(--s-12) var(--s-8) var(--s-4)}
@@ -271,6 +282,7 @@ span.ib-right-col{font-size:var(--fs-12);color:var(--text-2)}
     </div>
   </footer>
   <div id="dim"></div>
+  <div id="settingsScreen" hidden></div>
   <aside id="drawer"></aside>
   <div id="sheet"></div>
 </div>
@@ -319,6 +331,7 @@ S.expandedFolders=new Set([S.dir].filter(Boolean));
 S.collapsedModelGroups=new Set(LS('oc_model_groups')||[]);
 S.fullFolders=new Set(LS('oc_full_folders')||[]);
 S.drawerSearch=false;S.mcpStatus=null;
+S.haptics=LS('oc_haptics')!==false;
 S.folderSessions=new Map();S.folderLoading=new Set();S.sessionFirstMsg=new Map();
 if(S.dir)lset('oc_dir',S.dir);
 
@@ -635,7 +648,7 @@ $('#drawer').onclick=async e=>{
  const b=e.target.closest('[data-a]');if(!b)return;const a=b.dataset.a;
  if(a==='new'){resetThread();drawer(false);render()}
  else if(a==='add'){projectSheet()}
- else if(a==='settings'){drawer(false);settingsSheet()}
+ else if(a==='settings'){drawer(false);openSettings()}
  else if(a==='remote'){connectionSheet(true)}
  else if(a==='plugins'){pluginsSheet()}
  else if(a==='skills'){skillsSheet()}
@@ -1094,7 +1107,53 @@ $('#commit').onclick=async()=>{
   }));
  }catch(e){if(view===S.view)sheet('<h3>Changes</h3><p class="note er">'+esc(e.message)+'</p>')}
 };
-/* ---------- mobile preferences and native services ---------- */
+/* ---------- settings screen ---------- */
+function settingsSheet(){closeSheet();openSettings()}
+function diagnosticsJSON(){return JSON.stringify({ua:navigator.userAgent,theme:LS('oc_theme')||'light',fontScale:Number(LS('oc_font_scale'))||1,dir:S.dir,sid:S.sid,model:S.model,agent:S.agent,webSearch:S.webSearch,haptics:S.haptics,health:S.health,live:S.live,providers:S.provs.map(p=>p.id),connections:S.connections.map(c=>({id:c.id,name:c.name,host:c.host})),errors:S.errors},null,2)}
+function errorsSheet(){sheet('<h3>Diagnostics</h3>'+(S.errors.length?S.errors.map(x=>`<pre style="white-space:pre-wrap;font-size:var(--fs-12);background:var(--surface-1);padding:8px;border-radius:8px;margin:6px 0">${esc(x)}</pre>`).join(''):'<p class="note">No errors logged.</p>'))}
+function openSettings(){renderSettings();$('#settingsScreen').hidden=false}
+function closeSettings(){$('#settingsScreen').hidden=true}
+function renderSettings(){
+ const theme=LS('oc_theme')==='dark'?'dark':'light';
+ const scale=Math.round((Number(LS('oc_font_scale'))||1)*100);
+ $('#settingsScreen').innerHTML=`
+  <header><button class="ib" data-sa="back" aria-label="Back"><svg viewBox="0 0 24 24"><path d="M19 12H5M12 19l-7-7 7-7"/></svg></button><h1>Settings</h1></header>
+  <div class="sheet-sec-title">General</div>
+  <div class="opt settings-row"><span>Theme</span><span class="r"><button class="btn ${theme==='light'?'sel':''}" data-stheme="light">Light</button><button class="btn ${theme==='dark'?'sel':''}" data-stheme="dark">Dark</button></span></div>
+  <div class="opt settings-row"><span>Font size</span><span class="r"><span class="m" id="setFontValue">${scale}%</span></span></div>
+  <input class="range" id="setFontScale" type="range" min="80" max="140" step="5" value="${scale}" aria-label="Font size">
+  <div class="opt settings-row"><span>Web search</span><span class="r"><label class="switch"><input type="checkbox" id="setSearch" ${S.webSearch?'checked':''}><span class="knob"></span></label></span></div>
+  <div class="opt settings-row"><span>Haptic feedback</span><span class="r"><label class="switch"><input type="checkbox" id="setHaptics" ${S.haptics?'checked':''}><span class="knob"></span></label></span></div>
+  <div class="sheet-sec-title">Connections</div>
+  <button class="opt settings-row" data-sa="providers"><span>Providers</span><span class="r"><span class="m">${S.provs.length}</span></span></button>
+  <button class="opt settings-row" data-sa="ssh"><span>SSH connections</span><span class="r"><span class="m">${S.connections.length}</span></span></button>
+  <div class="sheet-sec-title">Diagnostics</div>
+  <div class="opt settings-row"><span>Server</span><span class="r"><span class="m">${esc((S.health&&S.health.version)||'?')} · ${S.live?'SSE live':'offline'}</span></span></div>
+  <button class="opt settings-row" data-sa="errors"><span>Errors</span><span class="r"><span class="m">${S.errors.length}</span></span></button>
+  <button class="opt settings-row" data-sa="copydiag"><span>Copy diagnostics</span></button>
+  <div class="sheet-sec-title">Danger zone</div>
+  <button class="opt settings-row" data-sa="reset"><span class="er" id="resetLabel">Reset app preferences</span></button>
+  <p class="note">Resets theme, font scale and picks on this device. Projects known to the server will re-appear.</p>`;
+ $('#settingsScreen').querySelectorAll('[data-stheme]').forEach(b=>b.onclick=()=>{lset('oc_theme',b.dataset.stheme);appearance();renderSettings()});
+ const slider=$('#setFontScale');
+ slider.oninput=()=>{lset('oc_font_scale',Number(slider.value)/100);$('#setFontValue').textContent=slider.value+'%';appearance()};
+ $('#setSearch').onchange=e=>{S.webSearch=e.target.checked;lset('oc_web_search',S.webSearch);chips()};
+ $('#setHaptics').onchange=e=>{S.haptics=e.target.checked;lset('oc_haptics',S.haptics)};
+}
+$('#settingsScreen').onclick=e=>{
+ const b=e.target.closest('[data-sa]');if(!b)return;
+ const a=b.dataset.sa;
+ if(a==='back')closeSettings();
+ else if(a==='providers')providerSheet();
+ else if(a==='ssh')connectionSheet(true);
+ else if(a==='errors')errorsSheet();
+ else if(a==='copydiag')copyText(diagnosticsJSON());
+ else if(a==='reset'){
+  if(b.dataset.armed){localStorage.clear();location.reload();return}
+  b.dataset.armed='1';$('#resetLabel').textContent='Tap again to confirm';
+  setTimeout(()=>{if($('#resetLabel'))$('#resetLabel').textContent='Reset app preferences';delete b.dataset.armed},3000);
+ }
+};
 const nativePending=new Map();
 window.codexNativeResult=(id,result)=>{const p=nativePending.get(id);if(!p)return;clearTimeout(p.timer);nativePending.delete(id);result?.error?p.reject(new Error(result.error)):p.resolve(result)};
 function nativeCall(action,data={}){
@@ -1709,7 +1768,7 @@ $('#editCancel').onclick=cancelEdit;
 let lpTimer=null,lpXY=null;
 function fireContextMenu(target){
  if(!LS('oc_lp_hint'))lset('oc_lp_hint',true);
- if(navigator.vibrate)navigator.vibrate(10);
+ if(navigator.vibrate&&S.haptics)navigator.vibrate(10);
  const um=target.closest('.msg.user');
  if(um){
   const text=(um.dataset.utext||'').trim();
