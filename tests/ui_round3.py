@@ -222,8 +222,8 @@ async def main():
                 check(f'{theme}_plan_chip', chip2 == 'Plan', chip2)
 
                 # commit pill without chevron, inactive on empty thread (Block A6)
-                commit_html = await page.eval_on_selector('#commit', 'e=>e.innerHTML')
-                check(f'{theme}_commit_no_chevron', 'm6 9 6 6 6-6' not in commit_html, commit_html[:150])
+                hdr = await page.evaluate("({commit:!!document.querySelector('#commit'),diff:!!document.querySelector('#diffPanel')})")
+                check(f'{theme}_commit_removed', not hdr['commit'] and hdr['diff'], str(hdr))
 
                 # synthetic thread: cards + error card + context menu (Block C/F)
                 await page.evaluate("""() => {
@@ -253,8 +253,8 @@ async def main():
                 # ghost-card fix: completed edit w/o recorded diff renders compact, no empty details body
                 change_cards = await page.eval_on_selector_all('.change-card', "els=>els.map(e=>e.innerText)")
                 check(f'{theme}_no_empty_diff_details', all('No diff recorded' not in c for c in change_cards), str(change_cards))
-                compact = await page.eval_on_selector_all('#main .card', "els=>els.filter(e=>!e.classList.contains('change-card')&&!e.classList.contains('error-card')).map(e=>e.innerText)")
-                check(f'{theme}_compact_change_row', any('src/login.js' in c and '+' not in c for c in compact), str(compact))
+                compact = await page.eval_on_selector_all('.think .topic .txt', "els=>els.map(e=>e.innerText)")
+                check(f'{theme}_compact_change_row', any('login.js' in c for c in compact), str(compact))
                 # thinking block: two states + topics from real tool events
                 await page.evaluate("""() => {
                   const a=S.msgs.get('msg_a1');
@@ -679,6 +679,34 @@ async def main():
             await page.wait_for_timeout(2000)
             pb = captured2[-1] if captured2 else None
             check('auto_maps_to_build_agent', bool(pb) and pb.get('agent') == 'build', str(pb)[:150])
+            await browser.close()
+
+            # interactive questions: card, selection, reply round-trip
+            browser, context, page, errors = await boot_page(pw, origin, 'dark')
+            qreplies = []
+            async def q_reply(route):
+                qreplies.append(route.request.post_data_json)
+                await route.fulfill(status=200, content_type='application/json', body='true')
+            await page.route(re.compile(r'.*/question/que_\d+/reply.*'), q_reply)
+            await page.evaluate("""()=>{S.questions=new Map([['que_1',{id:'que_1',sessionID:'x',questions:[{question:'Что нужно сделать с проектом?',header:'Задача',custom:true,options:[{label:'Доработать дизайн'},{label:'Исправить ошибки'},{label:'Подключить API'},{label:'Рефакторинг'}],multiple:false}],tool:{messageID:'msg_a1',callID:'q1'}}]]);S.sid='x';renderMsgs(true)}""")
+            await page.wait_for_timeout(250)
+            check('q_card_visible', await page.evaluate("!!document.querySelector('.qcard')"))
+            await page.screenshot(path=str(EVIDENCE / 'question-dark.png'))
+            await page.click('.qopts .qopt:nth-child(2)')
+            await page.wait_for_timeout(150)
+            sel = await page.evaluate("document.querySelectorAll('.qopt.sel').length")
+            check('q_single_select', sel == 1, str(sel))
+            await page.click('#main [data-qact="send"]')
+            await page.wait_for_timeout(400)
+            check('q_reply_sent', len(qreplies) == 1 and qreplies[0].get('answers') == [['Исправить ошибки']], str(qreplies)[:200])
+            check('q_card_gone', not await page.evaluate("!!document.querySelector('.qcard')"))
+            # custom answer overrides selection
+            await page.evaluate("S.questions=new Map([['que_2',{id:'que_2',sessionID:'x',questions:[{question:'Какой формат?',header:'Формат',custom:true,options:[{label:'A'},{label:'B'}],multiple:false}]}]]);renderMsgs(true)")
+            await page.wait_for_timeout(200)
+            await page.fill('.qcustom', 'Свой вариант')
+            await page.click('#main [data-qact="send"]')
+            await page.wait_for_timeout(400)
+            check('q_custom_answer', len(qreplies) == 2 and qreplies[1].get('answers') == [['Свой вариант']], str(qreplies[1])[:150])
             await browser.close()
 
         # spec check: fork endpoint really exists (Block F: API not invented)

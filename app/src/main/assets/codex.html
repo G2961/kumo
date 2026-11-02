@@ -45,7 +45,7 @@ header h1{font-size:var(--fs-16);font-weight:600;margin:0;flex:1;white-space:now
 .ib:active,.row:active{background:var(--surface-2);color:var(--text)}
 .pill{display:inline-flex;align-items:center;gap:var(--s-4);border:1px solid var(--border);border-radius:var(--r-full);padding:0 var(--s-12);height:36px;min-height:44px;font-size:var(--fs-12);font-weight:500;background:var(--surface-1);color:var(--text);box-sizing:border-box}
 .pill:active{background:var(--surface-2)}
-main{flex:1;overflow-y:auto;overscroll-behavior:contain;-webkit-overflow-scrolling:touch;padding:var(--s-12) var(--s-12) var(--s-24);display:flex;flex-direction:column;gap:var(--s-8)}
+main{flex:1;overflow-y:auto;overscroll-behavior:contain;-webkit-overflow-scrolling:touch;padding:var(--s-12) var(--s-16) var(--s-24);display:flex;flex-direction:column;gap:var(--s-8)}
 main>*{flex-shrink:0}
 .home{margin:auto 0;width:100%;display:flex;flex-direction:column;align-items:center;gap:var(--s-16);padding:var(--s-8) 0}
 .home h2{margin:0;font-size:var(--fs-28);font-weight:600;letter-spacing:-0.02em;color:var(--text)}
@@ -68,7 +68,8 @@ main>*{flex-shrink:0}
 .sug-title{font-size:var(--fs-14);font-weight:500;color:var(--text)}
 .sug-desc{font-size:var(--fs-12);color:var(--text-2)}
 .msg.user{align-self:flex-end;background:var(--surface-2);border-radius:var(--r-12);padding:9px 13px;max-width:86%;white-space:pre-wrap;color:var(--text)}
-.msg.ai{white-space:pre-wrap;color:var(--text)}
+.msg.ai{color:var(--text);white-space:normal}
+.msg.ai p{overflow-wrap:anywhere}
 .card{border:1px solid var(--border);border-radius:var(--r-12);overflow:hidden;font-size:var(--fs-13)}
 .card .ch{display:flex;align-items:center;gap:var(--s-8);padding:var(--s-8) var(--s-12);background:var(--surface-1);font-weight:500;color:var(--text)}
 .card .ch span.m{color:var(--text-2);font-weight:400;margin-left:auto}
@@ -147,8 +148,8 @@ footer::before{content:'';position:absolute;top:-24px;left:0;right:0;height:24px
 .ctx-ring .dot{fill:var(--text);stroke:none}
 .ctx-ring[hidden]{display:none}
 .vsep{width:1px;height:20px;background:var(--border);flex:none}
-.think{margin:2px 0 4px}
-.think-head{display:flex;align-items:center;gap:var(--s-8);min-height:36px;padding:0 var(--s-12);border-radius:var(--r-full);background:var(--surface-1);width:fit-content;max-width:100%;cursor:pointer;border:none;color:var(--text);font-size:var(--fs-13);box-sizing:border-box}
+.think{margin:2px 0 4px;width:fit-content;max-width:100%}
+.think-head{display:flex;align-items:center;gap:var(--s-8);min-height:34px;padding:0 12px;border-radius:var(--r-full);background:var(--surface-1);width:fit-content;max-width:100%;cursor:pointer;border:none;color:var(--text);font-size:var(--fs-13);box-sizing:border-box}
 .think-head:active{background:var(--surface-2)}
 .think-head .think-spin{width:13px;height:13px;border:2px solid var(--border);border-top-color:var(--text);border-radius:50%;animation:sp .8s linear infinite;flex:none}
 .think-head .think-icon{width:16px;height:16px;flex:none;color:var(--text-2)}
@@ -157,9 +158,22 @@ footer::before{content:'';position:absolute;top:-24px;left:0;right:0;height:24px
 .think-body{display:grid;grid-template-rows:0fr;transition:grid-template-rows 200ms ease;overflow:hidden}
 .think[data-open] .think-body,.think[data-live] .think-body{grid-template-rows:1fr}
 .think-inner{min-height:0;overflow:hidden}
-.think-panel{background:var(--surface-1);border-radius:var(--r-12);padding:6px 10px;margin-top:var(--s-4)}
+.think-panel{background:var(--surface-1);border-radius:var(--r-12);padding:6px 10px;margin-top:var(--s-4);width:fit-content;max-width:100%;min-width:min(240px,100%)}
 .think-topics{display:flex;flex-direction:column}
 .topic{display:flex;align-items:stretch;gap:10px;min-height:26px}
+.topic>summary.tsum{display:flex;align-items:center;gap:8px;min-height:26px;list-style:none;cursor:pointer;min-width:0}
+.topic>summary.tsum::-webkit-details-marker{display:none}
+.tout{margin:2px 0 4px 26px}
+.tout .change-preview{max-height:40vh}
+.tcaret{width:12px;height:12px;color:var(--text-2);flex:none;transition:transform .2s;stroke-width:2}
+.topic[open] .tcaret{transform:rotate(180deg)}
+.qcard{border-color:var(--accent)}
+.qcard .qwrap{padding:var(--s-8) var(--s-12)}
+.qq{font-size:var(--fs-14);color:var(--text);margin:var(--s-4) 0 var(--s-8)}
+.qopts{display:flex;flex-direction:column;gap:2px}
+.qopt{border-radius:var(--r-8);min-height:44px}
+.qopt.sel{background:var(--surface-2);font-weight:500}
+.qcustom{margin-top:var(--s-4)}
 .topic .tl{width:16px;flex:none;display:flex;flex-direction:column;align-items:center}
 .topic .tl .mark{width:14px;height:14px;flex:none;display:grid;place-items:center;margin-top:5px}
 .topic .tl .mark .dot{width:6px;height:6px;border-radius:50%;background:var(--text-2);animation:tk-pulse 1.2s ease-in-out infinite}
@@ -310,7 +324,6 @@ span.ib-right-col{font-size:var(--fs-12);color:var(--text-2)}
   <header>
     <button class="ib" id="menu" aria-label="menu"><svg viewBox="0 0 24 24"><rect x="3" y="4" width="18" height="16" rx="3"/><path d="M9 4v16"/></svg></button>
     <h1 id="title">New thread</h1>
-    <button class="pill" id="commit"><svg viewBox="0 0 24 24" style="width:15px;height:15px"><circle cx="12" cy="12" r="3"/><path d="M3 12h6M15 12h6"/></svg><span>Commit</span></button>
     <button class="ib" id="diffPanel" aria-label="Changes"><svg viewBox="0 0 24 24"><rect x="3" y="4" width="18" height="16" rx="3"/><path d="M12 4v16"/><path d="M6 10.5h3"/><path d="M16.5 12h3M18 10.5v3"/></svg></button>
   </header>
   <main id="main"></main>
@@ -386,7 +399,7 @@ const dirFromHash=()=>{const m=location.hash.match(/[#&]d=([^&]+)/);if(!m)return
 const S={
  dir:dirFromHash()||LS('oc_dir')||'',
  projects:[],sessions:[],sid:null,
- msgs:new Map(),perms:new Map(),
+ msgs:new Map(),perms:new Map(),questions:new Map(),
  running:false,live:false,errors:[],status:{type:'idle'},view:0,revision:0,sending:false,
  provs:[],model:LS('oc_model'),agent:(()=>{const a=LS('oc_agent');return ['build','plan','auto'].includes(a)?a:'build'})(),
  spec:null,specErr:null,health:null
@@ -538,6 +551,10 @@ function onEvent(ev){
   S.revision++;S.status={type:'idle'};S.running=false;setRun();sched();
  }else if(t==='permission.asked'){
   if(p.sessionID!==S.sid)return;rememberChangeHint(p);S.revision++;S.perms.set(p.id,p);sched();
+ }else if(t==='question.asked'){
+  if(p.sessionID!==S.sid)return;S.revision++;S.questions.set(p.id,p);sched();
+ }else if(t==='question.replied'||t==='question.rejected'){
+  if(p.sessionID!==S.sid)return;S.revision++;S.questions.delete(p.requestID||p.id);sched();
  }else if(t==='permission.replied'){
   if(p.sessionID!==S.sid)return;S.revision++;S.perms.delete(p.requestID);sched();
  }else if(t==='message.removed'){
@@ -551,7 +568,7 @@ function sched(){if(raf)return;raf=requestAnimationFrame(()=>{raf=0;renderMsgs()
 
 /* ---------- sessions ---------- */
 function resetThread(id=null){
- S.view++;S.revision++;S.sid=id;S.msgs=new Map();S.perms=new Map();S.running=false;
+ S.view++;S.revision++;S.sid=id;S.msgs=new Map();S.perms=new Map();S.questions=new Map();S.running=false;
  S.historyFiles=new Map();S.changeHints=new Map();
  S.status={type:'idle'};S.lastErr=null;S.pendingUser=null;S.sending=false;setRun();
  S.attachments=[];renderAttachments();
@@ -581,8 +598,8 @@ async function syncSession(){
  if(!S.sid||S.sending||syncing===S.view)return;
  const sid=S.sid,dir=S.dir,view=S.view,revision=S.revision;syncing=view;
  try{
-  const [messages,statuses,permissions]=await Promise.allSettled([
-   api('/session/'+sid+'/message',{directory:dir}),api('/session/status',{directory:dir}),api('/permission',{directory:dir})]);
+  const [messages,statuses,permissions,questions]=await Promise.allSettled([
+   api('/session/'+sid+'/message',{directory:dir}),api('/session/status',{directory:dir}),api('/permission',{directory:dir}),api('/question',{directory:dir})]);
   if(view!==S.view||sid!==S.sid||dir!==S.dir||revision!==S.revision||S.sending)return;
   if(messages.status!=='fulfilled')throw messages.reason;
   const r=messages.value;
@@ -594,6 +611,7 @@ async function syncSession(){
   if(S.pendingUser&&[...nm.values()].some(m=>m.info.role==='user'&&[...m.parts.values()].some(p=>p.text===S.pendingUser)))S.pendingUser=null;
   if(statuses.status==='fulfilled'){S.status=statuses.value[sid]||{type:'idle'};S.running=S.status.type!=='idle'}
   if(permissions.status==='fulfilled')S.perms=new Map((permissions.value||[]).filter(p=>p.sessionID===sid).map(p=>[p.id,p]));
+  if(questions.status==='fulfilled')S.questions=new Map((questions.value||[]).filter(q=>q.sessionID===sid).map(q=>[q.id,q]));
   for(const p of S.perms.values())rememberChangeHint(p);
   setRun();renderMsgs();
  }catch(e){if(view===S.view)err('messages: '+e.message)}
@@ -1026,20 +1044,11 @@ $('#cPerm').onclick=()=>{
 };
 
 function updateCommitButton(){
- const btn=$('#commit');
- if(!btn)return;
- const icon='<svg viewBox="0 0 24 24" style="width:15px;height:15px"><circle cx="12" cy="12" r="3"/><path d="M3 12h6M15 12h6"/></svg>';
- if(!S.sid){
-  btn.style.opacity='0.35';
-  btn.style.pointerEvents='none';
-  btn.innerHTML=`${icon}<span>Commit</span>`;
-  const dp=$('#diffPanel');if(dp){dp.style.opacity='0.35';dp.style.pointerEvents='none'}
-  return;
- }
- btn.style.opacity='1';
- btn.style.pointerEvents='auto';
- btn.disabled=false;
- const dp2=$('#diffPanel');if(dp2){dp2.style.opacity='1';dp2.style.pointerEvents='auto'}
+ const dp=$('#diffPanel');
+ if(!dp)return;
+ const active=!!S.sid;
+ dp.style.opacity=active?'1':'0.35';
+ dp.style.pointerEvents=active?'auto':'none';
  let add=0,del=0;
  if(S.historyFiles&&S.historyFiles.size>0){
   for(const f of S.historyFiles.values()){
@@ -1047,7 +1056,7 @@ function updateCommitButton(){
    del+=(f.deletions||0);
   }
  }
- btn.innerHTML=add>0||del>0?`${icon}<span>+${add} &minus;${del}</span>`:`${icon}<span>Commit</span>`;
+ dp.title=add||del?`Changes +${add} −${del}`:'Changes';
 }
 
 function contextInfo(){
@@ -1254,7 +1263,7 @@ async function restoreLocalRules(sid,directory,agent,auto=false){
   return rules;
  });
 }
-$('#commit').onclick=async()=>{
+$('#diffPanel').onclick=async()=>{
  if(!S.sid){sheet('<h3>Changes</h3><div class="empty-state"><div class="empty-icon">'+I.file+'</div><h3>No thread selected</h3><p class="note">Open a thread to view its changes.</p></div>');return}
  const sessionID=S.sid,directory=S.dir,view=S.view;
  sheet('<h3>Changes</h3><div class="skeleton-row" style="padding:14px"><div class="sk-line" style="width:80%"></div><div class="sk-line short"></div></div>');$('#sheet').onclick=null;
@@ -1417,16 +1426,6 @@ function appearance(){
  if(window.CodexNative)nativeCall('appearance',{theme}).catch(()=>{});
 }
 try{matchMedia('(prefers-color-scheme:dark)').addEventListener('change',()=>{if((LS('oc_theme')||'system')==='system')appearance()})}catch(e){}
-function appearanceSheet(){
- sheet(`<h3>Appearance</h3><div class="form-row"><button class="btn ${LS('oc_theme')!=='dark'?'p':''}" data-theme="light">Light</button><button class="btn ${LS('oc_theme')==='dark'?'p':''}" data-theme="dark">Dark</button></div><label class="fld" for="fontScale">Font size <span id="fontValue">${Math.round((Number(LS('oc_font_scale'))||1)*100)}%</span></label><input class="range" id="fontScale" type="range" min="80" max="140" step="5" value="${Math.round((Number(LS('oc_font_scale'))||1)*100)}"><div class="btns"><button class="btn" id="settingsBack">Back</button></div>`);
- $('#fontScale').oninput=e=>{lset('oc_font_scale',Number(e.target.value)/100);$('#fontValue').textContent=e.target.value+'%';appearance()};
- $('#sheet').onclick=e=>{const b=e.target.closest('[data-theme]');if(b){lset('oc_theme',b.dataset.theme);appearance();appearanceSheet()}if(e.target.id==='settingsBack')settingsSheet()};
-}
-function settingsSheet(){
- sheet(`<h3>Settings</h3><button class="opt settings-row" id="pv">Providers<span class="m">${S.provs.length}</span></button><button class="opt settings-row" id="sc">SSH connections<span class="m">${S.connections.length}</span></button><button class="opt settings-row" id="ap">Appearance<span class="m">${LS('oc_theme')==='dark'?'Dark':'Light'}</span></button><button class="opt settings-row" id="wp">Web search<span class="m">${S.webSearch?'On':'Off'}</span></button>`);
- $('#sheet').onclick=e=>{const b=e.target.closest('button');if(!b)return;if(b.id==='pv')providerSheet();if(b.id==='sc')connectionSheet(true);if(b.id==='ap')appearanceSheet();if(b.id==='wp'){toggleSearch();settingsSheet()}};
-}
- $('#diffPanel').onclick=()=>$('#commit').click();
 function projectSheet(){
  if(window.CodexNative){
   sheet(`<h3>Add project</h3><button class="opt" id="folderOpen">${I.folder}Open folder</button><label class="fld" for="projectName">New project name</label><input class="in" id="projectName" placeholder="My project"><p class="note error-note" id="projectError"></p><div class="btns"><button class="btn p" id="projectCreate">Create project</button></div>`);
@@ -1762,6 +1761,17 @@ function toolCard(p,claimedRuns){
  const brief=inp.filePath||inp.pattern||inp.path||inp.url||inp.description||inp.query||'';
  return `<div class="card">${head(I.file,st.title||tool,brief?`<small class="m">&middot; ${esc(String(brief).slice(0,40))}</small>`:'')}${isErr?`<pre class="er-body">${esc(errText)}</pre>`:''}</div>`;
 }
+function questionCard(q){
+ const qs=q.questions||[];
+ let h=`<div class="card qcard" data-qid="${esc(q.id)}"><div class="ch">${I.bot}<span>${esc((qs[0]&&qs[0].header)||'Question')}</span></div><div class="qwrap">`;
+ qs.forEach((qi,qidx)=>{
+  if(qi.question)h+=`<div class="qq">${esc(qi.question)}</div>`;
+  if(qi.options&&qi.options.length)h+=`<div class="qopts">`+qi.options.map((o,oi)=>`<button class="opt qopt ${qi.multiple?'multi':''}" data-qsel="${qidx}:${oi}"><span>${esc(o.label)}</span>${o.description?`<span class="m">${esc(o.description)}</span>`:''}</button>`).join('')+`</div>`;
+  if(qi.custom)h+=`<input class="in qcustom" data-qcustom="${qidx}" placeholder="Your own answer" autocomplete="off">`;
+ });
+ h+=`<div class="btns"><button class="btn p" data-qact="send">Answer</button><button class="btn" data-qact="reject">Dismiss</button></div></div></div>`;
+ return h;
+}
 function permCard(p){
  const pats=p.patterns||(p.pattern?[].concat(p.pattern):[]);
  const cmd=p.metadata&&(p.metadata.command||p.metadata.filepath)||'';
@@ -1862,16 +1872,19 @@ function renderMarkdown(md){
  return s;
 }
 function errorMeta(e){
- const msg=readableError((e.data&&e.data.message)||e.message||e.name||'Request failed');
+ const aborted=e&&(e.name==='MessageAbortedError');
+ const msg=aborted?'Generation stopped':readableError((e.data&&e.data.message)||e.message||e.name||'Request failed');
  const code=e.data&&(e.data.statusCode||e.data.status)||e.statusCode||'';
  const retryIn=e.data&&e.data.retryAfter?e.data.retryAfter:(e.retryAfter||'');
- return {msg:String(msg),code:code?String(code):'',retryIn:retryIn?String(retryIn):''};
+ return {msg:String(msg),code:code?String(code):'',retryIn:retryIn?String(retryIn):'',aborted:!!aborted};
 }
 function errorCardHTML(e,mid){
- const {msg,code,retryIn}=errorMeta(e);
+ const meta=errorMeta(e);
+ const {msg,code,retryIn}=meta;
  const m=currentModel();
  const modelName=m?`${m.pn} · ${m.mn}`:'current model';
- return `<div class="card error-card" ${mid?`data-mid="${esc(mid)}"`:''}><div class="ch er">${I.bot}<span class="tool-action">${esc(modelName)}</span>${code?`<span class="m er">${esc(code)}</span>`:''}<span class="m er">Failed</span></div><pre class="er-body">${esc(msg)}${retryIn?`\nRetry after ${esc(retryIn)}s`:''}</pre><div class="btns"><button class="btn p" data-erract="retry">Retry</button><button class="btn" data-erract="model">Switch model</button></div></div>`;
+ const label=meta.aborted?'Stopped':'Error';
+ return `<div class="card error-card" ${meta.aborted?'':`data-mid="${esc(mid)}"`}><div class="ch ${meta.aborted?'':'er'}">${I.bot}<span class="tool-action">${esc(modelName)}</span>${code&&!meta.aborted?`<span class="m er">${esc(code)}</span>`:''}<span class="m ${meta.aborted?'':'er'}">${meta.aborted?'Stopped':'Failed'}</span></div><pre class="er-body" style="${meta.aborted?'color:var(--text-2);background:var(--surface-1)':''}">${esc(msg)}${retryIn&&!meta.aborted?`\nRetry after ${esc(retryIn)}s`:''}</pre>${meta.aborted?'':`<div class="btns"><button class="btn p" data-erract="retry">Retry</button><button class="btn" data-erract="model">Switch model</button></div>`}</div>`;
 }
 function lastUserText(){
  const list=[...S.msgs.values()].filter(x=>x.info.role==='user').sort((a,b)=>a.info.id<b.info.id?1:-1);
@@ -1951,7 +1964,45 @@ function thinkDuration(x,reasons){
  const t1=done?(x.info.time.completed||Math.max(...(ends.length?ends:[t0]))):Date.now();
  return Math.max(1,Math.round((t1-t0)/1000))+'s';
 }
-function thinkBlockHtml(x,toolParts,openSet,closedSet){
+function toolEntry(p,claimedRuns,lang){
+ const st=p.state||{},inp=st.input||{},meta=st.metadata||{};
+ const isErr=st.status==='error'||!!st.error;
+ const isRun=st.status==='running'||st.status==='pending';
+ const isSsh=(p.tool||'').startsWith('mobile_ssh_');
+ const host=isSsh?((S.connections.find(c=>c.id===inp.connection_id)||{}).name||'SSH'):null;
+ let patch='',counts='',chars='';
+ if(/^(write|edit|patch|apply_patch|multiedit|.*_ssh_write_file)$/.test(p.tool||'')&&st.status==='completed'){
+  const stored=S.historyFiles.get(changeKey(p));
+  patch=stored?stored.patch||'':'';
+  if(!patch){const ch=toolChanges(p).filter(c=>c.patch);if(ch.length)patch=ch.map(c=>c.patch).join('\n')}
+  if(patch){const pc=patchCounts(patch);counts=`<span class="m ok">+${pc.additions}</span><span class="m er">−${pc.deletions}</span>`}
+ }
+ let body=patch?`<div class="change-preview">${dl(patch.split('\n'))}</div>`:'';
+ if(/^(bash|.*_ssh_exec)$/.test(p.tool||'')){
+  let o='';
+  if(isSsh){
+   let result={};try{result=JSON.parse(st.output||'{}')}catch(x){}
+   const toolRunID=result.runID||p.callID;
+   const runs=[...S.remoteRuns.values()].filter(r=>r.sessionID===S.sid&&r.connectionID===inp.connection_id&&!claimedRuns.has(r.id));
+   let run=toolRunID?runs.find(r=>r.id===toolRunID):null;
+   if(!run&&p.tool.endsWith('_ssh_exec'))run=runs.find(r=>r.kind==='exec'&&r.command===inp.command);
+   if(run){claimedRuns.add(run.id);S.renderedRemoteRuns&&S.renderedRemoteRuns.add(run.id)}
+   o=((run&&run.stdout)||result.stdout||'')+((run&&run.stderr)?'\n'+run.stderr:(result.stderr?'\n'+result.stderr:''));
+  }else o=st.output||meta.output||'';
+  if(o){const shortOut=String(o).length>400||String(o).split('\n').length>8;
+   body+=`<div class="collapsible-output"><pre class="${shortOut?'collapsed-pre':''}">$ ${esc(inp.command||'')}\n${esc(String(o).slice(0,4000))}</pre>${shortOut?'<button class="show-more-btn" onclick="togglePre(this)">Show more</button>':''}</div>`}
+ }else if(/^(read|.*_ssh_read_file)$/.test(p.tool||'')){
+  let o='';
+  if(isSsh){let result={};try{result=JSON.parse(st.output||'{}')}catch(x){};o=result.content||''}
+  else o=st.output||meta.output||'';
+  if(o){chars=`<span class="m">· ${o.length}</span>`;body+=`<pre style="max-height:180px;overflow:auto">${esc(String(o).slice(0,2000))}</pre>`}
+ }
+ if(isErr){const errText=st.error||(st.metadata&&st.metadata.error)||'';if(errText)body+=`<pre class="er-body">${esc(errText)}</pre>`}
+ const mark=isRun?'<span class="dot"></span>':'<svg viewBox="0 0 24 24"><circle cx="12" cy="12" r="9"/><path d="m8.5 12 2.5 2.5 5-5"/></svg>';
+ const status=isErr?'<span class="m er">Failed</span>':'';
+ return `<details class="topic ${isRun?'run':'done'}" data-part="${esc(p.id||'')}"><summary class="tsum"><span class="tl"><span class="mark">${mark}</span><span class="line"></span></span><span class="txt">${esc(toolTopic(p,lang))}</span>${host?`<span class="m mono">${esc(host)}</span>`:''}${chars}${counts}${status}${body?'<svg class="tcaret" viewBox="0 0 24 24"><path d="m6 9 6 6 6-6"/></svg>':''}</summary>${body?`<div class="tout">${body}</div>`:''}</details>`;
+}
+function thinkBlockHtml(x,toolParts,claimedRuns,openSet,closedSet){
  const reasons=[...x.parts.values()].filter(p=>p.type==='reasoning');
  const done=!!((x.info.time&&x.info.time.completed)||x.info.error);
  const hasBody=toolParts.length||reasons.length;
@@ -1963,13 +2014,9 @@ function thinkBlockHtml(x,toolParts,openSet,closedSet){
  const attrs=(userOpen?' data-open="1"':'')+(userClosed?' data-closed="1"':'')+(visOpen&&running?' data-live="1"':'');
  const dur2=running?null:thinkDuration(x,reasons);
  const lang=detectLang();
- const topics=toolParts.map(p=>{
-  const st=p.state||{};const stRun=st.status==='running'||st.status==='pending';
-  const mark=stRun?'<span class="dot"></span>':'<svg viewBox="0 0 24 24"><circle cx="12" cy="12" r="9"/><path d="m8.5 12 2.5 2.5 5-5"/></svg>';
-  return `<div class="topic ${stRun?'run':'done'}"><span class="tl"><span class="mark">${mark}</span><span class="line"></span></span><span class="txt">${esc(toolTopic(p,lang))}</span></div>`;
- }).join('');
+ const topics=toolParts.map(p=>toolEntry(p,claimedRuns,lang)).join('');
  const caret=toolParts.length?'<svg class="caret" viewBox="0 0 24 24"><path d="m6 9 6 6 6-6"/></svg>':'';
- return `<div class="think" data-part="${esc(key)}"${attrs}><button class="think-head" type="button" ${toolParts.length?'':'tabindex="-1" style="cursor:default"'}>${running?'<span class="think-spin"></span>':`<span class="think-icon">${I.brain}</span>`}<span>${running?'Thinking…':(dur2?`Thought for ${dur2}`:'Thought')}</span>${caret}</button>${toolParts.length?`<div class="think-body"><div class="think-inner"><div class="think-panel"><div class="think-topics">${topics}</div></div></div></div>`:''}</div>`;
+ return `<div class="think" data-part="${esc(key)}"${attrs}><button class="think-head" type="button" ${toolParts.length?'':'tabindex="-1" style="cursor:default"'}>${running?'<span class="think-spin"></span>':`<span class="think-icon">${I.brain}</span>`}<span>${running?(S.status&&S.status.type==='retry'?'Retrying…':'Thinking…'):(dur2?`Thought for ${dur2}`:'Thought')}</span>${caret}</button>${toolParts.length?`<div class="think-body"><div class="think-inner"><div class="think-panel"><div class="think-topics">${topics}</div></div></div></div>`:''}</div>`;
 }
 function renderMsgs(force){
  if(!S.sid)return;
@@ -1996,9 +2043,8 @@ function renderMsgs(force){
      if(text)texts.push({text});
     }else if(p.type==='tool')toolParts.push(p);
    });
-   const think=thinkBlockHtml(x,toolParts,openDetails,closedDetails);
+   const think=thinkBlockHtml(x,toolParts,claimedRuns,openDetails,closedDetails);
    if(think)h+=think;
-   toolParts.forEach(p=>h+=toolCard(p,claimedRuns));
    const reaction=S.reactions[x.info.id];
    texts.forEach(p=>{
     h+=`<div class="msg ai" data-mid="${esc(x.info.id)}" data-raw="${esc(p.text)}">${renderMarkdown(p.text)}</div>`;
@@ -2008,9 +2054,9 @@ function renderMsgs(force){
   }
  });
  [...S.perms.values()].forEach(p=>{h+=permCard(p)});
+ [...S.questions.values()].forEach(q=>{h+=questionCard(q)});
  for(const r of S.remoteRuns.values())if(r.sessionID===S.sid&&!S.renderedRemoteRuns.has(r.id)&&r.status==='running')h+=remoteCard(r);
  if(S.lastErr&&!hadMsgError)h+=`<div class="card error-card"><div class="ch er">Error<span class="m er">Failed</span></div><pre class="er-body">${esc(readableError(S.lastErr))}</pre></div>`;
- if(S.running)h+='<div class="work"><div class="spin"></div>'+esc(S.status.type==='retry'?'Retry '+S.status.attempt+': '+redact(S.status.message):'Working...')+'</div>';
  if(!LS('oc_lp_hint'))h+='<div class="lp-hint">Long-press a message for actions</div>';
  if(S.pendingUser)h+=`<div class="msg user">${esc(S.pendingUser)}</div>`;
  m.innerHTML=h;
@@ -2029,7 +2075,33 @@ $('#main').addEventListener('toggle',async e=>{
 },true);
 $('#main').onclick=async e=>{
  const th=e.target.closest('.think-head');
- if(th){const w=th.closest('.think');if(w.hasAttribute('data-open')){w.removeAttribute('data-open');w.setAttribute('data-closed','1')}else{w.removeAttribute('data-closed');w.setAttribute('data-open','1')}return}
+ if(th){const w=th.closest('.think');if(w.hasAttribute('data-open')||w.hasAttribute('data-live')){w.removeAttribute('data-open');w.removeAttribute('data-live');w.setAttribute('data-closed','1')}else{w.removeAttribute('data-closed');w.setAttribute('data-open','1')}return}
+ const qo=e.target.closest('.qopt');
+ if(qo){
+  const multi=qo.classList.contains('multi');
+  if(!multi)qo.parentElement.querySelectorAll('.qopt').forEach(b=>b.classList.remove('sel'));
+  if(multi)qo.classList.toggle('sel');else qo.classList.add('sel');
+  return;
+ }
+ const qa=e.target.closest('[data-qact]');
+ if(qa){
+  const card=qa.closest('[data-qid]');const q=card&&S.questions.get(card.dataset.qid);if(!q)return;
+  qa.disabled=true;
+  if(qa.dataset.qact==='reject'){
+   try{await api('/question/'+encodeURIComponent(q.id)+'/reject',{method:'POST',body:{},directory:S.dir})}catch(x){err('question: '+x.message)}
+   S.questions.delete(q.id);renderMsgs();return;
+  }
+  const qs=q.questions||[];
+  const answers=qs.map((qi,qidx)=>{
+   const custom=card.querySelector(`[data-qcustom="${qidx}"]`);
+   const customText=custom?custom.value.trim():'';
+   if(customText)return [customText];
+   return [...card.querySelectorAll('.qopt.sel')].filter(b=>b.dataset.qsel.split(':')[0]===String(qidx)).map(b=>((qi.options||[])[+b.dataset.qsel.split(':')[1]]||{}).label).filter(Boolean);
+  });
+  try{await api('/question/'+encodeURIComponent(q.id)+'/reply',{method:'POST',body:{answers},directory:S.dir})}catch(x){err('question: '+x.message);qa.disabled=false;return}
+  S.questions.delete(q.id);renderMsgs();
+  return;
+ }
  const ma=e.target.closest('[data-ma]');
  if(ma){
   const bar=ma.closest('.msg-actions'),mid=bar.dataset.amid,raw=bar.dataset.araw;
