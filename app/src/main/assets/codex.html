@@ -157,7 +157,7 @@ footer::before{content:'';position:absolute;top:-24px;left:0;right:0;height:24px
 .think-body{display:grid;grid-template-rows:0fr;transition:grid-template-rows 200ms ease;overflow:hidden}
 .think[data-open] .think-body,.think[data-live] .think-body{grid-template-rows:1fr}
 .think-inner{min-height:0;overflow:hidden}
-.think-panel{background:var(--surface-1);border-radius:var(--r-12);padding:var(--s-8) var(--s-12);margin-top:var(--s-4)}
+.think-panel{background:var(--surface-1);border-radius:var(--r-12);padding:6px 10px;margin-top:var(--s-4)}
 .think-topics{display:flex;flex-direction:column}
 .topic{display:flex;align-items:stretch;gap:10px;min-height:26px}
 .topic .tl{width:16px;flex:none;display:flex;flex-direction:column;align-items:center}
@@ -170,11 +170,11 @@ footer::before{content:'';position:absolute;top:-24px;left:0;right:0;height:24px
 .topic .txt{padding:3px 0;color:var(--text);font-size:var(--fs-13)}
 @keyframes tk-pulse{0%,100%{opacity:.25}50%{opacity:1}}
 .think-reason{white-space:pre-wrap;overflow-wrap:anywhere;font:var(--fs-13)/1.5 inherit;font-family:inherit;color:var(--text);margin:var(--s-8) 0 0;padding:0;border:0;background:none;user-select:text;-webkit-user-select:text}
-.msg-actions{display:flex;align-items:center;gap:2px;margin:2px 0 8px;color:var(--text-2)}
-.msg-actions button{width:38px;height:38px;display:grid;place-items:center;background:none;border:none;cursor:pointer;border-radius:var(--r-8);color:inherit}
+.msg-actions{display:flex;align-items:center;gap:6px;margin:2px 0 8px;color:var(--text-2)}
+.msg-actions button{width:44px;height:44px;display:grid;place-items:center;background:none;border:none;cursor:pointer;border-radius:var(--r-full);color:inherit}
 .msg-actions button:active{background:var(--surface-active)}
 .msg-actions button.on{color:var(--text)}
-.msg-actions svg{width:18px;height:18px}
+.msg-actions svg{width:20px;height:20px}
 .hidden-chips{position:absolute;width:44px;height:44px;opacity:0;pointer-events:none;z-index:-1}
 #dim{position:absolute;inset:0;background:var(--dim);opacity:0;pointer-events:none;transition:opacity 250ms;z-index:5}
 #dim.on{opacity:1;pointer-events:auto}
@@ -1886,20 +1886,60 @@ async function resendPrompt(text){
  $('#inp').value=text;autosize();
  await submit();
 }
-function toolTopic(p){
+let retrying=false;
+async function retryFrom(msgId){
+ if(retrying||S.sending)return;
+ const x=S.msgs.get(msgId);
+ const uid=x&&x.info.role==='assistant'?x.info.parentID:null;
+ let text='';
+ if(uid){
+  const um=S.msgs.get(uid);
+  if(um)text=[...um.parts.values()].filter(p=>p.type==='text'&&!p.synthetic).map(p=>p.text).join('\n');
+ }
+ if(!text){text=lastUserText()}
+ if(!text||!S.sid)return;
+ retrying=true;
+ try{
+  if(S.running){try{await api('/session/'+S.sid+'/abort',{method:'POST',directory:S.dir})}catch(e){}S.running=false;setRun();await new Promise(r=>setTimeout(r,700))}
+  if(uid&&S.msgs.get(uid)){
+   const list=[...S.msgs.values()].sort((a,b)=>a.info.id<b.info.id?-1:1);
+   const idx=list.findIndex(m=>m.info.id===uid);
+   const doomed=[...new Set([msgId,...list.slice(idx>=0?idx:0).map(m=>m.info.id)])];
+   for(const id of doomed){try{await api('/session/'+encodeURIComponent(S.sid)+'/message/'+encodeURIComponent(id),{method:'DELETE',directory:S.dir})}catch(e){err('retry: '+e.message)}}
+   S.view++;S.revision++;
+   await syncSession();
+  }
+  $('#inp').value=text;autosize();
+  await submit();
+ }finally{retrying=false}
+}
+function detectLang(){
+ const list=[...S.msgs.values()].filter(x=>x.info.role==='user').sort((a,b)=>a.info.id<b.info.id?1:-1);
+ for(const x of list){
+  const t=[...x.parts.values()].filter(p=>p.type==='text'&&!p.synthetic).map(p=>p.text).join(' ');
+  if(t)return /[\u0400-\u04FF]/.test(t)?'ru':'en';
+ }
+ return 'en';
+}
+const TOPIC_L={
+ ru:{read:'Читаю ',bash:'Запускаю ',grep:'Ищу ',write:'Пишу ',edit:'Правлю ',task:'Делегирую ',web:'Ищу в интернете',todo:'Обновляю план',question:'Задаю вопрос',work:'Работаю'},
+ en:{read:'Reading ',bash:'Running ',grep:'Searching ',write:'Writing ',edit:'Editing ',task:'Delegating ',web:'Searching the web',todo:'Updating the plan',question:'Asking you',work:'Working'}
+};
+function toolTopic(p,lang){
  const st=p.state||{},inp=st.input||{};
+ const L=TOPIC_L[lang]||TOPIC_L.en;
  const file=f=>String(f||'').split(/[\\/]/).pop()||f;
  switch(p.tool){
-  case 'read':return 'Reading '+file(inp.filePath||inp.path);
-  case 'bash':return 'Running '+(String(inp.command||'').split('\n')[0].slice(0,32)||'command');
-  case 'grep':case 'glob':return 'Searching '+String(inp.pattern||'').slice(0,28);
-  case 'write':return 'Writing '+file(inp.filePath||inp.path);
-  case 'edit':case 'apply_patch':case 'multiedit':case 'patch':return 'Editing '+file(inp.filePath||inp.path);
-  case 'task':return 'Delegating '+String(inp.description||'').slice(0,28);
-  case 'websearch':return 'Searching the web';
-  case 'todowrite':return 'Updating the plan';
-  case 'question':return 'Asking you';
-  default:return String(st.title||p.tool||'Working').slice(0,40);
+  case 'read':return L.read+file(inp.filePath||inp.path);
+  case 'bash':return L.bash+(String(inp.command||'').split('\n')[0].slice(0,32)||'command');
+  case 'grep':case 'glob':return L.grep+String(inp.pattern||'').slice(0,28);
+  case 'write':return L.write+file(inp.filePath||inp.path);
+  case 'edit':case 'apply_patch':case 'multiedit':case 'patch':return L.edit+file(inp.filePath||inp.path);
+  case 'task':return L.task+String(inp.description||'').slice(0,28);
+  case 'websearch':return L.web;
+  case 'todowrite':return L.todo;
+  case 'question':return L.question;
+  default:return String(st.title||p.tool||L.work).slice(0,40);
  }
 }
 function thinkDuration(x,reasons){
@@ -1911,22 +1951,25 @@ function thinkDuration(x,reasons){
  const t1=done?(x.info.time.completed||Math.max(...(ends.length?ends:[t0]))):Date.now();
  return Math.max(1,Math.round((t1-t0)/1000))+'s';
 }
-function thinkBlockHtml(x,toolParts,reasonText,openSet,closedSet){
+function thinkBlockHtml(x,toolParts,openSet,closedSet){
+ const reasons=[...x.parts.values()].filter(p=>p.type==='reasoning');
  const done=!!((x.info.time&&x.info.time.completed)||x.info.error);
- const hasBody=reasonText||toolParts.length;
+ const hasBody=toolParts.length||reasons.length;
  if(done&&!hasBody)return '';
  const running=!done;
  const key=x.info.id+'_think';
  const userOpen=openSet.has(key),userClosed=closedSet.has(key);
  const visOpen=userOpen||(running&&!userClosed);
  const attrs=(userOpen?' data-open="1"':'')+(userClosed?' data-closed="1"':'')+(visOpen&&running?' data-live="1"':'');
- const dur2=running?null:thinkDuration(x,[...x.parts.values()].filter(p=>p.type==='reasoning'));
+ const dur2=running?null:thinkDuration(x,reasons);
+ const lang=detectLang();
  const topics=toolParts.map(p=>{
   const st=p.state||{};const stRun=st.status==='running'||st.status==='pending';
   const mark=stRun?'<span class="dot"></span>':'<svg viewBox="0 0 24 24"><circle cx="12" cy="12" r="9"/><path d="m8.5 12 2.5 2.5 5-5"/></svg>';
-  return `<div class="topic ${stRun?'run':'done'}"><span class="tl"><span class="mark">${mark}</span><span class="line"></span></span><span class="txt">${esc(toolTopic(p))}</span></div>`;
+  return `<div class="topic ${stRun?'run':'done'}"><span class="tl"><span class="mark">${mark}</span><span class="line"></span></span><span class="txt">${esc(toolTopic(p,lang))}</span></div>`;
  }).join('');
- return `<div class="think" data-part="${esc(key)}"${attrs}><button class="think-head" type="button">${running?'<span class="think-spin"></span>':`<span class="think-icon">${I.brain}</span>`}<span>${running?'Thinking…':(dur2?`Thought for ${dur2}`:'Thought')}</span><svg class="caret" viewBox="0 0 24 24"><path d="m6 9 6 6 6-6"/></svg></button><div class="think-body"><div class="think-inner"><div class="think-panel">${topics?`<div class="think-topics">${topics}</div>`:''}${reasonText?`<pre class="think-reason">${esc(reasonText)}</pre>`:''}</div></div></div></div>`;
+ const caret=toolParts.length?'<svg class="caret" viewBox="0 0 24 24"><path d="m6 9 6 6 6-6"/></svg>':'';
+ return `<div class="think" data-part="${esc(key)}"${attrs}><button class="think-head" type="button" ${toolParts.length?'':'tabindex="-1" style="cursor:default"'}>${running?'<span class="think-spin"></span>':`<span class="think-icon">${I.brain}</span>`}<span>${running?'Thinking…':(dur2?`Thought for ${dur2}`:'Thought')}</span>${caret}</button>${toolParts.length?`<div class="think-body"><div class="think-inner"><div class="think-panel"><div class="think-topics">${topics}</div></div></div></div>`:''}</div>`;
 }
 function renderMsgs(force){
  if(!S.sid)return;
@@ -1946,17 +1989,14 @@ function renderMsgs(force){
    if(t||files.length)h+=`<div class="msg user" data-mid="${esc(x.info.id)}" data-utext="${esc(t)}">${esc(t)}${files.length?'<div class="attachments">'+attachmentHtml(files,false)+'</div>':''}</div>`;
   }else{
    const parts=[...x.parts.values()];
-   let reasonText='';const toolParts=[];const texts=[];
+   const toolParts=[];const texts=[];
    parts.forEach(p=>{
     if(p.type==='text'&&p.text){
-     const {thoughts,text}=splitThoughts(p.text);
-     if(thoughts)reasonText+=(reasonText?'\n\n':'')+thoughts;
+     const {text}=splitThoughts(p.text);
      if(text)texts.push({text});
-    }else if(p.type==='reasoning'){
-     const r=(p.text||'').trim();if(r)reasonText+=(reasonText?'\n\n':'')+r;
     }else if(p.type==='tool')toolParts.push(p);
    });
-   const think=thinkBlockHtml(x,toolParts,reasonText,openDetails,closedDetails);
+   const think=thinkBlockHtml(x,toolParts,openDetails,closedDetails);
    if(think)h+=think;
    toolParts.forEach(p=>h+=toolCard(p,claimedRuns));
    const reaction=S.reactions[x.info.id];
@@ -2002,14 +2042,14 @@ $('#main').onclick=async e=>{
    bar.querySelectorAll('[data-ma]').forEach(b=>b.classList.remove('on'));
    if(S.reactions[mid])ma.classList.add('on');
   }
-  else if(act==='retry'){const t=lastUserText();if(t)resendPrompt(t)}
+  else if(act==='retry'){retryFrom(mid)}
   else if(act==='more')msgMenu(mid,raw);
   return;
  }
  const ea=e.target.closest('[data-erract]');
  if(ea){
   const act=ea.dataset.erract;
-  if(act==='retry'){const t=lastUserText();if(t)resendPrompt(t)}
+  if(act==='retry'){const cid=ea.closest('[data-mid]');retryFrom(cid?cid.dataset.mid:null)}
   else if(act==='model')$('#cModel').click();
   return;
  }
@@ -2058,8 +2098,8 @@ let lpTimer=null,lpXY=null;
 function msgMenu(mid,raw){
  contextMenu('Message',[
   {label:'Copy',fn:()=>copyText(raw)},
-  {label:'Retry',fn:()=>{const t=lastUserText();if(t)resendPrompt(t)}},
-  {label:'Retry with another model…',fn:()=>{modelSheet(x=>{const t=lastUserText();if(t)resendPrompt(t)})}},
+  {label:'Retry',fn:()=>retryFrom(mid)},
+  {label:'Retry with another model…',fn:()=>{modelSheet(x=>{retryFrom(mid)})}},
   mid?{label:'Fork from here',fn:()=>forkAndOpen(mid)}:null,
   {label:'Select text',fn:()=>{const el=document.querySelector(`.msg.ai[data-mid="${CSS.escape(mid)}"]`);if(el)selectText(el)}},
  ]);

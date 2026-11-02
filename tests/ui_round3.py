@@ -229,14 +229,14 @@ async def main():
                 await page.evaluate("""() => {
                   const uid='msg_u1',aid='msg_a1';
                   const u={info:{id:uid,sessionID:'x',role:'user'},parts:new Map([['p1',{id:'p1',type:'text',text:'Fix the login bug'}]])};
-                  const a={info:{id:aid,sessionID:'x',role:'assistant'},parts:new Map([
+                  const a={info:{id:aid,sessionID:'x',role:'assistant',parentID:'msg_u1'},parts:new Map([
                     ['p2',{id:'p2',type:'tool',tool:'bash',callID:'c1',state:{status:'completed',input:{command:'df -h'},output:'total 9.8G',metadata:{},time:{start:1,end:2}}}],
                     ['p3',{id:'p3',type:'tool',tool:'edit',callID:'c2',state:{status:'completed',input:{filePath:'src/login.js'},output:'',metadata:{},time:{start:1,end:2}}}],
                     ['p4',{id:'p4',type:'text',text:'Here is the **fix** with `code`.'}]
                   ])};
                   const err={info:{id:'msg_a2',sessionID:'x',role:'assistant',error:{name:'APIError',data:{message:'Rate limit exceeded',statusCode:429,isRetryable:true}}},parts:new Map()};
                   const filler=[...Array(20)].map((_,i)=>['mf'+i,{info:{id:'msg_f'+String(i).padStart(2,'0'),sessionID:'x',role:'user'},parts:new Map([['pf'+i,{id:'pf'+i,type:'text',text:'Filler message '+i}]])}]);
-                  S.msgs=new Map([['m1',u],['m2',a],['m3',err],...filler]);
+                  S.msgs=new Map([['msg_u1',u],['msg_a1',a],['msg_a2',err],...filler.map(([k,v])=>[v.info.id,v])]);
                   S.sid='x';S.historyFiles=new Map();
                   renderMsgs(true);
                 }""")
@@ -250,9 +250,14 @@ async def main():
                 check(f'{theme}_error_card_retry', 'Retry' in err_card and 'Switch model' in err_card, err_card[:150])
                 check(f'{theme}_error_card_code', '429' in err_card)
                 check(f'{theme}_error_no_working_spinner', 'Working...' not in await page.eval_on_selector('#main', 'e=>e.innerText'))
+                # ghost-card fix: completed edit w/o recorded diff renders compact, no empty details body
+                change_cards = await page.eval_on_selector_all('.change-card', "els=>els.map(e=>e.innerText)")
+                check(f'{theme}_no_empty_diff_details', all('No diff recorded' not in c for c in change_cards), str(change_cards))
+                compact = await page.eval_on_selector_all('#main .card', "els=>els.filter(e=>!e.classList.contains('change-card')&&!e.classList.contains('error-card')).map(e=>e.innerText)")
+                check(f'{theme}_compact_change_row', any('src/login.js' in c and '+' not in c for c in compact), str(compact))
                 # thinking block: two states + topics from real tool events
                 await page.evaluate("""() => {
-                  const a=S.msgs.get('m2');
+                  const a=S.msgs.get('msg_a1');
                   a.info.time={created:1000,completed:7500};
                   a.parts.set('p5',{id:'p5',type:'reasoning',text:'The user wants a quick check.',time:{start:1000,end:7000}});
                   renderMsgs(true);
@@ -267,11 +272,15 @@ async def main():
                 await page.click('.think-head')
                 await page.wait_for_timeout(300)
                 panel = await page.eval_on_selector('.think-panel', 'e=>e.innerText')
-                check(f'{theme}_think_topics', 'Running df -h' in panel and 'Editing login.js' in panel and 'The user wants a quick check.' in panel, panel[:200])
+                check(f'{theme}_think_topics', 'Running df -h' in panel and 'Editing login.js' in panel, panel[:200])
+                check(f'{theme}_think_no_raw_reasoning', 'The user wants a quick check.' not in panel and not await page.evaluate("!!document.querySelector('.think-reason')"), panel[:200])
                 check(f'{theme}_think_topic_marks', await page.evaluate("document.querySelectorAll('.think .topic.done').length") == 2)
                 await page.click('.think-head')
                 await page.wait_for_timeout(250)
                 check(f'{theme}_think_closes', not await page.evaluate("document.querySelector('.think').hasAttribute('data-open')"))
+                # reasoning-only message: no topics -> no expander caret
+                caret_none = await page.evaluate("()=>{const a=S.msgs.get('msg_a2');a.parts.set('p7',{id:'p7',type:'reasoning',text:'Brief.',time:{start:8000,end:9000}});a.info.time={created:8000,completed:9500};renderMsgs(true);const w=[...document.querySelectorAll('.think')].pop();return {head:w.querySelector('.think-head').innerText,caret:!!w.querySelector('.caret')}}")
+                check(f'{theme}_think_no_caret_without_topics', 'Thought for 2s' in caret_none['head'] and not caret_none['caret'], str(caret_none))
                 # actions bar under the assistant text
                 acts = await page.eval_on_selector_all('.msg-actions button', 'els=>els.length')
                 check(f'{theme}_actions_bar', acts == 5, str(acts))
@@ -283,14 +292,40 @@ async def main():
                 await page.wait_for_timeout(250)
                 clip2 = await page.evaluate("navigator.clipboard.readText()")
                 check(f'{theme}_actions_copy', 'Here is the **fix**' in clip2, clip2[:80])
-                # ghost-card fix: completed edit w/o recorded diff renders compact, no empty details body
-                change_cards = await page.eval_on_selector_all('.change-card', "els=>els.map(e=>e.innerText)")
-                check(f'{theme}_no_empty_diff_details', all('No diff recorded' not in c for c in change_cards), str(change_cards))
-                compact = await page.eval_on_selector_all('#main .card', "els=>els.filter(e=>!e.classList.contains('change-card')&&!e.classList.contains('error-card')).map(e=>e.innerText)")
-                check(f'{theme}_compact_change_row', any('src/login.js' in c and '+' not in c for c in compact), str(compact))
+                # long-press does not block scrolling (Block F tests)
+                scroll_info = await page.evaluate("()=>{const m=document.querySelector('#main');const can=m.scrollHeight>m.clientHeight;m.scrollTop=50;return {can,v:m.scrollTop}}")
+                check(f'{theme}_scroll_after_lp', scroll_info['can'] and scroll_info['v'] == 50, str(scroll_info))
+                # retry: deletes the old pair, re-sends the same text, no duplicates on the wire
+                dels = []
+                newprompts = []
+                async def del_route(route):
+                    dels.append(route.request.url.split('/message/')[1].split('?')[0])
+                    await route.fulfill(status=200, content_type='application/json', body='true')
+                await page.route('**/session/x/message/msg_*', del_route)
+                async def list_route(route):
+                    await route.fulfill(status=200, content_type='application/json', body=json.dumps([
+                        {'info': {'id': 'msg_u9', 'sessionID': 'x', 'role': 'user', 'time': {'created': 1}}, 'parts': [{'id': 'pu9', 'type': 'text', 'text': 'Fix the login bug'}]},
+                        {'info': {'id': 'msg_a9', 'sessionID': 'x', 'role': 'assistant', 'parentID': 'msg_u9', 'time': {'created': 2, 'completed': 3}}, 'parts': []}]))
+                await page.route(re.compile(r'.*/session/x/message\?.*'), list_route)
+                async def sess_route(route):
+                    if route.request.method == 'GET':
+                        await route.fulfill(status=200, content_type='application/json', body=json.dumps({'id': 'x', 'permission': []}))
+                    else:
+                        await route.fulfill(status=200, content_type='application/json', body='{}')
+                await page.route(re.compile(r'.*/session/x\?.*'), sess_route)
+                async def prompt2(route):
+                    newprompts.append(route.request.post_data_json)
+                    await route.fulfill(status=204)
+                await page.route('**/prompt_async*', prompt2)
+                await page.click('.msg-actions [data-ma="retry"]')
+                await page.wait_for_timeout(1500)
+                check(f'{theme}_retry_deletes_pair', sorted(dels) == ['msg_a1', 'msg_u1'], str(dels))
+                pb = newprompts[-1] if newprompts else None
+                check(f'{theme}_retry_resends_same_text', bool(pb) and pb.get('parts', [{}])[0].get('text') == 'Fix the login bug', str(pb)[:150])
+                check(f'{theme}_retry_state_clean', await page.evaluate("S.msgs.size") == 2, str(await page.evaluate("S.msgs.size")))
 
                 # long-press context menu on user message (Block F)
-                box = await page.evaluate("()=>{const e=document.querySelector('.msg.user[data-mid=\"msg_u1\"]');e.scrollIntoView({block:'center'});const r=e.getBoundingClientRect();return {x:r.x+r.width/2,y:Math.max(60,r.y+10)}}")
+                box = await page.evaluate("()=>{const e=document.querySelector('.msg.user[data-mid=\"msg_u9\"]');e.scrollIntoView({block:'center'});const r=e.getBoundingClientRect();return {x:r.x+r.width/2,y:Math.max(60,r.y+10)}}")
                 await page.mouse.move(box['x'], box['y'])
                 await page.mouse.down()
                 await page.wait_for_timeout(600)
@@ -304,12 +339,9 @@ async def main():
                 clip = await page.evaluate("navigator.clipboard.readText()")
                 check(f'{theme}_copy_works', clip == 'Fix the login bug', clip)
 
-                # long-press does not block scrolling (Block F tests)
-                scroll_info = await page.evaluate("()=>{const m=document.querySelector('#main');const can=m.scrollHeight>m.clientHeight;m.scrollTop=50;return {can,v:m.scrollTop}}")
-                check(f'{theme}_scroll_after_lp', scroll_info['can'] and scroll_info['v'] == 50, str(scroll_info))
-
                 # ai message menu + fork from here (Block F)
-                box2 = await page.evaluate("()=>{const e=document.querySelector('.msg.ai[data-mid=\"msg_a1\"]');e.scrollIntoView({block:'center'});const r=e.getBoundingClientRect();return {x:r.x+r.width/2,y:Math.max(60,r.y+10)}}")
+                await page.evaluate("()=>{const a=S.msgs.get('msg_a9');a.parts.set('pa9',{id:'pa9',type:'text',text:'Assistant answer'});renderMsgs(true)}")
+                box2 = await page.evaluate("()=>{const e=document.querySelector('.msg.ai[data-mid=\"msg_a9\"]');e.scrollIntoView({block:'center'});const r=e.getBoundingClientRect();return {x:r.x+r.width/2,y:Math.max(60,r.y+10)}}")
                 await page.mouse.move(box2['x'], box2['y'])
                 await page.mouse.down()
                 await page.wait_for_timeout(600)
@@ -324,7 +356,7 @@ async def main():
                 await page.route('**/session/x/fork*', fork_route)
                 await page.click('#sheet .opt:nth-child(4)')
                 await page.wait_for_timeout(600)
-                check(f'{theme}_fork_request', len(fork_calls) == 1 and fork_calls[0] == {'messageID': 'msg_a1'}, str(fork_calls))
+                check(f'{theme}_fork_request', len(fork_calls) == 1 and fork_calls[0] == {'messageID': 'msg_a9'}, str(fork_calls))
 
                 await browser.close()
 
