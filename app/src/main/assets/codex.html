@@ -14,7 +14,7 @@
   --text:#0A0D12;--text-2:#6B6B6B;--accent:#0A84FF;
   --send-bg:#0A0D12;--send-tx:#FFFFFF;--surface-active:rgba(0,0,0,0.04);
   --dim:rgba(0,0,0,0.5);--shadow-drawer:4px 0 24px rgba(0,0,0,0.12);
-  --comp-bg:#FFFFFF;--comp-border:rgba(0,0,0,0.10);--comp-shadow:0 1px 3px rgba(0,0,0,0.08);--pill-proj:transparent;
+  --comp-bg:#FFFFFF;--comp-border:rgba(0,0,0,0.10);--comp-shadow:0 1px 3px rgba(0,0,0,0.08);--pill-proj:transparent;--sheet-bg:#FFFFFF;--ph:#6B6B6B;
   --ok:#1A9D55;--err:#D23B3B;--add:#E6F6EC;--del:#FDEAEA;--base-rgb:255,255,255;
   --bg:var(--base);--side:var(--surface-1);--card:var(--surface-2);--line:var(--border);
   --tx:var(--text);--mut:var(--text-2);--acc:var(--accent);--acctx:#FFFFFF;--r:var(--r-12);--bg-rgb:var(--base-rgb);
@@ -25,7 +25,7 @@
   --text:#FFFFFF;--text-2:#AAAAAA;--accent:#0A84FF;
   --send-bg:#FFFFFF;--send-tx:#212121;--surface-active:rgba(255,255,255,0.06);
   --dim:rgba(0,0,0,0.6);--shadow-drawer:4px 0 32px rgba(0,0,0,0.8);
-  --comp-bg:#303030;--comp-border:#424242;--comp-shadow:none;--pill-proj:#373737;
+  --comp-bg:#303030;--comp-border:#424242;--comp-shadow:none;--pill-proj:#373737;--sheet-bg:#181818;--ph:#AFAFAF;
   --ok:#50CB86;--err:#F17676;--add:#102A1B;--del:#341718;--base-rgb:33,33,33;
   --bg:var(--base);--side:var(--surface-1);--card:var(--surface-2);--line:var(--border);
   --tx:var(--text);--mut:var(--text-2);--acc:var(--accent);--acctx:#212121;--r:var(--r-12);--bg-rgb:var(--base-rgb);
@@ -115,11 +115,12 @@ tr:last-child td{border-bottom:0}
 .work{display:flex;align-items:center;gap:var(--s-8);color:var(--text-2);font-size:var(--fs-13)}
 .spin{width:14px;height:14px;border:2px solid var(--border);border-top-color:var(--text);border-radius:50%;animation:sp .8s linear infinite}
 @keyframes sp{to{transform:rotate(360deg)}}
-footer{position:relative;padding:var(--s-4) var(--s-12) var(--s-12);padding-bottom:max(var(--s-12),env(safe-area-inset-bottom));background:linear-gradient(to top,var(--base) 80%,rgba(var(--base-rgb),0) 100%)}
+footer{position:relative;padding:var(--s-4) var(--s-12) var(--s-12);padding-bottom:max(var(--s-12),env(safe-area-inset-bottom));background:var(--base)}
 footer::before{content:'';position:absolute;top:-24px;left:0;right:0;height:24px;background:linear-gradient(to top,rgba(var(--base-rgb),1),rgba(var(--base-rgb),0));pointer-events:none}
 .comp{border:1px solid var(--comp-border);border-radius:var(--r-28);padding:var(--s-8) var(--s-12);box-shadow:var(--comp-shadow);background:var(--comp-bg)}
 .comp:focus-within{box-shadow:0 0 0 3px rgba(10,132,255,0.2)}
 .comp textarea{width:100%;border:0;outline:0;resize:none;background:none;color:inherit;font:var(--fs-14)/1.45 -apple-system,"Segoe UI",Roboto,sans-serif;max-height:140px;min-height:24px;padding:var(--s-4) 0}
+.comp textarea::placeholder{color:var(--ph)}
 .crow{display:flex;align-items:center;gap:var(--s-4);margin-top:var(--s-4);min-width:0;width:100%}
 .comp-plus{width:44px;height:44px;min-width:44px;min-height:44px;border-radius:var(--r-8);display:grid;place-items:center;flex:none;color:var(--text-2)}
 .comp-plus:active{background:var(--surface-2);color:var(--text)}
@@ -178,7 +179,7 @@ span.ib-right-col{font-size:var(--fs-12);color:var(--text-2)}
 .sk-line{height:11px;background:var(--border);border-radius:6px;width:75%;animation:sk-pulse 1.2s ease-in-out infinite}
 .sk-line.short{width:45%}
 @keyframes sk-pulse{0%,100%{opacity:.35}50%{opacity:.8}}
-#sheet{position:absolute;left:0;right:0;bottom:0;background:var(--surface-1);border-radius:var(--r-20) var(--r-20) 0 0;z-index:7;transform:translateY(105%);transition:transform 250ms cubic-bezier(0.32,0.72,0,1);padding:var(--s-8) var(--s-16) max(var(--s-16),env(safe-area-inset-bottom));max-height:82dvh;overflow-y:auto;overscroll-behavior:contain;-webkit-overflow-scrolling:touch;box-shadow:0 -8px 32px rgba(0,0,0,.3)}
+#sheet{position:absolute;left:0;right:0;bottom:0;background:var(--sheet-bg);border-radius:var(--r-20) var(--r-20) 0 0;z-index:7;transform:translateY(105%);transition:transform 250ms cubic-bezier(0.32,0.72,0,1);padding:var(--s-8) var(--s-16) max(var(--s-16),env(safe-area-inset-bottom));max-height:82dvh;overflow-y:auto;overscroll-behavior:contain;-webkit-overflow-scrolling:touch;box-shadow:0 -8px 32px rgba(0,0,0,.3)}
 #sheet.on{transform:none}
 #sheet .grab{width:38px;height:4px;border-radius:2px;background:var(--border);margin:0 auto var(--s-12);cursor:grab;touch-action:none}
 #sheet .grab:active{cursor:grabbing;background:var(--text-2)}
@@ -206,6 +207,11 @@ span.ib-right-col{font-size:var(--fs-12);color:var(--text-2)}
 .settings-row svg{width:17px;height:17px}.muted{color:var(--text-2)}.error-note{color:var(--err)}
 .range{width:100%;accent-color:var(--accent)}.form-row{display:flex;gap:10px}.form-row>*{min-width:0;flex:1}
 .msg .attachments{margin:6px 0 0}.msg .attachment{max-width:260px}
+.edit-banner{display:flex;align-items:center;gap:var(--s-8);padding:var(--s-4) var(--s-12);color:var(--text-2);font-size:var(--fs-12)}
+.edit-banner[hidden]{display:none}
+.edit-banner button{margin-left:auto;width:36px;height:36px;min-width:36px;min-height:36px;display:grid;place-items:center;border-radius:var(--r-full);color:var(--text-2);background:none;border:none;cursor:pointer;font-size:var(--fs-16)}
+.lp-hint{font-size:var(--fs-12);color:var(--text-2);text-align:center;padding:var(--s-4)}
+.lp-wait,.lp-wait *{user-select:none!important;-webkit-user-select:none!important}
 :focus-visible{outline:none}
 @media(prefers-reduced-motion:reduce){#dim,#drawer,#sheet{transition:none}.spin{animation:none}}
 </style>
@@ -215,18 +221,19 @@ span.ib-right-col{font-size:var(--fs-12);color:var(--text-2)}
   <header>
     <button class="ib" id="menu" aria-label="menu"><svg viewBox="0 0 24 24"><rect x="3" y="4" width="18" height="16" rx="3"/><path d="M9 4v16"/></svg></button>
     <h1 id="title">New thread</h1>
-    <button class="pill" id="commit"><svg viewBox="0 0 24 24" style="width:15px;height:15px"><circle cx="12" cy="12" r="3"/><path d="M3 12h6M15 12h6"/></svg><span>Commit</span><svg viewBox="0 0 24 24" style="width:14px;height:14px"><path d="m6 9 6 6 6-6"/></svg></button>
+    <button class="pill" id="commit"><svg viewBox="0 0 24 24" style="width:15px;height:15px"><circle cx="12" cy="12" r="3"/><path d="M3 12h6M15 12h6"/></svg><span>Commit</span></button>
     <button class="ib" id="gear" aria-label="settings"><svg viewBox="0 0 24 24"><circle cx="12" cy="12" r="3"/><path d="M19.4 15a1.7 1.7 0 0 0 .3 1.8l.1.1a2 2 0 1 1-2.8 2.8l-.1-.1a1.7 1.7 0 0 0-1.8-.3 1.7 1.7 0 0 0-1 1.5V21a2 2 0 1 1-4 0v-.1a1.7 1.7 0 0 0-1.1-1.5 1.7 1.7 0 0 0-1.8.3l-.1.1a2 2 0 1 1-2.8-2.8l.1-.1a1.7 1.7 0 0 0 .3-1.8 1.7 1.7 0 0 0-1.5-1H3a2 2 0 1 1 0-4h.1a1.7 1.7 0 0 0 1.5-1.1 1.7 1.7 0 0 0-.3-1.8l-.1-.1a2 2 0 1 1 2.8-2.8l.1.1a1.7 1.7 0 0 0 1.8.3H9a1.7 1.7 0 0 0 1-1.5V3a2 2 0 1 1 4 0v.1a1.7 1.7 0 0 0 1 1.5 1.7 1.7 0 0 0 1.8-.3l.1-.1a2 2 0 1 1 2.8 2.8l-.1.1a1.7 1.7 0 0 0-.3 1.8V9a1.7 1.7 0 0 0 1.5 1H21a2 2 0 1 1 0 4h-.1a1.7 1.7 0 0 0-1.5 1z"/></svg></button>
   </header>
   <main id="main"></main>
   <footer>
+    <div id="editBanner" class="edit-banner" hidden><span>Editing · will fork from here</span><button id="editCancel" aria-label="Cancel editing">×</button></div>
     <div class="comp">
       <div id="attachments" class="attachments"></div>
       <textarea id="inp" rows="1" placeholder="Ask anything…"></textarea>
       <div class="crow">
         <button class="ib comp-plus" id="plus" aria-label="Add attachment"><svg viewBox="0 0 24 24"><path d="M12 5v14M5 12h14"/></svg></button>
         <button class="chip" id="cModel"><span>Default model</span><svg viewBox="0 0 24 24"><path d="m6 9 6 6 6-6"/></svg></button>
-        <button class="chip comp-eff" id="cEff"><span>Reasoning</span><svg viewBox="0 0 24 24"><path d="m6 9 6 6 6-6"/></svg></button>
+        <button class="chip comp-eff" id="cEff"><span>Default</span><svg viewBox="0 0 24 24"><path d="m6 9 6 6 6-6"/></svg></button>
         <button class="send" id="send" aria-label="Send message"><svg viewBox="0 0 24 24"><path d="M12 19V5M5 12l7-7 7 7"/></svg></button>
       </div>
     </div>
@@ -429,7 +436,7 @@ function sched(){if(raf)return;raf=requestAnimationFrame(()=>{raf=0;renderMsgs()
 /* ---------- sessions ---------- */
 function resetThread(id=null){
  S.view++;S.revision++;S.sid=id;S.msgs=new Map();S.perms=new Map();S.running=false;
- S.historyFiles=new Map();
+ S.historyFiles=new Map();S.changeHints=new Map();
  S.status={type:'idle'};S.lastErr=null;S.pendingUser=null;S.sending=false;setRun();
  S.attachments=[];renderAttachments();
  updateCommitButton();
@@ -554,7 +561,7 @@ function renderDrawer(){
  const st=$('#drawerProjects')?.scrollTop||0;
  const folderClosed='<svg viewBox="0 0 24 24"><path d="M4 20h16a2 2 0 0 0 2-2V8a2 2 0 0 0-2-2h-7.93a2 2 0 0 1-1.66-.9l-.82-1.2A2 2 0 0 0 7.93 3H4a2 2 0 0 0-2 2v13c0 1.1.9 2 2 2Z"/></svg>';
  const folderOpen='<svg viewBox="0 0 24 24"><path d="M4 20h16a2 2 0 0 0 2-2V8a2 2 0 0 0-2-2h-7.93a2 2 0 0 1-1.66-.9l-.82-1.2A2 2 0 0 0 7.93 3H4a2 2 0 0 0-2 2v13c0 1.1.9 2 2 2Z"/><path d="M2 10h20"/></svg>';
- let h=`<div class="drawer-header"><div class="drawer-top-bar"><button class="btn-new-thread" data-a="new">${I.edit}<span>New thread</span></button><button class="btn-add-proj" data-a="add" aria-label="Add project">${I.folder}</button></div><div class="sec">Threads</div></div><div id="drawerProjects" class="drawer-projects">`;
+ let h=`<div class="drawer-header"><div class="drawer-top-bar"><button class="btn-new-thread" data-a="new">${I.edit}<span>New thread</span></button><button class="btn-add-proj" data-a="add" aria-label="Add project">${I.plus}</button></div><div class="sec">Threads</div></div><div id="drawerProjects" class="drawer-projects">`;
  S.projects.forEach(p=>{
   const isCur=p.worktree===S.dir;
   const isOpen=S.expandedFolders.has(p.worktree);
@@ -703,17 +710,30 @@ $('#cEff').onclick=()=>{
   }
  });
 };
-$('#cPerm').onclick=()=>options('Permissions',['Default permissions','Read-only'],S.agent==='plan'?'Read-only':'Default permissions',i=>{S.agent=i===1?'plan':'build';lset('oc_agent',S.agent);chips()},['Ask before writing','No edits, no commands']);
+$('#cPerm').onclick=()=>{
+ const modes=['default','auto','plan'];
+ const labels=['Default permissions','Auto-approve','Read-only'];
+ const subs=['Ask before writing and commands','No confirmation prompts','No edits, no commands'];
+ options('Permissions',labels,modes.includes(S.agent)?S.agent:'default',i=>{
+  const v=modes[i];
+  if(v==='auto'&&!S.autoApproved){
+   S.autoApproved=true;lset('oc_auto_warn',true);
+   sheet('<h3>Auto-approve</h3><p class="note">The agent will edit files and run commands without asking for confirmation, including on SSH servers.</p><div class="btns"><button class="btn p" id="apYes">Enable</button><button class="btn" id="apNo">Cancel</button></div>');
+   $('#sheet').onclick=e=>{if(e.target.id==='apYes'){S.agent='auto';lset('oc_agent','auto');S.autoApproved=false;chips();closeAll()}if(e.target.id==='apNo'){S.autoApproved=false;closeAll()}};
+   return;
+  }
+  S.agent=v;lset('oc_agent',S.agent);chips();
+ },subs);
+};
 
 function updateCommitButton(){
  const btn=$('#commit');
  if(!btn)return;
  const icon='<svg viewBox="0 0 24 24" style="width:15px;height:15px"><circle cx="12" cy="12" r="3"/><path d="M3 12h6M15 12h6"/></svg>';
- const chev='<svg viewBox="0 0 24 24" style="width:14px;height:14px"><path d="m6 9 6 6 6-6"/></svg>';
  if(!S.sid){
   btn.style.opacity='0.35';
   btn.style.pointerEvents='none';
-  btn.innerHTML=`${icon}<span>Commit</span>${chev}`;
+  btn.innerHTML=`${icon}<span>Commit</span>`;
   return;
  }
  btn.style.opacity='1';
@@ -726,11 +746,7 @@ function updateCommitButton(){
    del+=(f.deletions||0);
   }
  }
- if(add>0||del>0){
-  btn.innerHTML=`${icon}<span>+${add} &minus;${del}</span>${chev}`;
- }else{
-  btn.innerHTML=`${icon}<span>Commit</span>${chev}`;
- }
+ btn.innerHTML=add>0||del>0?`${icon}<span>+${add} &minus;${del}</span>`:`${icon}<span>Commit</span>`;
 }
 
 function chips(){
@@ -738,7 +754,7 @@ function chips(){
  const modelName=m?m.mn:(S.model?S.model.m:'Default model');
  const cleanModel=String(modelName).replace(/\s*(?:Free|Basic)\s*[·]?\s*$/i,'').trim()||modelName;
  const keys=modelEffortKeys(m),eff=S.efforts[modelKey()];
- const effLbl=eff?effortLabel(eff,keys):'Reasoning';
+ const effLbl=eff?effortLabel(eff,keys):'Default';
  const cModel=$('#cModel');
  if(cModel){const s=cModel.querySelector('span');if(s)s.textContent=cleanModel}
  const cEff=$('#cEff');
@@ -751,7 +767,7 @@ function chips(){
   cEnv.classList.toggle('danger',!!(conn&&S.agent!=='plan'));
  }
  const cPerm=$('#cPerm');
- if(cPerm){const s=cPerm.querySelector('span');if(s)s.textContent=S.agent==='plan'?'Read-only':'Default permissions'}
+ if(cPerm){const s=cPerm.querySelector('span');if(s)s.textContent=S.agent==='plan'?'Read-only':S.agent==='auto'?'Auto-approve':'Default permissions';cPerm.classList.toggle('danger',S.agent==='auto')}
  const cSearch=$('#cSearch');
  if(cSearch)cSearch.hidden=!S.webSearch;
  updateCommitButton();
@@ -799,10 +815,11 @@ function patchCounts(patch){
  }
  return {additions,deletions};
 }
-function changeCounts(d){if(d.unknown)return '<span class="counts m">Reading history…</span>';return `<span class="counts">${d.additions?`<span class="ok">+${d.additions}</span>`:''}${d.additions&&d.deletions?' ':''}${d.deletions?`<span class="er">−${d.deletions}</span>`:''}${!d.additions&&!d.deletions?'<span class="m">0</span>':''}</span>`}
+function changeCounts(d){if(d.unknown)return '<span class="counts m">No diff recorded</span>';return `<span class="counts">${d.additions?`<span class="ok">+${d.additions}</span>`:''}${d.additions&&d.deletions?' ':''}${d.deletions?`<span class="er">−${d.deletions}</span>`:''}${!d.additions&&!d.deletions?'<span class="m">0</span>':''}</span>`}
 function changeBubble(d,attributes=''){
  const counts=d.unknown?d:d.additions==null?patchCounts(d.patch):d;
  if(d.commit)attributes+=` data-history-commit="${esc(d.commit)}" data-history-key="${esc(d.key)}"`;
+ if(d.unknown||!(counts.additions||counts.deletions))return `<div class="card" ${attributes}><div class="ch">${I.file}<span title="${esc(d.file||'File')}">${esc(d.file||'File')}</span>${d.source==='ssh'?'<small class="change-source">SSH</small>':''}${changeCounts(counts)}</div></div>`;
  return `<details class="card change-card" ${attributes}><summary class="ch">${I.file}<span title="${esc(d.file||'File')}">${esc(d.file||'File')}</span>${d.source==='ssh'?'<small class="change-source">SSH</small>':''}${changeCounts(counts)}</summary><div class="change-preview">${d.patch?dl(d.patch.split('\n')):''}</div></details>`;
 }
 function changeKey(p){return p.messageID+':'+p.callID}
@@ -1109,16 +1126,17 @@ async function loadConnections(){
 async function connectionSheet(manage=false){
  await loadConnections();
  const conn=selectedConnection();
- let h=`<h3>${manage?'SSH connections':'Run environment & Agent'}</h3>`;
+ let h='<h3>Environment</h3>';
  if(!manage){
-  h+=`<div class="sheet-sec-title">Agent mode</div><div class="form-row" style="margin-bottom:12px"><button class="btn ${S.agent==='build'?'p':''}" data-agent="build">Build <small style="font-size:11px;font-weight:normal">(edit & run)</small></button><button class="btn ${S.agent==='plan'?'p':''}" data-agent="plan">Plan <small style="font-size:11px;font-weight:normal">(read only)</small></button></div><div class="sheet-sec-title">Environment</div><button class="opt ${!conn?'sel':''}" data-connection=""><svg viewBox="0 0 24 24"><rect x="4" y="4" width="16" height="16" rx="2"/><rect x="9" y="9" width="6" height="6"/></svg>Local<span class="m">This device</span></button>`;
+  const agents=[['build','Build','Edit files and run commands'],['plan','Plan','Read only, no changes']];
+  h+='<div class="sheet-sec-title">Agent</div>'+agents.map(([id,lbl,sub])=>`<button class="opt ${S.agent===id?'sel':''}" data-agent="${id}">${lbl}<span class="m">${sub}</span></button>`).join('')+'<div class="sheet-sec-title">Connection</div><button class="opt '+(S.agent!=='auto'&&!conn?'sel':'')+'" data-connection=""><svg viewBox="0 0 24 24" style="width:18px;height:18px;stroke:currentColor;fill:none;stroke-width:1.8;stroke-linecap:round;stroke-linejoin:round;flex:none"><rect x="4" y="4" width="16" height="16" rx="2"/><rect x="9" y="9" width="6" height="6"/></svg>Local<span class="m">This device</span></button>';
+  if(!S.connections.length)h+='<div class="note" style="padding:0 var(--s-8)">No SSH connections</div>';
  }
- h+=S.connections.map(c=>`<button class="opt settings-row ${c.id===S.connectionID?'sel':''}" data-connection="${esc(c.id)}">${I.term}${esc(c.name)}<span class="m">${manage?'Edit':esc(c.host)}</span></button>`).join('')+(!S.connections.length?'<div class="empty-state"><div class="empty-icon">'+I.term+'</div><h3>No SSH connections yet</h3><p class="note">Add an SSH server to run commands and edit files remotely.</p></div>':'')+'<div class="btns"><button class="btn p" id="sa">Add connection</button>'+(manage?'<button class="btn" id="settingsBack">Back</button>':'<button class="btn '+(S.webSearch?'p':'')+'" id="swSearch">Web search: '+(S.webSearch?'On':'Off')+'</button>')+'</div>';
+ h+=S.connections.map(c=>`<button class="opt ${c.id===S.connectionID?'sel':''}" data-connection="${esc(c.id)}">${I.term}${esc(c.name)}<span class="m">${manage?'Edit':esc(c.host)}</span></button>`).join('')+'<div class="btns"><button class="btn p" id="sa">'+(S.connections.length?'Add connection':'Add SSH connection')+'</button>'+(manage?'<button class="btn" id="settingsBack">Back</button>':'')+'</div>';
  sheet(h);
  $('#sheet').onclick=e=>{
   const b=e.target.closest('button');if(!b)return;
   if(b.dataset.agent){S.agent=b.dataset.agent;lset('oc_agent',S.agent);chips();connectionSheet(manage);return}
-  if(b.id==='swSearch'){toggleSearch();connectionSheet(manage);return}
   if(b.dataset.connection!==undefined){if(manage)connectionForm(S.connections.find(c=>c.id===b.dataset.connection));else{S.connectionID=b.dataset.connection||null;lset('oc_connection',S.connectionID);chips();closeAll()}}
   if(b.id==='sa')connectionForm();
   if(b.id==='settingsBack')settingsSheet();
@@ -1397,6 +1415,31 @@ function renderMarkdown(md){
  codeBlocks.forEach((block,i)=>{s=s.replace(`%%CODEBLOCK${i}%%`,block)});
  return s;
 }
+function errorMeta(e){
+ const msg=readableError((e.data&&e.data.message)||e.message||e.name||'Request failed');
+ const code=e.data&&(e.data.statusCode||e.data.status)||e.statusCode||'';
+ const retryIn=e.data&&e.data.retryAfter?e.data.retryAfter:(e.retryAfter||'');
+ return {msg:String(msg),code:code?String(code):'',retryIn:retryIn?String(retryIn):''};
+}
+function errorCardHTML(e,mid){
+ const {msg,code,retryIn}=errorMeta(e);
+ const m=currentModel();
+ const modelName=m?`${m.pn} · ${m.mn}`:'current model';
+ return `<div class="card error-card" ${mid?`data-mid="${esc(mid)}"`:''}><div class="ch er">${I.bot}<span class="tool-action">${esc(modelName)}</span>${code?`<span class="m er">${esc(code)}</span>`:''}<span class="m er">Failed</span></div><pre class="er-body">${esc(msg)}${retryIn?`\nRetry after ${esc(retryIn)}s`:''}</pre><div class="btns"><button class="btn p" data-erract="retry">Retry</button><button class="btn" data-erract="model">Switch model</button></div></div>`;
+}
+function lastUserText(){
+ const list=[...S.msgs.values()].filter(x=>x.info.role==='user').sort((a,b)=>a.info.id<b.info.id?1:-1);
+ for(const x of list){
+  const t=[...x.parts.values()].filter(p=>p.type==='text'&&!p.synthetic).map(p=>p.text).join('\n').trim();
+  if(t)return t;
+ }
+ return '';
+}
+async function resendPrompt(text){
+ if(!S.sid||S.running||!text)return;
+ $('#inp').value=text;autosize();
+ await submit();
+}
 function renderMsgs(force){
  if(!S.sid)return;
  const m=$('#main');
@@ -1405,13 +1448,13 @@ function renderMsgs(force){
  const list=[...S.msgs.values()].sort((a,b)=>a.info.id<b.info.id?-1:1);
  S.renderedRemoteRuns=new Set();
  const claimedRuns=new Set();
- let h='';
+ let h='',hadMsgError=false;
  list.forEach(x=>{
   const parts=[...x.parts.values()];
   if(x.info.role==='user'){
    const t=parts.filter(p=>p.type==='text'&&!p.synthetic).map(p=>p.text).join('\n');
    const files=parts.filter(p=>p.type==='file');
-   if(t||files.length)h+=`<div class="msg user">${esc(t)}${files.length?'<div class="attachments">'+attachmentHtml(files,false)+'</div>':''}</div>`;
+   if(t||files.length)h+=`<div class="msg user" data-mid="${esc(x.info.id)}" data-utext="${esc(t)}">${esc(t)}${files.length?'<div class="attachments">'+attachmentHtml(files,false)+'</div>':''}</div>`;
   }else{
    parts.forEach(p=>{
     if(p.type==='text'&&p.text){
@@ -1420,7 +1463,7 @@ function renderMsgs(force){
       const openAttr=openDetails.has(p.id+'_think')?' open':'';
       h+=`<details class="card thinking-card" data-part="${esc(p.id+'_think')}"${openAttr}><summary class="ch"><span>Thinking</span><span class="caret m">${I.down}</span></summary><pre style="white-space:pre-wrap">${esc(thoughts)}</pre></details>`;
      }
-     if(text)h+=`<div class="msg ai">${renderMarkdown(text)}</div>`;
+     if(text)h+=`<div class="msg ai" data-mid="${esc(x.info.id)}" data-raw="${esc(p.text)}">${renderMarkdown(text)}</div>`;
     }else if(p.type==='reasoning'){
      const rText=(p.text||'').trim();
      if(rText||(S.running&&p.time&&!p.time.end)){
@@ -1429,13 +1472,14 @@ function renderMsgs(force){
      }
     }else if(p.type==='tool')h+=toolCard(p,claimedRuns);
    });
-   if(x.info.error){const e=x.info.error;h+=`<div class="card error-card"><div class="ch er">Error<span class="m er">Failed</span></div><pre class="er-body">${esc(readableError((e.data&&e.data.message)||e.message||e.name||'Request failed'))}</pre></div>`}
+   if(x.info.error){const e=x.info.error;h+=errorCardHTML(e,x.info.id);hadMsgError=true}
   }
  });
  [...S.perms.values()].forEach(p=>{h+=permCard(p)});
  for(const r of S.remoteRuns.values())if(r.sessionID===S.sid&&!S.renderedRemoteRuns.has(r.id)&&r.status==='running')h+=remoteCard(r);
- if(S.lastErr)h+=`<div class="card error-card"><div class="ch er">Error<span class="m er">Failed</span></div><pre class="er-body">${esc(readableError(S.lastErr))}</pre></div>`;
+ if(S.lastErr&&!hadMsgError)h+=`<div class="card error-card"><div class="ch er">Error<span class="m er">Failed</span></div><pre class="er-body">${esc(readableError(S.lastErr))}</pre></div>`;
  if(S.running)h+='<div class="work"><div class="spin"></div>'+esc(S.status.type==='retry'?'Retry '+S.status.attempt+': '+redact(S.status.message):'Working...')+'</div>';
+ if(!LS('oc_lp_hint'))h+='<div class="lp-hint">Long-press a message for actions</div>';
  if(S.pendingUser)h+=`<div class="msg user">${esc(S.pendingUser)}</div>`;
  m.innerHTML=h;
  if(near)m.scrollTop=m.scrollHeight;
@@ -1451,6 +1495,13 @@ $('#main').addEventListener('toggle',async e=>{
  }catch(error){if(view===S.view&&card.isConnected)preview.textContent=error.message}
 },true);
 $('#main').onclick=async e=>{
+ const ea=e.target.closest('[data-erract]');
+ if(ea){
+  const act=ea.dataset.erract;
+  if(act==='retry'){const t=lastUserText();if(t)resendPrompt(t)}
+  else if(act==='model')$('#cModel').click();
+  return;
+ }
  const b=e.target.closest('[data-r]');if(!b)return;
  const c=b.closest('[data-pid]'),p=S.perms.get(c.dataset.pid);if(!p)return;
  b.disabled=true;
@@ -1465,6 +1516,102 @@ async function replyPerm(p,r){
 
 /* ---------- send ---------- */
 function setRun(){$('#send').innerHTML=S.running?I.stop:I.up}
+function copyText(text){
+ if(!text)return;
+ if(navigator.clipboard&&navigator.clipboard.writeText)navigator.clipboard.writeText(text).catch(()=>fallbackCopy(text));
+ else fallbackCopy(text);
+}
+function selectText(el){
+ try{const r=document.createRange();r.selectNodeContents(el);const s=getSelection();s.removeAllRanges();s.addRange(r)}catch(e){}
+}
+async function forkSession(messageID){
+ if(!S.sid)throw new Error('No thread.');
+ if(!specFind(/^\/session\/\{[^}]+\}\/fork$/,'post'))throw new Error('Fork is not supported by this server version.');
+ return await api('/session/'+encodeURIComponent(S.sid)+'/fork',{method:'POST',body:{messageID},directory:S.dir});
+}
+async function forkAndOpen(messageID){
+ try{
+  const forked=await forkSession(messageID);
+  if(!forked||!forked.id)throw new Error('Fork failed.');
+  await setDir(S.dir,forked.id);
+ }catch(e){sheet('<h3>Fork</h3><p class="note error-note">'+esc(redact(e.message))+'</p><div class="btns"><button class="btn" onclick="closeAll()">Close</button></div>')}
+}
+function startEditResend(mid,text){
+ S.editing={mid,text};renderEditBanner();
+ $('#inp').value=text;autosize();$('#inp').focus();
+}
+function cancelEdit(){S.editing=null;renderEditBanner();$('#inp').value='';autosize()}
+function renderEditBanner(){const b=$('#editBanner');if(b)b.hidden=!S.editing}
+$('#editCancel').onclick=cancelEdit;
+let lpTimer=null,lpXY=null;
+function fireContextMenu(target){
+ if(!LS('oc_lp_hint'))lset('oc_lp_hint',true);
+ if(navigator.vibrate)navigator.vibrate(10);
+ const um=target.closest('.msg.user');
+ if(um){
+  const text=(um.dataset.utext||'').trim();
+  contextMenu('Message',[
+   {label:'Copy',fn:()=>copyText(text)},
+   text&&um.dataset.mid?{label:'Edit & resend',fn:()=>startEditResend(um.dataset.mid,text)}:null,
+   text?{label:'Resend',fn:()=>resendPrompt(text)}:null,
+   {label:'Select text',fn:()=>selectText(um)}
+  ]);return;
+ }
+ const am=target.closest('.msg.ai');
+ if(am){
+  const raw=am.dataset.raw||am.innerText||'';
+  contextMenu('Message',[
+   {label:'Copy',fn:()=>copyText(raw)},
+   {label:'Retry',fn:()=>{const t=lastUserText();if(t)resendPrompt(t)}},
+   {label:'Retry with another model…',fn:()=>{
+    const L=allModels();if(!L.length)return;
+    options('Model',L.map(x=>x.mn),null,i=>{S.model={p:L[i].p,m:L[i].m};lset('oc_model',S.model);chips();const t=lastUserText();if(t)resendPrompt(t)},L.map(x=>x.pn));
+   }},
+   am.dataset.mid?{label:'Fork from here',fn:()=>forkAndOpen(am.dataset.mid)}:null,
+   {label:'Select text',fn:()=>selectText(am)}
+  ]);return;
+ }
+ const card=target.closest('.card');if(!card)return;
+ if(card.classList.contains('change-card')||card.querySelector('.change-preview')){
+  const path=card.querySelector('.ch span')?.getAttribute('title')||card.querySelector('.ch span')?.textContent||'';
+  const diff=card.querySelector('.change-preview')?.innerText||'';
+  contextMenu('Change',[
+   {label:'Copy path',fn:()=>copyText(path)},
+   {label:'Copy diff',fn:()=>copyText(diff)}
+  ]);return;
+ }
+ const out=card.querySelector('.collapsible-output pre');
+ if(out){
+  const cmd=card.querySelector('.tool-action')?.textContent||'';
+  const body=out.textContent.replace(/^\$ [^\n]*\n?/,'');
+  contextMenu('Command',[
+   {label:'Copy command',fn:()=>copyText(cmd)},
+   {label:'Copy output',fn:()=>copyText(body)}
+  ]);
+ }
+}
+function contextMenu(title,items){
+ let h='<h3>'+esc(title)+'</h3><div>';
+ items.forEach((it,i)=>{if(!it)return;h+=`<button class="opt" data-cmi="${i}">${esc(it.label)}</button>`});
+ h+='</div>';
+ sheet(h);
+ $('#sheet').onclick=e=>{
+  const b=e.target.closest('[data-cmi]');if(!b)return;
+  const it=items[+b.dataset.cmi];closeAll();
+  if(it&&it.fn)setTimeout(it.fn,60);
+ };
+}
+$('#main').addEventListener('contextmenu',e=>e.preventDefault());
+$('#main').addEventListener('pointerdown',e=>{
+ if(e.pointerType==='mouse'&&e.button!==0)return;
+ lpXY={x:e.clientX,y:e.clientY};
+ $('#main').classList.add('lp-wait');
+ lpTimer=setTimeout(()=>{lpTimer=null;$('#main').classList.remove('lp-wait');fireContextMenu(e.target)},420);
+},{passive:true});
+function lpCancel(){if(lpTimer){clearTimeout(lpTimer);lpTimer=null}$('#main').classList.remove('lp-wait')}
+$('#main').addEventListener('pointermove',e=>{if(lpTimer&&lpXY&&(Math.abs(e.clientX-lpXY.x)>10||Math.abs(e.clientY-lpXY.y)>10))lpCancel()},{passive:true});
+$('#main').addEventListener('pointerup',lpCancel,{passive:true});
+$('#main').addEventListener('pointercancel',lpCancel,{passive:true});
 async function submit(){
  const dir=S.dir,view=S.view;
  if(S.sending)return;
@@ -1486,6 +1633,13 @@ async function submit(){
    if(!list.some(x=>x.id===s.id))list.unshift(s);
    S.folderSessions.set(dir,list);
   }
+  if(S.editing){
+   const edit=S.editing;S.editing=null;renderEditBanner();
+   const forked=await forkSession(edit.mid);if(view!==S.view||dir!==S.dir)return;
+   if(!forked||!forked.id)throw new Error('Fork is not available.');
+   S.sid=forked.id;S.sessions.unshift(forked);S.msgs=new Map();S.perms=new Map();
+   const flist=S.folderSessions.get(dir)||[];if(!flist.some(x=>x.id===forked.id))flist.unshift(forked);S.folderSessions.set(dir,flist);
+  }
   const cleanTitle=(v||'New thread').slice(0,50).trim();
   S.sessionFirstMsg.set(S.sid,cleanTitle);
   $('#title').textContent=cleanTitle;
@@ -1506,13 +1660,16 @@ async function submit(){
    await nativeCall('sessionContext',{sessionID:sid,connectionID:connection.id});if(view!==S.view)return;
    body.system=`Run commands and read or edit files on the selected SSH connection only. connection_id=${connection.id}; session_id=${sid}; working directory=${connection.directory||'home'}. Use mobile_ssh tools and include this session_id in every call. Do not run local shell or file tools. Never expose credentials.`;
    for(const tool of ['bash','read','write','edit','apply_patch','glob','grep','task'])body.tools[tool]=false;
-   if(S.agent==='plan'){body.tools.mobile_ssh_ssh_exec=false;body.tools.mobile_ssh_ssh_write_file=false}
+   if(S.agent!=='auto'){body.tools.mobile_ssh_ssh_exec=S.agent==='build';body.tools.mobile_ssh_ssh_write_file=S.agent==='build'}
+  }else if(S.agent==='auto'){
+   for(const tool of ['bash','read','write','edit','apply_patch','glob','grep','task'])body.tools[tool]=true;
   }
   if(S.webSearch)body.system=(body.system||'')+' Use the websearch tool when web information is needed.';
   // prompt_async's deprecated tools booleans turn enabled tools into "allow".
   // Explicit session rules keep remote commands and file writes behind approval.
   await localPolicy(sid,dir);
-  const permission=Object.entries(body.tools).map(([tool,enabled])=>({permission:tool,pattern:'*',action:enabled?(['mobile_ssh_ssh_exec','mobile_ssh_ssh_write_file'].includes(tool)?'ask':'allow'):'deny'}));
+  const auto=S.agent==='auto';
+  const permission=Object.entries(body.tools).map(([tool,enabled])=>({permission:tool,pattern:'*',action:enabled?(auto?'allow':['mobile_ssh_ssh_exec','mobile_ssh_ssh_write_file'].includes(tool)?'ask':'allow'):'deny'}));
   if(!connection)permission.push(...await restoreLocalRules(sid,dir,body.agent));
   delete body.tools;
   if(view!==S.view||dir!==S.dir)return;
