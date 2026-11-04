@@ -1197,7 +1197,7 @@ function runDisclosure(row,opening){
  const token=++disclosureSeq;
  // Tall bodies get proportionally more time so a group glides open instead of
  // flying up in a blink; the cap keeps small rows snappy.
- const duration=Math.round(Math.min(450,Math.max(200,Math.abs(toN-fromN)*0.35)));
+ const duration=Math.round(Math.min(280,Math.max(160,Math.abs(toN-fromN)*0.18)));
  // fill:forwards pins the end height until cancel, so there is no full-height flash
  // between the animation's end time and this onfinish cleanup.
  const motion=content.animate([{height:fromVal},{height:toVal}],{duration,fill:'forwards',easing:opening?'cubic-bezier(.2,0,0,1)':'cubic-bezier(.4,0,1,1)'});
