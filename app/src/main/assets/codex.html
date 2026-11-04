@@ -70,7 +70,7 @@ main>*{flex-shrink:0}
 .sug-title{font-size:var(--fs-14);font-weight:500;color:var(--text)}
 .sug-desc{font-size:var(--fs-12);color:var(--text-2)}
 .msg.user{align-self:flex-end;background:var(--surface-2);border-radius:var(--r-12);padding:9px 13px;max-width:86%;white-space:pre-wrap;color:var(--text)}
-.msg.user.photo-only{background:none;padding:0;border-radius:0;max-width:100%}
+#feed>.attachments{align-self:flex-end;justify-content:flex-end}
 .msg.ai{color:var(--text);white-space:normal;font-size:var(--fs-16);line-height:1.6;margin-top:14px;font-family:Georgia,"Noto Serif","PT Serif","Droid Serif",serif}
 .msg.ai pre,.msg.ai code,.msg.ai .code-block{font-family:ui-monospace,Menlo,monospace}
 .msg.ai table,.msg.ai .table-wrap{font-family:-apple-system,"Segoe UI",Roboto,sans-serif}
@@ -3603,7 +3603,9 @@ function renderMsgs(force){
   if(item.type==='work')h+=workSummaryHtml(item.block);
   else if(item.type==='user'){
    const parts=[...x.parts.values()],t=parts.filter(p=>p.type==='text'&&!p.synthetic).map(p=>p.text).join('\n'),files=parts.filter(p=>p.type==='file');
-   if(t||files.length)h+=`<div class="msg user${!t&&files.length?' photo-only':''}" data-mid="${esc(x.info.id)}" data-utext="${esc(t)}">${esc(t)}${files.length?'<div class="attachments">'+attachmentHtml(files,false)+'</div>':''}</div>`;
+   const att=files.length?'<div class="attachments">'+attachmentHtml(files,false)+'</div>':'';
+   if(t)h+=att+`<div class="msg user" data-mid="${esc(x.info.id)}" data-utext="${esc(t)}">${esc(t)}</div>`;
+   else if(files.length)h+=att;
   }else if(item.type==='text')h+=`<div class="msg ai" data-mid="${esc(x.info.id)}" data-raw="${esc(item.segment.text)}">${renderMarkdown(item.segment.text)}</div>`;
   else if(item.type==='file')h+='<div class="attachments">'+attachmentHtml([item.part],false)+'</div>';
   else if(item.type==='error'){h+=errorCardHTML(x.info.error,x.info.id);hadMsgError=true}
