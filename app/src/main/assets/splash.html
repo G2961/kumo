@@ -5,42 +5,34 @@
 <meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">
 <title>kumo</title>
 <style>
+:root{--bg:#FFFFFF;--tx:#2A2D31;--mut:#6B6B6B;--dim:#9A9A9A;--btn-bg:#111111;--btn-tx:#FFFFFF}
+:root[data-theme=dark]{--bg:#1B1B1B;--tx:#F2F2F2;--mut:#B4B4B4;--dim:#8A8A8A;--btn-bg:#FFFFFF;--btn-tx:#111111}
 html,body{height:100%;margin:0}
 body{
   display:grid;place-items:center;
   font:15px/1.5 -apple-system,"Segoe UI",Roboto,sans-serif;
-  background:#FFFFFF;color:#2A2D31;
+  background:var(--bg);color:var(--tx);
   overflow:hidden;user-select:none;-webkit-user-select:none;
-}
-@media(prefers-color-scheme:dark){
-  body{background:#1B1B1B;color:#F2F2F2}
 }
 main{display:flex;flex-direction:column;align-items:center;text-align:center;padding:24px}
 .cloud{width:104px;height:104px;margin-bottom:20px}
-.cloud .outline{stroke:#2A2D31;transition:stroke .3s}
+.cloud .outline{stroke:var(--tx);transition:stroke .3s}
 .cloud .arc{stroke:#0A84FF}
 body.error .cloud .outline{stroke:#D23B3B}
 body.error .cloud .arc{display:none}
-@media(prefers-color-scheme:dark){
-  .cloud .outline{stroke:#F2F2F2}
-  body.error .cloud .outline{stroke:#F17676}
-}
 .arc-anim{stroke-dasharray:18 130;animation:arc-run 2.2s linear infinite}
 @keyframes arc-run{from{stroke-dashoffset:-148}to{stroke-dashoffset:0}}
 @media(prefers-reduced-motion:reduce){.arc-anim{animation:none}}
 h1{font-size:34px;font-weight:700;letter-spacing:-.02em;margin:0 0 10px}
 h1 .kanji{font-size:23px;font-weight:500;opacity:.5;margin-left:10px}
-#status{color:#6B6B6B;margin:0;min-height:1.5em;overflow-wrap:anywhere;max-width:78vw}
-@media(prefers-color-scheme:dark){#status{color:#B4B4B4}}
-#long{color:#9A9A9A;font-size:13px;margin:8px 0 0;opacity:0;transition:opacity .6s}
-@media(prefers-color-scheme:dark){#long{color:#8A8A8A}}
+#status{color:var(--mut);margin:0;min-height:1.5em;overflow-wrap:anywhere;max-width:78vw}
+#long{color:var(--dim);font-size:13px;margin:8px 0 0;opacity:0;transition:opacity .6s}
 #long.on{opacity:1}
 #retry{
   display:none;margin-top:26px;padding:11px 26px;border:0;border-radius:12px;cursor:pointer;
-  background:#111111;color:#FFFFFF;
+  background:var(--btn-bg);color:var(--btn-tx);
   font-size:15px;font-weight:600;
 }
-@media(prefers-color-scheme:dark){#retry{background:#FFFFFF;color:#111111}}
 #retry:active{opacity:.8}
 body.error #retry{display:inline-block}
 </style>
@@ -59,6 +51,10 @@ body.error #retry{display:inline-block}
   <button id="retry" type="button">Повторить</button>
 </main>
 <script>
+/* Theme arrives via ?theme= from the app (the user's chosen theme), falling back to the system. */
+const themeParam=new URLSearchParams(location.search).get('theme');
+document.documentElement.dataset.theme=themeParam==='dark'||themeParam==='light'?themeParam:
+  (matchMedia('(prefers-color-scheme:dark)').matches?'dark':'light');
 const body=document.body,statusEl=document.getElementById('status'),
       longEl=document.getElementById('long'),retryEl=document.getElementById('retry');
 let longTimer=null,active=true;

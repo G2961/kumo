@@ -197,15 +197,15 @@ class MainActivity : ComponentActivity(), LocalRuntime.Listener {
         webview = WebView(this).apply {
             visibility = View.VISIBLE
             overScrollMode = View.OVER_SCROLL_NEVER
-            val night = (resources.configuration.uiMode and android.content.res.Configuration.UI_MODE_NIGHT_MASK) ==
-                android.content.res.Configuration.UI_MODE_NIGHT_YES
-            setBackgroundColor(if (night) Color.parseColor("#1B1B1B") else Color.WHITE)
+            setBackgroundColor(splashBackground())
         }
         configureWebview(webview)
         root.addView(webview, FrameLayout.LayoutParams(
             ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.MATCH_PARENT))
         // The new splash doubles as the status screen while the server boots.
-        webview.loadUrl("file:///android_asset/splash.html")
+        // The theme rides in the URL: the app's chosen theme, not the system's.
+        val themePref = getSharedPreferences("app", Context.MODE_PRIVATE).getString("uiTheme", null)
+        webview.loadUrl("file:///android_asset/splash.html" + if (themePref != null) "?theme=$themePref" else "")
 
         setContentView(root)
         // With edge-to-edge, adjustResize no longer resizes for the IME; apply the
@@ -225,6 +225,15 @@ class MainActivity : ComponentActivity(), LocalRuntime.Listener {
                 runOnUiThread { if (trustedUi) webview.evaluateJavascript(js, null) }
             }
             insets
+        }
+    }
+
+    private fun splashBackground(): Int {
+        return when (getSharedPreferences("app", Context.MODE_PRIVATE).getString("uiTheme", null)
+            ?: if ((resources.configuration.uiMode and android.content.res.Configuration.UI_MODE_NIGHT_MASK) ==
+                android.content.res.Configuration.UI_MODE_NIGHT_YES) "dark" else "light") {
+            "dark" -> Color.parseColor("#1B1B1B")
+            else -> Color.WHITE
         }
     }
 
@@ -423,6 +432,9 @@ class MainActivity : ComponentActivity(), LocalRuntime.Listener {
                         "appearance" -> {
                             runOnUiThread {
                                 val dark = data.optString("theme") == "dark"
+                                // Remember the user's chosen theme for the splash on the next cold start.
+                                getSharedPreferences("app", Context.MODE_PRIVATE).edit()
+                                    .putString("uiTheme", if (dark) "dark" else "light").apply()
                                 // Paint the system bars with the page's own surface color: the
                                 // legacy scrim must match --base or it reads as a foreign strip.
                                 val color = try {
