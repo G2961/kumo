@@ -56,8 +56,10 @@ main>*{flex-shrink:0}
 .home-proj-dot{width:8px;height:8px;border-radius:var(--r-full);background:var(--accent);flex:none}
 .home-sec{display:flex;flex-direction:column;gap:var(--s-8);width:100%}
 .home-sec-title{font-size:var(--fs-12);font-weight:600;text-transform:uppercase;letter-spacing:0.04em;color:var(--text-2)}
-.home-icon{display:grid;place-items:center;color:var(--text-2)}
-.home-icon svg{width:48px;height:48px;stroke:currentColor;fill:none;stroke-width:1.5;stroke-linecap:round;stroke-linejoin:round}
+.home-icon{display:grid;place-items:center}
+.home-icon img{width:96px;height:96px;object-fit:contain;animation:home-bob 3.2s ease-in-out infinite}
+@keyframes home-bob{0%,100%{transform:translateY(0)}50%{transform:translateY(-5px)}}
+@media(prefers-reduced-motion:reduce){.home-icon img{animation:none}}
 .home-recents{display:flex;flex-direction:column;gap:var(--s-8);width:100%}
 .home-recent-row{display:flex;align-items:center;gap:var(--s-8);padding:0 var(--s-16);height:48px;min-height:48px;background:var(--surface-1);border:1px solid var(--border);border-radius:var(--r-12);width:100%;text-align:left;cursor:pointer;box-sizing:border-box}
 .home-recent-row:active{background:var(--surface-2)}
@@ -2506,7 +2508,7 @@ function renderHome(){
  const m=$('#main');
  const proj=projName(S.dir);
  m.innerHTML=`<div class="home">
-  <div class="home-icon"><svg viewBox="0 0 48 48" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"><path d="M24 8c-5 0-9.3 3.2-10.8 7.8A8.5 8.5 0 0 0 6 24a8.5 8.5 0 0 0 8.5 8.5h19A8.5 8.5 0 0 0 42 24a8.5 8.5 0 0 0-6.6-8.3C33.8 11 29.3 8 24 8Z"/><path d="m19 19.5-4 4.5 4 4.5" stroke-width="2"/><path d="m29 19.5 4 4.5-4 4.5" stroke-width="2"/></svg></div>
+  <div class="home-icon"><img src="kumo_hello.png" alt=""></div>
   <h2>Let's build</h2>
   <button class="home-proj-btn" id="homeProj"><svg viewBox="0 0 24 24" style="width:16px;height:16px;stroke:currentColor;fill:none;stroke-width:1.8;stroke-linecap:round;stroke-linejoin:round;flex:none"><path d="M4 20h16a2 2 0 0 0 2-2V8a2 2 0 0 0-2-2h-7.93a2 2 0 0 1-1.66-.9l-.82-1.2A2 2 0 0 0 7.93 3H4a2 2 0 0 0-2 2v13c0 1.1.9 2 2 2Z"/></svg>${esc(proj)}<svg viewBox="0 0 24 24" style="width:14px;height:14px"><path d="m6 9 6 6 6-6"/></svg></button>
  </div>`;

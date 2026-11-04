@@ -340,6 +340,19 @@ class MainActivity : ComponentActivity(), LocalRuntime.Listener {
                         mapOf("Cache-Control" to "no-store"), assets.open("thread-preview.html")
                     )
                 }
+                if (u.host == "127.0.0.1" && u.port == runtime.authPort && u.path != null && u.path!!.startsWith("/_ui/kumo_")) {
+                    val name = u.path!!.removePrefix("/_ui/")
+                    if (Regex("^kumo_[a-z]+\\.png$").matches(name)) {
+                        return try {
+                            WebResourceResponse(
+                                "image/png", null, 200, "OK",
+                                mapOf("Cache-Control" to "no-store"), assets.open(name)
+                            )
+                        } catch (_: Throwable) {
+                            null
+                        }
+                    }
+                }
                 if (u.host == "127.0.0.1" && u.path == "/_ui/index.html") {
                     return try {
                         val devFile = getExternalFilesDir(null)?.resolve("codex.html")

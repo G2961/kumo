@@ -15,11 +15,10 @@ body{
   overflow:hidden;user-select:none;-webkit-user-select:none;
 }
 main{display:flex;flex-direction:column;align-items:center;text-align:center;padding:24px}
-.cloud{width:104px;height:104px;margin-bottom:20px}
-.cloud .outline{stroke:var(--tx);transition:stroke .3s}
-.cloud .arc{stroke:#0A84FF}
-body.error .cloud .outline{stroke:#D23B3B}
-body.error .cloud .arc{display:none}
+.mascot{width:132px;height:132px;margin-bottom:14px;object-fit:contain;animation:bob 2.6s ease-in-out infinite}
+body.error .mascot{animation:none}
+@keyframes bob{0%,100%{transform:translateY(0)}50%{transform:translateY(-7px)}}
+@media(prefers-reduced-motion:reduce){.mascot{animation:none}}
 .arc-anim{stroke-dasharray:18 130;animation:arc-run 2.2s linear infinite}
 @keyframes arc-run{from{stroke-dashoffset:-148}to{stroke-dashoffset:0}}
 @media(prefers-reduced-motion:reduce){.arc-anim{animation:none}}
@@ -38,12 +37,7 @@ body.error #retry{display:inline-block}
 </head>
 <body>
 <main>
-  <svg class="cloud" viewBox="0 0 48 48" fill="none" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
-    <path class="outline" d="M24 8c-5 0-9.3 3.2-10.8 7.8A8.5 8.5 0 0 0 6 24a8.5 8.5 0 0 0 8.5 8.5h19A8.5 8.5 0 0 0 42 24a8.5 8.5 0 0 0-6.6-8.3C33.8 11 29.3 8 24 8Z"/>
-    <path class="arc arc-anim" pathLength="148" d="M24 8c-5 0-9.3 3.2-10.8 7.8A8.5 8.5 0 0 0 6 24a8.5 8.5 0 0 0 8.5 8.5h19A8.5 8.5 0 0 0 42 24a8.5 8.5 0 0 0-6.6-8.3C33.8 11 29.3 8 24 8Z" stroke="#0A84FF" stroke-width="2.4"/>
-    <path class="outline" d="m19 19.5-4 4.5 4 4.5" stroke-width="2"/>
-    <path class="outline" d="m29 19.5 4 4.5-4 4.5" stroke-width="2"/>
-  </svg>
+  <img class="mascot" id="mascot" src="kumo_master.png" alt="">
   <h1>kumo</h1>
   <p id="status">Starting…</p>
   <p id="long">Занимает дольше обычного</p>
@@ -55,17 +49,21 @@ const themeParam=new URLSearchParams(location.search).get('theme');
 document.documentElement.dataset.theme=themeParam==='dark'||themeParam==='light'?themeParam:
   (matchMedia('(prefers-color-scheme:dark)').matches?'dark':'light');
 const body=document.body,statusEl=document.getElementById('status'),
-      longEl=document.getElementById('long'),retryEl=document.getElementById('retry');
+      longEl=document.getElementById('long'),retryEl=document.getElementById('retry'),
+      mascotEl=document.getElementById('mascot');
+const MASCOT_NORMAL='kumo_master.png',MASCOT_SLEEPY='kumo_sleepy.png',MASCOT_SAD='kumo_sad.png';
+[MASCOT_SLEEPY,MASCOT_SAD].forEach(s=>{new Image().src=s});
 let longTimer=null,active=true;
-function clearLong(){if(longTimer){clearTimeout(longTimer);longTimer=null}longEl.classList.remove('on')}
-function armLong(){clearLong();longTimer=setTimeout(()=>{if(active)longEl.classList.add('on')},10000)}
+function setMood(src){if(mascotEl.getAttribute('src')!==src)mascotEl.src=src}
+function clearLong(){if(longTimer){clearTimeout(longTimer);longTimer=null}longEl.classList.remove('on');setMood(MASCOT_NORMAL)}
+function armLong(){clearLong();longTimer=setTimeout(()=>{if(active){longEl.classList.add('on');setMood(MASCOT_SLEEPY)}},10000)}
 window.__splashState=function(text){
   active=true;body.classList.remove('error');
   statusEl.textContent=String(text||'Starting…');
   armLong();
 };
 window.__splashError=function(reason){
-  active=false;clearLong();body.classList.add('error');
+  active=false;clearLong();setMood(MASCOT_SAD);body.classList.add('error');
   statusEl.textContent=String(reason||'Startup failed');
 };
 retryEl.onclick=()=>{if(window.CodexSplash)CodexSplash.retry()};
