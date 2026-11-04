@@ -78,6 +78,7 @@ main>*{flex-shrink:0}
 .msg.ai p{overflow-wrap:anywhere}
 .card{border:1px solid var(--border);border-radius:var(--r-12);overflow:hidden;font-size:var(--fs-13)}
 .card .ch{display:flex;align-items:center;gap:var(--s-8);padding:var(--s-8) var(--s-12);background:var(--surface-1);font-weight:500;color:var(--text)}
+.card .ch img{width:22px;height:22px;margin:-2px 0 -2px -2px;flex:none;object-fit:contain}
 .card .ch span.m{color:var(--text-2);font-weight:400;margin-left:auto}
 .card pre{margin:0;padding:var(--s-8) var(--s-12);font:var(--fs-12)/1.5 ui-monospace,Menlo,monospace;overflow-x:auto;white-space:pre}
 .dl{display:block;padding:0 11px;font:calc(13.5px * var(--font-scale))/1.6 ui-monospace,Menlo,monospace;white-space:pre}
@@ -234,6 +235,7 @@ footer{position:relative;padding:var(--s-4) var(--s-12) var(--s-12);padding-bott
 @media(max-width:360px){.tool-meta{gap:4px;flex-wrap:wrap;max-width:11ch}.tool-environment{max-width:11ch}.activity>summary,.tool-head{column-gap:6px}.comp-info{padding-left:4px;padding-right:4px;gap:8px}}
 @media(max-height:400px){#app{overflow-y:auto;display:block}#main{max-height:240px;min-height:120px}footer{position:relative}}
 .qsheet-head{display:flex;align-items:center;color:var(--text-2);font-size:var(--fs-13);font-weight:500}
+.qsheet-head img{width:30px;height:30px;margin:-6px 6px -8px -2px;object-fit:contain}
 .qsheet-head .qcount{margin-left:auto;font-size:var(--fs-12);font-weight:500}
 .qsec{display:flex;flex-direction:column}
 .qq{font-size:var(--fs-14);font-weight:600;color:var(--text);margin-top:var(--s-8)}
@@ -406,10 +408,12 @@ span.ib-right-col{font-size:var(--fs-12);color:var(--text-2)}
 .lp-hint{font-size:var(--fs-12);color:var(--text-2);text-align:center;padding:var(--s-4)}
 .lp-wait,.lp-wait *{user-select:none!important;-webkit-user-select:none!important}
 :focus-visible{outline:none}
-@media(prefers-reduced-motion:reduce){#dim,#drawer,#sheet,.think-body,.think-head .caret,.activity>summary .caret{transition:none}.spin,.think-spin{animation:none}}
+@media(prefers-reduced-motion:reduce){#dim,#drawer,#sheet,.think-body,.think-head .caret,.activity>summary .caret{transition:none}.spin,.think-spin{animation:none}.work-summary-glyph img{animation:none}}
 /* ---------- dedicated work log ---------- */
 .work-summary{display:grid;grid-template-columns:18px minmax(0,1fr) 14px;align-items:center;column-gap:10px;width:100%;min-width:0;min-height:40px;padding:4px 0;margin:2px 0;border:0;background:none;color:var(--text-2);text-align:left;font-size:var(--fs-14)}
 .work-summary-glyph{grid-column:1;width:18px;height:18px;display:grid;place-items:center;color:var(--text-2)}
+.work-summary-glyph img{width:26px;height:26px;object-fit:contain}
+.work-summary[data-status="running"] .work-summary-glyph img{animation:home-bob 2.4s ease-in-out infinite}
 .work-summary-glyph svg{width:15px;height:15px}
 .work-summary-glyph .spin{width:13px;height:13px}
 .work-summary[data-status="running"] .work-summary-glyph,.work-summary[data-status="waiting"] .work-summary-glyph{color:var(--accent)}
@@ -2621,7 +2625,7 @@ function renderQuestionSheet(){
  const idx=Math.min(S.qFlow.idx||0,Math.max(0,qs.length-1));
  const qi=qs[idx]||{},multi=!!qi.multiple,opts=qi.options||[],pre=S.qSel[idx]||{};
  const customSel=!!pre.custom;
- let h=`<div class="qsheet" data-qsid="${esc(q.id)}"><div class="qsheet-head"><span>Question</span>${qs.length>1?`<span class="qcount">${idx+1} / ${qs.length}</span>`:''}</div>`;
+ let h=`<div class="qsheet" data-qsid="${esc(q.id)}"><div class="qsheet-head"><img src="kumo_peek.png" alt=""><span>Question</span>${qs.length>1?`<span class="qcount">${idx+1} / ${qs.length}</span>`:''}</div>`;
  h+=`<div class="qq">${esc(qi.question||'')}</div><div class="qhint">${multi?'Select one or more answers':'Select one answer'}</div><div class="qopts">`;
  opts.forEach((o,oi)=>{
   const sel=pre.labels?pre.labels.includes(o.label):false;
@@ -2818,7 +2822,7 @@ function errorCardHTML(e,mid){
  const m=currentModel();
  const modelName=m?`${m.pn} · ${m.mn}`:'current model';
  const label=meta.aborted?'Stopped':'Error';
- return `<div class="card error-card" ${meta.aborted?'':`data-mid="${esc(mid)}"`}><div class="ch ${meta.aborted?'':'er'}">${I.bot}<span class="tool-action">${esc(modelName)}</span>${code&&!meta.aborted?`<span class="m er">${esc(code)}</span>`:''}<span class="m ${meta.aborted?'':'er'}">${meta.aborted?'Stopped':'Failed'}</span></div><pre class="er-body" style="${meta.aborted?'color:var(--text-2);background:var(--surface-1)':''}">${esc(msg)}${retryIn&&!meta.aborted?`\nRetry after ${esc(retryIn)}s`:''}</pre>${meta.aborted?'':`<div class="btns"><button class="btn p" data-erract="retry">Retry</button><button class="btn" data-erract="model">Switch model</button></div>`}</div>`;
+ return `<div class="card error-card" ${meta.aborted?'':`data-mid="${esc(mid)}"`}><div class="ch ${meta.aborted?'':'er'}">${meta.aborted?I.bot:'<img src="kumo_sad.png" alt="" class="er-sad">'}<span class="tool-action">${esc(modelName)}</span>${code&&!meta.aborted?`<span class="m er">${esc(code)}</span>`:''}<span class="m ${meta.aborted?'':'er'}">${meta.aborted?'Stopped':'Failed'}</span></div><pre class="er-body" style="${meta.aborted?'color:var(--text-2);background:var(--surface-1)':''}">${esc(msg)}${retryIn&&!meta.aborted?`\nRetry after ${esc(retryIn)}s`:''}</pre>${meta.aborted?'':`<div class="btns"><button class="btn p" data-erract="retry">Retry</button><button class="btn" data-erract="model">Switch model</button></div>`}</div>`;
 }
 function lastUserText(){
  const list=[...S.msgs.values()].filter(x=>x.info.role==='user').sort((a,b)=>a.info.id<b.info.id?1:-1);
@@ -3476,7 +3480,8 @@ function renderWorkBlockDetails(block,root){
  if(workDetailCache.size>100)workDetailCache.delete(workDetailCache.keys().next().value);
 }
 function workSummaryHtml(block){
- const glyph=block.status==='running'?'<span class="spin" aria-hidden="true"></span>':block.status==='error'?'<svg viewBox="0 0 24 24" aria-hidden="true"><path d="m6 6 12 12M6 18 18 6"/></svg>':block.status==='waiting'?'<svg viewBox="0 0 24 24" aria-hidden="true"><circle cx="12" cy="12" r="9"/><path d="M12 7v5l3 2"/></svg>':block.status==='stopped'?'<svg viewBox="0 0 24 24" aria-hidden="true"><rect x="7" y="7" width="10" height="10" rx="2"/></svg>':'<svg viewBox="0 0 24 24" aria-hidden="true"><path d="m5 12 4 4L19 6"/></svg>';
+ const sticker=s=>`<img src="kumo_${s}.png" alt="">`;
+ const glyph=block.status==='running'?sticker('thinking'):block.status==='error'?sticker('sad'):block.status==='waiting'?sticker('peek'):block.status==='stopped'?'<svg viewBox="0 0 24 24" aria-hidden="true"><rect x="7" y="7" width="10" height="10" rx="2"/></svg>':'<svg viewBox="0 0 24 24" aria-hidden="true"><path d="m5 12 4 4L19 6"/></svg>';
  const detail=block.detail?block.detail.split(' · ').map(part=>/fail|stop|abort/i.test(part)?'<span class="er">'+esc(part)+'</span>':esc(part)).join(' · '):'';
  return `<button type="button" class="work-summary" data-work-open="${esc(block.id)}" data-status="${esc(block.status)}" aria-haspopup="dialog" aria-controls="workLogDialog"><span class="work-summary-glyph" aria-hidden="true">${glyph}</span><span class="work-summary-main"><span class="work-summary-label">${esc(block.label)}</span>${detail?`<span class="work-summary-detail">${detail}</span>`:''}</span><svg class="caret" viewBox="0 0 24 24" aria-hidden="true"><path d="m9 6 6 6-6 6"/></svg></button>`;
 }
