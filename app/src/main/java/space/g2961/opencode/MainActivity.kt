@@ -65,6 +65,7 @@ class MainActivity : ComponentActivity(), LocalRuntime.Listener {
     private lateinit var webview: WebView
     private var recognizer: android.speech.SpeechRecognizer? = null
     private var lastInsetJs: String? = null
+    private var splashActive = true
 
     private val requestAudio = registerForActivityResult(ActivityResultContracts.RequestPermission()) { granted ->
         appendRuntimeLog(if (granted) "voice: mic granted" else "voice: mic denied")
@@ -127,6 +128,12 @@ class MainActivity : ComponentActivity(), LocalRuntime.Listener {
     }
 
     private fun startRuntime() {
+        if (splashActive) {
+            // The splash page is the status surface: keep it visible, just reset its state.
+            webview.evaluateJavascript("window.__splashState&&window.__splashState(${JSONObject.quote(getString(R.string.starting))})", null)
+            runtime.start(this)
+            return
+        }
         runOnUiThread {
             statusScreen.visibility = View.VISIBLE
             webview.visibility = View.GONE
@@ -135,6 +142,11 @@ class MainActivity : ComponentActivity(), LocalRuntime.Listener {
             statusText.text = getString(R.string.starting)
         }
         runtime.start(this)
+    }
+
+    /** Called from the splash page's «Повторить» through the CodexSplash bridge. */
+    fun splashRetry() {
+        if (splashActive) runtime.restart(this) else startRuntime()
     }
 
     private fun buildUi() {
@@ -180,13 +192,17 @@ class MainActivity : ComponentActivity(), LocalRuntime.Listener {
             ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.MATCH_PARENT))
 
         webview = WebView(this).apply {
-            visibility = View.GONE
+            visibility = View.VISIBLE
             overScrollMode = View.OVER_SCROLL_NEVER
-            setBackgroundColor(Color.parseColor("#090A0C"))
+            val night = (resources.configuration.uiMode and android.content.res.Configuration.UI_MODE_NIGHT_MASK) ==
+                android.content.res.Configuration.UI_MODE_NIGHT_YES
+            setBackgroundColor(if (night) Color.parseColor("#1B1B1B") else Color.WHITE)
         }
         configureWebview(webview)
         root.addView(webview, FrameLayout.LayoutParams(
             ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.MATCH_PARENT))
+        // The new splash doubles as the status screen while the server boots.
+        webview.loadUrl("file:///android_asset/splash.html")
 
         setContentView(root)
         // With edge-to-edge, adjustResize no longer resizes for the IME; apply the
@@ -250,6 +266,13 @@ class MainActivity : ComponentActivity(), LocalRuntime.Listener {
         }
     }
 
+    private inner class SplashBridge {
+        @JavascriptInterface fun retry() {
+            runOnUiThread { splashRetry() }
+        }
+    }
+    private val splashBridge = SplashBridge()
+
     @SuppressLint("SetJavaScriptEnabled")
     private fun configureWebview(wv: WebView) {
         WebView.setWebContentsDebuggingEnabled(true)
@@ -265,6 +288,7 @@ class MainActivity : ComponentActivity(), LocalRuntime.Listener {
             displayZoomControls = false
         }
         wv.addJavascriptInterface(bridge, "CodexNative")
+        wv.addJavascriptInterface(splashBridge, "CodexSplash")
         wv.webViewClient = object : WebViewClient() {
             override fun onPageStarted(view: WebView?, url: String?, favicon: android.graphics.Bitmap?) {
                 val u = url?.let { Uri.parse(it) }
@@ -273,6 +297,13 @@ class MainActivity : ComponentActivity(), LocalRuntime.Listener {
             override fun onPageFinished(view: WebView?, url: String?) {
                 // The insets listener can fire before the page exists; re-apply its vars now.
                 lastInsetJs?.let { js -> if (trustedUi) view?.evaluateJavascript(js, null) }
+                if (url != null && url.contains("splash.html")) {
+                    runOnUiThread {
+                        splashActive = true
+                        webview.visibility = View.VISIBLE
+                        statusScreen.visibility = View.GONE
+                    }
+                }
             }
             override fun shouldOverrideUrlLoading(view: WebView?, request: WebResourceRequest?): Boolean {
                 val url = request?.url ?: return false
@@ -551,12 +582,22 @@ class MainActivity : ComponentActivity(), LocalRuntime.Listener {
             webview.loadUrl("http://127.0.0.1:$port/")
             webview.visibility = View.VISIBLE
             statusScreen.visibility = View.GONE
+            splashActive = false
         }
     }
 
 
     override fun onState(state: LocalRuntime.State, message: String) {
         runOnUiThread {
+            if (splashActive) {
+                webview.evaluateJavascript(
+                    "window.__splashState&&window.__splashState(${JSONObject.quote(message)})", null)
+                if (state == LocalRuntime.State.FAILED || state == LocalRuntime.State.STOPPED) {
+                    webview.evaluateJavascript(
+                        "window.__splashError&&window.__splashError(${JSONObject.quote(message)})", null)
+                }
+                return@runOnUiThread
+            }
             when (state) {
                 LocalRuntime.State.PREPARING, LocalRuntime.State.STARTING, LocalRuntime.State.READY -> {
                     statusText.text = message

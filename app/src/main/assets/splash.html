@@ -1,0 +1,79 @@
+<!DOCTYPE html>
+<html lang="ru">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">
+<title>opencode</title>
+<style>
+html,body{height:100%;margin:0}
+body{
+  display:grid;place-items:center;
+  font:15px/1.5 -apple-system,"Segoe UI",Roboto,sans-serif;
+  background:#FFFFFF;color:#2A2D31;
+  overflow:hidden;user-select:none;-webkit-user-select:none;
+}
+@media(prefers-color-scheme:dark){
+  body{background:#1B1B1B;color:#F2F2F2}
+}
+main{display:flex;flex-direction:column;align-items:center;text-align:center;padding:24px}
+.cloud{width:104px;height:104px;margin-bottom:20px}
+.cloud .outline{stroke:#2A2D31;transition:stroke .3s}
+.cloud .arc{stroke:#0A84FF}
+body.error .cloud .outline{stroke:#D23B3B}
+body.error .cloud .arc{display:none}
+@media(prefers-color-scheme:dark){
+  .cloud .outline{stroke:#F2F2F2}
+  body.error .cloud .outline{stroke:#F17676}
+}
+.arc-anim{stroke-dasharray:18 130;animation:arc-run 2.2s linear infinite}
+@keyframes arc-run{from{stroke-dashoffset:0}to{stroke-dashoffset:-148}}
+@media(prefers-reduced-motion:reduce){.arc-anim{animation:none}}
+h1{font-size:34px;font-weight:700;letter-spacing:-.02em;margin:0 0 10px}
+#status{color:#6B6B6B;margin:0;min-height:1.5em;overflow-wrap:anywhere;max-width:78vw}
+@media(prefers-color-scheme:dark){#status{color:#B4B4B4}}
+#long{color:#9A9A9A;font-size:13px;margin:8px 0 0;opacity:0;transition:opacity .6s}
+@media(prefers-color-scheme:dark){#long{color:#8A8A8A}}
+#long.on{opacity:1}
+#retry{
+  display:none;margin-top:26px;padding:11px 26px;border:0;border-radius:12px;cursor:pointer;
+  background:#111111;color:#FFFFFF;
+  font-size:15px;font-weight:600;
+}
+@media(prefers-color-scheme:dark){#retry{background:#FFFFFF;color:#111111}}
+#retry:active{opacity:.8}
+body.error #retry{display:inline-block}
+</style>
+</head>
+<body>
+<main>
+  <svg class="cloud" viewBox="0 0 48 48" fill="none" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+    <path class="outline" d="M24 8c-5 0-9.3 3.2-10.8 7.8A8.5 8.5 0 0 0 6 24a8.5 8.5 0 0 0 8.5 8.5h19A8.5 8.5 0 0 0 42 24a8.5 8.5 0 0 0-6.6-8.3C33.8 11 29.3 8 24 8Z"/>
+    <path class="arc arc-anim" pathLength="148" d="M24 8c-5 0-9.3 3.2-10.8 7.8A8.5 8.5 0 0 0 6 24a8.5 8.5 0 0 0 8.5 8.5h19A8.5 8.5 0 0 0 42 24a8.5 8.5 0 0 0-6.6-8.3C33.8 11 29.3 8 24 8Z" stroke="#0A84FF" stroke-width="2.4"/>
+    <path class="outline" d="m19 19.5-4 4.5 4 4.5" stroke-width="2"/>
+    <path class="outline" d="m29 19.5 4 4.5-4 4.5" stroke-width="2"/>
+  </svg>
+  <h1>opencode</h1>
+  <p id="status">Starting…</p>
+  <p id="long">Занимает дольше обычного</p>
+  <button id="retry" type="button">Повторить</button>
+</main>
+<script>
+const body=document.body,statusEl=document.getElementById('status'),
+      longEl=document.getElementById('long'),retryEl=document.getElementById('retry');
+let longTimer=null,active=true;
+function clearLong(){if(longTimer){clearTimeout(longTimer);longTimer=null}longEl.classList.remove('on')}
+function armLong(){clearLong();longTimer=setTimeout(()=>{if(active)longEl.classList.add('on')},10000)}
+window.__splashState=function(text){
+  active=true;body.classList.remove('error');
+  statusEl.textContent=String(text||'Starting…');
+  armLong();
+};
+window.__splashError=function(reason){
+  active=false;clearLong();body.classList.add('error');
+  statusEl.textContent=String(reason||'Startup failed');
+};
+retryEl.onclick=()=>{if(window.CodexSplash)CodexSplash.retry()};
+armLong();
+</script>
+</body>
+</html>
