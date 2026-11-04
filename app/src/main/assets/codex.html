@@ -279,11 +279,16 @@ footer{position:relative;padding:var(--s-4) var(--s-12) var(--s-12);padding-bott
 .drawer-sep{height:1px;background:var(--sep);margin:var(--s-8) var(--s-8)}
 .skill-desc{max-width:170px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
 .drawer-th-head{display:flex;align-items:center;justify-content:space-between;padding:var(--s-4) var(--s-4) var(--s-4) var(--s-8)}
-.drawer-top-bar{max-height:64px;opacity:1;overflow:hidden;transition:max-height .25s cubic-bezier(.2,0,0,1),opacity .2s,transform .25s}
-#drawer.searching .drawer-top-bar{max-height:0;opacity:0;transform:translateY(-10px)}
+/* Search slides in under the title; thread list and results cross-fade in place. */
 .drawer-search{max-height:0;opacity:0;overflow:hidden;transform:translateY(-8px);transition:max-height .25s cubic-bezier(.2,0,0,1),opacity .2s,transform .25s}
 #drawer.searching .drawer-search{max-height:72px;opacity:1;transform:none}
-@media(prefers-reduced-motion:reduce){.drawer-top-bar,.drawer-search{transition:none}}
+@media(prefers-reduced-motion:reduce){.drawer-search{transition:none}}
+.drawer-search-wrap{position:absolute;inset:0;background:var(--side);overflow-y:auto;opacity:0;transform:translateY(6px);pointer-events:none;transition:opacity .22s ease,transform .22s ease}
+#drawer.searching .drawer-search-wrap{opacity:1;transform:none;pointer-events:auto}
+.drawer-projects{position:relative}
+.drawer-threads{transition:opacity .22s ease,transform .22s ease}
+#drawer.searching .drawer-threads{opacity:0;transform:translateY(-6px);pointer-events:none}
+@media(prefers-reduced-motion:reduce){.drawer-search-wrap,.drawer-threads{transition:none}}
 .drawer-th-title{font-size:var(--fs-14);font-weight:600;color:var(--text)}
 .drawer-bottom{flex:none;display:flex;align-items:center;justify-content:space-between;gap:var(--s-8);padding:var(--s-8) 0 0;padding-bottom:max(var(--s-8),var(--sab,0px),env(safe-area-inset-bottom,0px));position:relative}
 .drawer-bottom::before{content:'';position:absolute;top:-28px;left:-8px;right:-8px;height:28px;background:linear-gradient(to bottom,rgba(var(--side-rgb),0),rgba(var(--side-rgb),1));pointer-events:none}
@@ -932,32 +937,29 @@ function renderDrawer(){
  const conn=selectedConnection();
  const remoteSub=conn?conn.name:(S.connections.length?String(S.connections.length):'');
  let h=`<div class="drawer-header"><div class="drawer-top-bar"><span class="drawer-title">kumo 雲</span><button class="ib" data-a="search" aria-label="Search threads">${I.search}</button></div><div class="drawer-search" id="drawerSearchBox"><input class="in" id="drawerSearchInput" placeholder="Search threads" autocomplete="off" autocapitalize="none" spellcheck="false"><button class="ib" data-a="searchclose" aria-label="Close search"><svg viewBox="0 0 24 24"><path d="M18 6 6 18M6 6l12 12"/></svg></button></div><div class="drawer-nav"><button class="nav-row" data-a="remote">${I.term}<span>Remote</span><span class="r"><span class="m">${esc(remoteSub)}</span></span></button>${hasMcp?`<button class="nav-row" data-a="plugins">${I.plug}<span>Plugins</span><span class="r"><span class="m" id="mcpBadge"></span></span></button>`:''}${hasSkills?`<button class="nav-row" data-a="skills">${I.book}<span>Skills</span></button>`:''}</div><div class="drawer-sep"></div></div><div id="drawerProjects" class="drawer-projects">`;
- if(S.drawerSearch){
-  h+=`<div id="drawerSearchResults"><div class="note" style="padding:var(--s-8)">Type to search threads</div></div>`;
- }else{
-  h+=`<div class="drawer-th-head"><span class="drawer-th-title">Threads</span><button class="ib" data-a="add" aria-label="Add project"><svg viewBox="0 0 24 24"><path d="M4 20h16a2 2 0 0 0 2-2V8a2 2 0 0 0-2-2h-7.93a2 2 0 0 1-1.66-.9l-.82-1.2A2 2 0 0 0 7.93 3H4a2 2 0 0 0-2 2v13c0 1.1.9 2 2 2Z"/><path d="M12 10v6M9 13h6"/></svg></button></div>`;
-  S.projects.forEach(p=>{
-   const isCur=p.worktree===S.dir;
-   const isOpen=S.expandedFolders.has(p.worktree);
-   h+=`<div class="proj-group" data-dir="${esc(p.worktree)}"><div class="proj-h ${isCur?'active-proj':''}" data-a="folder" data-dir="${esc(p.worktree)}"><span class="proj-icon">${isOpen?folderOpen:folderClosed}</span><span class="proj-title">${esc(projName(p.worktree))}</span></div><div class="proj-body ${isOpen?'open':''}" data-dir="${esc(p.worktree)}"><div class="proj-inner" data-dir="${esc(p.worktree)}"></div></div></div>`;
-  });
- }
+ // Both middle sections always exist in the DOM: the thread list and the search
+ // overlay cross-fade in place, so toggling search never relayouts the drawer.
+ h+=`<div class="drawer-threads" id="drawerThreads"><div class="drawer-th-head"><span class="drawer-th-title">Threads</span><button class="ib" data-a="add" aria-label="Add project"><svg viewBox="0 0 24 24"><path d="M4 20h16a2 2 0 0 0 2-2V8a2 2 0 0 0-2-2h-7.93a2 2 0 0 1-1.66-.9l-.82-1.2A2 2 0 0 0 7.93 3H4a2 2 0 0 0-2 2v13c0 1.1.9 2 2 2Z"/><path d="M12 10v6M9 13h6"/></svg></button></div>`;
+ S.projects.forEach(p=>{
+  const isCur=p.worktree===S.dir;
+  const isOpen=S.expandedFolders.has(p.worktree);
+  h+=`<div class="proj-group" data-dir="${esc(p.worktree)}"><div class="proj-h ${isCur?'active-proj':''}" data-a="folder" data-dir="${esc(p.worktree)}"><span class="proj-icon">${isOpen?folderOpen:folderClosed}</span><span class="proj-title">${esc(projName(p.worktree))}</span></div><div class="proj-body ${isOpen?'open':''}" data-dir="${esc(p.worktree)}"><div class="proj-inner" data-dir="${esc(p.worktree)}"></div></div></div>`;
+ });
+ h+='</div>';
+ h+=`<div class="drawer-search-wrap" id="drawerSearchResults"><div class="note" style="padding:var(--s-8)">Type to search threads</div></div>`;
  h+='</div>';
  h+=`<div class="drawer-bottom"><button class="btn-new-thread" data-a="new">${I.edit}<span>New thread</span></button><button class="ib drawer-gear" data-a="settings" aria-label="Settings"><svg viewBox="0 0 24 24"><circle cx="12" cy="12" r="3"/><path d="M19.4 15a1.7 1.7 0 0 0 .3 1.8l.1.1a2 2 0 1 1-2.8 2.8l-.1-.1a1.7 1.7 0 0 0-1.8-.3 1.7 1.7 0 0 0-1 1.5V21a2 2 0 1 1-4 0v-.1a1.7 1.7 0 0 0-1.1-1.5 1.7 1.7 0 0 0-1.8.3l-.1.1a2 2 0 1 1-2.8-2.8l.1-.1a1.7 1.7 0 0 0 .3-1.8 1.7 1.7 0 0 0-1.5-1H3a2 2 0 1 1 0-4h.1a1.7 1.7 0 0 0 1.5-1.1 1.7 1.7 0 0 0-.3-1.8l-.1-.1a2 2 0 1 1 2.8-2.8l.1.1a1.7 1.7 0 0 0 1.8.3H9a1.7 1.7 0 0 0 1-1.5V3a2 2 0 1 1 4 0v.1a1.7 1.7 0 0 0 1 1.5 1.7 1.7 0 0 0 1.8-.3l.1-.1a2 2 0 1 1 2.8 2.8l-.1.1a1.7 1.7 0 0 0-.3 1.8V9a1.7 1.7 0 0 0 1.5 1H21a2 2 0 1 1 0 4h-.1a1.7 1.7 0 0 0-1.5 1z"/></svg></button></div>`;
  $('#drawer').innerHTML=h;
  // Smooth search reveal: the title bar collapses while the search slides in.
  const dr=$('#drawer');requestAnimationFrame(()=>dr.classList.toggle('searching',S.drawerSearch));
  if($('#drawerProjects'))$('#drawerProjects').scrollTop=st;
- if(S.drawerSearch){
-  drawerSearchBind();
- }else{
-  S.projects.forEach(p=>{
-   if(S.expandedFolders.has(p.worktree)){
-    if(S.folderSessions.has(p.worktree))renderFolderSessions(p.worktree);
-    else loadFolderSessions(p.worktree);
-   }
-  });
- }
+ drawerSearchBind();
+ S.projects.forEach(p=>{
+  if(S.expandedFolders.has(p.worktree)){
+   if(S.folderSessions.has(p.worktree))renderFolderSessions(p.worktree);
+   else loadFolderSessions(p.worktree);
+  }
+ });
  if(hasMcp&&!S.mcpStatus)api('/mcp').then(r=>{S.mcpStatus=r||{};const m=$('#mcpBadge');if(m)m.textContent=Object.keys(S.mcpStatus).length||''}).catch(()=>{});
 }
 function drawer(on){$('#drawer').classList.toggle('on',on);$('#dim').classList.toggle('on',on||$('#sheet').classList.contains('on'));if(!on){S.drawerSearch=false}}
@@ -971,8 +973,8 @@ $('#drawer').onclick=async e=>{
  else if(a==='remote'){drawer(false);openRemote()}
  else if(a==='plugins'){pluginsSheet()}
  else if(a==='skills'){skillsSheet()}
- else if(a==='search'){S.drawerSearch=true;renderDrawer();const i=$('#drawerSearchInput');if(i)i.focus()}
- else if(a==='searchclose'){S.drawerSearch=false;renderDrawer()}
+ else if(a==='search'){S.drawerSearch=true;$('#drawer').classList.add('searching');drawerSearch('');const i=$('#drawerSearchInput');if(i)i.focus()}
+ else if(a==='searchclose'){S.drawerSearch=false;$('#drawer').classList.remove('searching');const i=$('#drawerSearchInput');if(i)i.blur()}
  else if(a==='showall'){const dir=b.dataset.dir;if(dir){S.fullFolders.add(dir);lset('oc_full_folders',[...S.fullFolders]);renderFolderSessions(dir)}}
  else if(a==='folder'){
   const dir=b.dataset.dir;if(!dir)return;
