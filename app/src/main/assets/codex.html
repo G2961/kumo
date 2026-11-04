@@ -3595,6 +3595,12 @@ function renderMsgs(force){
  let feed=document.getElementById('feed');
  if(!feed){m.innerHTML='';feed=document.createElement('div');feed.id='feed';m.appendChild(feed)}
  feed.innerHTML=h;
+ // Feed rebuilds on every delta, which would restart .spin from phase 0 every time
+ // (janky stutter). WAAI with a negative delay pins each spinner to the real elapsed
+ // phase; the CSS animation is muted because inline animation-delay lands too late.
+ if(kwSince){const ph=-(performance.now()-kwSince)/1000%0.8*1000;
+  feed.querySelectorAll('.spin').forEach(el=>{el.style.animation='none';
+   el.animate([{transform:'rotate(0deg)'},{transform:'rotate(360deg)'}],{duration:800,iterations:Infinity,delay:ph,easing:'linear'})})}
  if(S.sid){
   kwTailSync(kwFrom);
   m.scrollTop=near?m.scrollHeight:scrollTop;
@@ -3838,7 +3844,7 @@ window.addEventListener('unhandledrejection',e=>err('promise: '+(e.reason&&e.rea
 /* ---------- kumo wait mascot (demo v9, wired to real events) ---------- */
 const kwTpl=document.getElementById('kwTpl');
 let kwKumo=null,kwSv=null,kwOrbit=null,kwFx=null,kwParts=[],kwMiniParts=[],kwCur=null;
-let kwTail=null,kwState='idle',kwPhase='',kwT=0,kwLast=0,kwTimer=0,kwPulseTmo=0,kwLock=0,kwNextSt=0,kwNextSp=0,kwNextPk=0,kwPeekEnd=0,kwBag=[],kwStars=[];
+let kwTail=null,kwState='idle',kwPhase='',kwT=0,kwLast=0,kwTimer=0,kwPulseTmo=0,kwLock=0,kwNextSt=0,kwNextSp=0,kwNextPk=0,kwPeekEnd=0,kwBag=[],kwStars=[],kwSince=0;
 const kwTmo=[];
 const kwReduce=matchMedia('(prefers-reduced-motion:reduce)').matches;
 const kwR=(a,b)=>a+Math.random()*(b-a),kwPick=a=>a[Math.floor(Math.random()*a.length)];
@@ -3903,7 +3909,7 @@ function kwTailSync(from){
  if(kwKumo.closest('#kwTail')!==t){
   kwFlip(()=>{t.prepend(kwKumo);kwKumo.className='kw-kumo kw-wait'},from);
   if(kwState!=='run')kwStartPhase()}}
-function kwStartPhase(){kwState='run';kwPhase='wait';kwT=0;kwLock=0;kwNextSt=3.5;kwNextSp=0;kwNextPk=0;kwBag=[];kwStars=[];
+function kwStartPhase(){kwState='run';kwPhase='wait';kwT=0;kwLock=0;kwNextSt=3.5;kwNextSp=0;kwNextPk=0;kwBag=[];kwStars=[];kwSince=performance.now();
  if(kwOrbit){kwOrbit.classList.remove('kw-off');kwOrbit.innerHTML=''}
  kwKumo.classList.remove('kw-peek','kw-read');
  document.getElementById('kwStatBox').classList.add('kw-on');
