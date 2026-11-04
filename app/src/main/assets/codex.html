@@ -3997,9 +3997,9 @@ function kwMountHero(){const slot=document.getElementById('kwHeroSlot');if(!slot
  if(kwKumo.closest('#kwHeroSlot')!==slot)kwFlip(()=>{slot.appendChild(kwKumo);kwKumo.className='kw-kumo'});
  emo('hello')}
 (function kwInit(){
- const mini=kwTpl.content.firstElementChild.cloneNode(true);mini.removeAttribute('id');mini.querySelectorAll('[id]').forEach(e=>e.removeAttribute('id'));
- document.getElementById('kwMini').appendChild(mini);
- kwMiniParts=[...mini.querySelectorAll('[data-e]')];
+ const miniSv=kwTpl.content.querySelector('svg').cloneNode(true);miniSv.removeAttribute('id');miniSv.querySelectorAll('[id]').forEach(e=>e.removeAttribute('id'));
+ document.getElementById('kwMini').appendChild(miniSv);
+ kwMiniParts=[...miniSv.querySelectorAll('[data-e]')];
  document.getElementById('kwPill').onclick=()=>{$('#main').scrollTo({top:$('#main').scrollHeight,behavior:'smooth'})};
  const setFoot=()=>document.documentElement.style.setProperty('--kw-foot',(document.querySelector('footer')?document.querySelector('footer').offsetHeight:90)+12+'px');
  setFoot();window.addEventListener('resize',setFoot);
