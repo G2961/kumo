@@ -3994,10 +3994,14 @@ function kwReset(){kwStopPulse();clearInterval(kwTimer);kwState='idle';kwPhase='
 function kwMountHero(){const slot=document.getElementById('kwHeroSlot');if(!slot)return;
  if(!kwKumo){kwKumo=kwTpl.content.firstElementChild.cloneNode(true);document.body.appendChild(kwKumo);kwCollect();
   // Poke the mascot on the home screen: it cycles positive moods, never sad or angry.
-  kwKumo.onclick=()=>{if(kwKumo.closest('#kwHeroSlot')){const pool=['hello','excited','curious','surprised','shy','love'].filter(e=>e!==kwCur);emo(kwPick(pool))}}}
+  kwKumo.onclick=()=>{if(kwKumo.closest('#kwHeroSlot')){const pool=['hello','excited','curious','surprised','shy','love'].filter(e=>e!==kwCur);emo(kwPick(pool))}};
+  emo('hello')}
  kwTail=null;
- if(kwKumo.closest('#kwHeroSlot')!==slot)kwFlip(()=>{slot.appendChild(kwKumo);kwKumo.className='kw-kumo'});
- emo('hello')}
+ if(kwKumo.closest('#kwHeroSlot')!==slot){
+  // A re-render replaces the slot node. If the mascot came from a detached slot,
+  // a FLIP would fly from (0,0) — the notorious corner-dart. Just reseat it quietly.
+  if(kwKumo.isConnected)kwFlip(()=>{slot.appendChild(kwKumo);kwKumo.className='kw-kumo'});
+  else{slot.appendChild(kwKumo);kwKumo.className='kw-kumo'}}}
 (function kwInit(){
  const miniSv=kwTpl.content.querySelector('svg').cloneNode(true);miniSv.removeAttribute('id');miniSv.querySelectorAll('[id]').forEach(e=>e.removeAttribute('id'));
  document.getElementById('kwMini').appendChild(miniSv);
