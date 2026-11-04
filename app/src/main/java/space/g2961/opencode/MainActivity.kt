@@ -4,6 +4,7 @@ import android.Manifest
 import android.annotation.SuppressLint
 import androidx.activity.ComponentActivity
 import androidx.activity.enableEdgeToEdge
+import android.content.Context
 import android.content.Intent
 import android.content.pm.PackageManager
 import android.graphics.Color
@@ -87,6 +88,18 @@ class MainActivity : ComponentActivity(), LocalRuntime.Listener {
         startRuntime()
         // Foreground keep-alive: agent streaming + bundled server survive backgrounding.
         startForegroundService(Intent(this, KeepAliveService::class.java))
+        // Ask once for battery-optimization exemption — the hard guarantee that Doze
+        // never freezes the agent mid-stream on a phone this starved for RAM.
+        val power = getSystemService(Context.POWER_SERVICE) as android.os.PowerManager
+        val prefs = getSharedPreferences("app", Context.MODE_PRIVATE)
+        if (!power.isIgnoringBatteryOptimizations(packageName) && !prefs.getBoolean("batteryAsked", false)) {
+            prefs.edit().putBoolean("batteryAsked", true).apply()
+            try {
+                startActivity(Intent(android.provider.Settings.ACTION_REQUEST_IGNORE_BATTERY_OPTIMIZATIONS,
+                    Uri.parse("package:$packageName")))
+            } catch (_: Throwable) {
+            }
+        }
     }
 
     @Deprecated("Deprecated in Java")

@@ -19,7 +19,7 @@ class KeepAliveService : Service() {
         super.onCreate()
         val nm = getSystemService(Context.NOTIFICATION_SERVICE) as NotificationManager
         nm.createNotificationChannel(
-            NotificationChannel(CHANNEL, "Agent runtime", NotificationManager.IMPORTANCE_MIN))
+            NotificationChannel(CHANNEL, "Agent runtime", NotificationManager.IMPORTANCE_LOW))
         val notification = Notification.Builder(this, CHANNEL)
             .setSmallIcon(R.drawable.ic_stat_agent)
             .setContentTitle("OpenCode agent is running")
@@ -43,7 +43,9 @@ class KeepAliveService : Service() {
     }
 
     companion object {
-        const val CHANNEL = "agent-runtime"
+        // v2: the first channel was created with MIN importance and channels are
+        // immutable after creation — a new ID is the only way to make it visible.
+        const val CHANNEL = "agent-runtime-v2"
         const val ID = 1
     }
 }
