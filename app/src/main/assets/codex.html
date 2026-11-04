@@ -3546,6 +3546,7 @@ function workSummaryHtml(block){
 function renderMsgs(force){
  if(!S.sid){closeWorkSheet();return}
  const m=$('#main'),near=force||m.scrollHeight-m.scrollTop-m.clientHeight<48,scrollTop=m.scrollTop;
+ kwNearBottom=near;
  const list=[...S.msgs.values()].sort((a,b)=>a.info.id<b.info.id?-1:1);
  const transcript=buildWorkTranscript(list);
  const previousBlock=S.workBlocks?.get(workLogState.id);
@@ -3845,6 +3846,7 @@ window.addEventListener('unhandledrejection',e=>err('promise: '+(e.reason&&e.rea
 const kwTpl=document.getElementById('kwTpl');
 let kwKumo=null,kwSv=null,kwOrbit=null,kwFx=null,kwParts=[],kwMiniParts=[],kwCur=null;
 let kwTail=null,kwState='idle',kwPhase='',kwT=0,kwLast=0,kwTimer=0,kwPulseTmo=0,kwLock=0,kwNextSt=0,kwNextSp=0,kwNextPk=0,kwPeekEnd=0,kwBag=[],kwStars=[],kwSince=0;
+var kwNearBottom=true;
 const kwTmo=[];
 const kwReduce=matchMedia('(prefers-reduced-motion:reduce)').matches;
 const kwR=(a,b)=>a+Math.random()*(b-a),kwPick=a=>a[Math.floor(Math.random()*a.length)];
@@ -4001,6 +4003,9 @@ function kwMountHero(){const slot=document.getElementById('kwHeroSlot');if(!slot
  document.getElementById('kwPill').onclick=()=>{$('#main').scrollTo({top:$('#main').scrollHeight,behavior:'smooth'})};
  const setFoot=()=>document.documentElement.style.setProperty('--kw-foot',(document.querySelector('footer')?document.querySelector('footer').offsetHeight:90)+12+'px');
  setFoot();window.addEventListener('resize',setFoot);
+ // Keyboard opens/closes: #main shrinks/grows, the tail would stay half-buried under
+ // the composer. If the user was pinned to the bottom, stay pinned through resizes.
+ new ResizeObserver(()=>{if(kwNearBottom){const m=document.getElementById('main');m.scrollTop=m.scrollHeight;kwUpdPill()}}).observe(document.getElementById('main'));
 })( );
 (function kwBl(){if(kwKumo&&kwCur){kwKumo.querySelectorAll('#kw-front [data-e="'+kwCur+'"] .kw-eye').forEach(e=>e.classList.add('kw-bl'));
  setTimeout(()=>{if(kwKumo)kwKumo.querySelectorAll('.kw-eye.kw-bl').forEach(e=>e.classList.remove('kw-bl'))},150)}
