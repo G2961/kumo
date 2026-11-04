@@ -70,6 +70,7 @@ main>*{flex-shrink:0}
 .sug-title{font-size:var(--fs-14);font-weight:500;color:var(--text)}
 .sug-desc{font-size:var(--fs-12);color:var(--text-2)}
 .msg.user{align-self:flex-end;background:var(--surface-2);border-radius:var(--r-12);padding:9px 13px;max-width:86%;white-space:pre-wrap;color:var(--text)}
+.msg.user.photo-only{background:none;padding:0;border-radius:0;max-width:100%}
 .msg.ai{color:var(--text);white-space:normal;font-size:var(--fs-16);line-height:1.6;margin-top:14px;font-family:Georgia,"Noto Serif","PT Serif","Droid Serif",serif}
 .msg.ai pre,.msg.ai code,.msg.ai .code-block{font-family:ui-monospace,Menlo,monospace}
 .msg.ai table,.msg.ai .table-wrap{font-family:-apple-system,"Segoe UI",Roboto,sans-serif}
@@ -395,10 +396,10 @@ span.ib-right-col{font-size:var(--fs-12);color:var(--text-2)}
 .fld{display:block;margin:var(--s-8) 0 2px;font-size:var(--fs-12);color:var(--text-2)}
 .in{width:100%;border:1px solid var(--border);background:var(--surface-2);color:inherit;border-radius:var(--r-8);padding:10px;font:inherit;outline:0}
 .note{font-size:var(--fs-12);color:var(--text-2);margin:var(--s-8) 0}
-.attachments{display:flex;flex-wrap:wrap;gap:6px;margin-bottom:6px}.attachments:empty{display:none}
-.attachment{display:flex;align-items:center;gap:7px;background:var(--surface-2);border:1px solid var(--border);border-radius:var(--r-8);padding:5px 7px;max-width:100%;font-size:var(--fs-12)}
+.attachments:empty{display:none}
 .attachments{display:flex;flex-wrap:wrap;gap:10px}
-.attachment{position:relative;width:132px;height:132px;flex:none;border-radius:16px;overflow:hidden;background:var(--surface-1);border:1px solid var(--border);display:grid;place-items:center;box-sizing:border-box}
+.attachment{position:relative;width:132px;height:132px;flex:none;border-radius:16px;overflow:hidden;display:grid;place-items:center;box-sizing:border-box}
+.attachment.att-doc{background:var(--surface-1);border:1px solid var(--border)}
 .attachment>img{position:absolute;inset:0;width:100%;height:100%;object-fit:cover;border-radius:0;cursor:pointer}
 .attachment .att-icon svg{width:34px;height:34px}
 .attachment .att-name{font-size:12px;line-height:1.3;color:var(--text-2);overflow:hidden;display:-webkit-box;-webkit-box-orient:vertical;-webkit-line-clamp:3;text-align:center;overflow-wrap:anywhere;padding:0 6px}
@@ -2223,7 +2224,7 @@ $('#plus').onclick=()=>{
 };
 function attachmentHtml(files,remove){return files.map((f,i)=>{const img=/^data:image\/(png|jpeg|webp|gif);base64,/i.test(f.url||'');
  const body=img?`<img src="${esc(f.url)}" alt=""${remove?'':` data-att-view="${i}"`}>`:`<span class="att-icon">${I.file}</span><span class="att-name">${esc(f.filename||'Attachment')}</span>`;
- return `<div class="attachment">${body}${remove?`<button aria-label="Remove attachment" data-attachment="${i}">×</button>`:''}</div>`}).join('')}
+ return `<div class="attachment${img?'':' att-doc'}">${body}${remove?`<button aria-label="Remove attachment" data-attachment="${i}">×</button>`:''}</div>`}).join('')}
 function renderAttachments(){$('#attachments').innerHTML=attachmentHtml(S.attachments,true);lset('oc_att',S.attachments)}
 $('#attachments').onclick=e=>{const b=e.target.closest('[data-attachment]');if(b){S.attachments.splice(+b.dataset.attachment,1);renderAttachments();return}
  const card=e.target.closest('.attachment');if(!card)return;
@@ -3602,7 +3603,7 @@ function renderMsgs(force){
   if(item.type==='work')h+=workSummaryHtml(item.block);
   else if(item.type==='user'){
    const parts=[...x.parts.values()],t=parts.filter(p=>p.type==='text'&&!p.synthetic).map(p=>p.text).join('\n'),files=parts.filter(p=>p.type==='file');
-   if(t||files.length)h+=`<div class="msg user" data-mid="${esc(x.info.id)}" data-utext="${esc(t)}">${esc(t)}${files.length?'<div class="attachments">'+attachmentHtml(files,false)+'</div>':''}</div>`;
+   if(t||files.length)h+=`<div class="msg user${!t&&files.length?' photo-only':''}" data-mid="${esc(x.info.id)}" data-utext="${esc(t)}">${esc(t)}${files.length?'<div class="attachments">'+attachmentHtml(files,false)+'</div>':''}</div>`;
   }else if(item.type==='text')h+=`<div class="msg ai" data-mid="${esc(x.info.id)}" data-raw="${esc(item.segment.text)}">${renderMarkdown(item.segment.text)}</div>`;
   else if(item.type==='file')h+='<div class="attachments">'+attachmentHtml([item.part],false)+'</div>';
   else if(item.type==='error'){h+=errorCardHTML(x.info.error,x.info.id);hadMsgError=true}
