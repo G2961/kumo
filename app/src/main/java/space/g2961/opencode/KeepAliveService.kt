@@ -22,7 +22,7 @@ class KeepAliveService : Service() {
             NotificationChannel(CHANNEL, "Agent runtime", NotificationManager.IMPORTANCE_LOW))
         val notification = Notification.Builder(this, CHANNEL)
             .setSmallIcon(R.drawable.ic_stat_agent)
-            .setContentTitle("Grit agent is running")
+            .setContentTitle("Kumo agent is running")
             .setContentText("Streaming continues in the background")
             .setOngoing(true)
             .build()

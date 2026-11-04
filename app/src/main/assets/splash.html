@@ -3,7 +3,7 @@
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">
-<title>grit</title>
+<title>kumo</title>
 <style>
 html,body{height:100%;margin:0}
 body{
@@ -29,6 +29,7 @@ body.error .cloud .arc{display:none}
 @keyframes arc-run{from{stroke-dashoffset:-148}to{stroke-dashoffset:0}}
 @media(prefers-reduced-motion:reduce){.arc-anim{animation:none}}
 h1{font-size:34px;font-weight:700;letter-spacing:-.02em;margin:0 0 10px}
+h1 .kanji{font-size:23px;font-weight:500;opacity:.5;margin-left:10px}
 #status{color:#6B6B6B;margin:0;min-height:1.5em;overflow-wrap:anywhere;max-width:78vw}
 @media(prefers-color-scheme:dark){#status{color:#B4B4B4}}
 #long{color:#9A9A9A;font-size:13px;margin:8px 0 0;opacity:0;transition:opacity .6s}
@@ -52,7 +53,7 @@ body.error #retry{display:inline-block}
     <path class="outline" d="m19 19.5-4 4.5 4 4.5" stroke-width="2"/>
     <path class="outline" d="m29 19.5 4 4.5-4 4.5" stroke-width="2"/>
   </svg>
-  <h1>grit</h1>
+  <h1>kumo<span class="kanji">雲</span></h1>
   <p id="status">Starting…</p>
   <p id="long">Занимает дольше обычного</p>
   <button id="retry" type="button">Повторить</button>

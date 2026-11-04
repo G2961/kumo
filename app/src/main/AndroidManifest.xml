@@ -15,7 +15,7 @@
         android:allowBackup="true"
         android:requestLegacyExternalStorage="true"
         android:fullBackupContent="@xml/backup_rules"
-        android:label="Grit"
+        android:label="Kumo"
         android:theme="@style/AppTheme"
         android:usesCleartextTraffic="true">
         <activity
