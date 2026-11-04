@@ -66,6 +66,8 @@ class MainActivity : ComponentActivity(), LocalRuntime.Listener {
     private var recognizer: android.speech.SpeechRecognizer? = null
     private var lastInsetJs: String? = null
     private var splashActive = true
+    private lateinit var rootLayout: FrameLayout
+    private var pendingCrossFade: (() -> Unit)? = null
 
     private val requestAudio = registerForActivityResult(ActivityResultContracts.RequestPermission()) { granted ->
         appendRuntimeLog(if (granted) "voice: mic granted" else "voice: mic denied")
@@ -151,6 +153,7 @@ class MainActivity : ComponentActivity(), LocalRuntime.Listener {
 
     private fun buildUi() {
         val root = FrameLayout(this)
+        rootLayout = root
         root.setBackgroundColor(Color.parseColor("#090A0C"))
 
         statusScreen = LinearLayout(this).apply {
@@ -303,6 +306,11 @@ class MainActivity : ComponentActivity(), LocalRuntime.Listener {
                         webview.visibility = View.VISIBLE
                         statusScreen.visibility = View.GONE
                     }
+                } else if (url != null && url.startsWith("http")) {
+                    // The app page has painted: let it settle for a beat, then cross-fade the splash away.
+                    val fade = pendingCrossFade
+                    pendingCrossFade = null
+                    if (fade != null) runOnUiThread { view?.postDelayed(fade, 180) }
                 }
             }
             override fun shouldOverrideUrlLoading(view: WebView?, request: WebResourceRequest?): Boolean {
@@ -565,25 +573,44 @@ class MainActivity : ComponentActivity(), LocalRuntime.Listener {
         }
     }
 
+    /** Cross-fade out of the splash: freeze the current page into a snapshot overlay,
+     *  load the app underneath, then fade the snapshot away once the app has painted. */
+    private fun transitionToWeb(url: String) {
+        runOnUiThread {
+            try {
+                val snap = android.graphics.Bitmap.createBitmap(
+                    webview.width.coerceAtLeast(1), webview.height.coerceAtLeast(1),
+                    android.graphics.Bitmap.Config.ARGB_8888)
+                webview.draw(android.graphics.Canvas(snap))
+                val overlay = android.widget.ImageView(this).apply {
+                    setImageBitmap(snap)
+                    importantForAccessibility = View.IMPORTANT_FOR_ACCESSIBILITY_NO
+                }
+                rootLayout.addView(overlay, FrameLayout.LayoutParams(
+                    ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.MATCH_PARENT))
+                pendingCrossFade = {
+                    overlay.animate().alpha(0f).setDuration(350)
+                        .withEndAction { rootLayout.removeView(overlay); snap.recycle() }.start()
+                }
+            } catch (_: Throwable) {
+            }
+            webview.loadUrl(url)
+            webview.visibility = View.VISIBLE
+            statusScreen.visibility = View.GONE
+            splashActive = false
+        }
+    }
+
     private fun showWeb(port: Int) {
         if (useCodexUi) {
             Thread {
                 val dir = ProjectManager.currentDir(this)
                 runtime.registerProject(dir.absolutePath)
-                runOnUiThread {
-                    webview.loadUrl(uiUrl(port, dir))
-                    webview.visibility = View.VISIBLE
-                    statusScreen.visibility = View.GONE
-                }
+                transitionToWeb(uiUrl(port, dir))
             }.start()
             return
         }
-        runOnUiThread {
-            webview.loadUrl("http://127.0.0.1:$port/")
-            webview.visibility = View.VISIBLE
-            statusScreen.visibility = View.GONE
-            splashActive = false
-        }
+        transitionToWeb("http://127.0.0.1:$port/")
     }
 
 

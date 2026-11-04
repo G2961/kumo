@@ -84,11 +84,12 @@ class LocalRuntime(private val context: Context, private val sshTools: SshToolsS
                 authProxy = AuthProxy(port, "opencode", password) { line -> appendLog("[web] $line") }.apply { start(14101) }
                 authPort = authProxy?.port ?: port
                 // A cold start occasionally exits before becoming ready (port/FS/init races).
-                // Retry a couple of times instead of failing the whole boot.
+                // Retry a couple of times instead of failing the whole boot. expectingExit
+                // stays true for the whole loop: intermediate deaths are logged, not shown.
+                expectingExit = true
                 var attempt = 0
                 while (true) {
                     attempt++
-                    expectingExit = false
                     val cmd = buildCommand()
                     appendLog("$ ${cmd.joinToString(" ")}")
                     val pb = ProcessBuilder(cmd)
@@ -106,6 +107,7 @@ class LocalRuntime(private val context: Context, private val sshTools: SshToolsS
                     }
                     if (stopping) break
                     if (attempt >= 3) {
+                        expectingExit = false
                         listener.onState(State.FAILED, "Server did not become ready")
                         break
                     }
@@ -488,8 +490,8 @@ class LocalRuntime(private val context: Context, private val sshTools: SshToolsS
                 }
             } catch (_: Throwable) {
             }
+            appendLog("[process exited] code=${runCatching { p.exitValue() }.getOrElse { -1 }}")
             if (!stopping && !expectingExit) {
-                appendLog("[process exited] code=${runCatching { p.exitValue() }.getOrElse { -1 }}")
                 listener.onState(State.FAILED, "opencode process exited")
             }
         }, "runtime-log").start()
@@ -499,6 +501,8 @@ class LocalRuntime(private val context: Context, private val sshTools: SshToolsS
         val auth = "Basic " + Base64.getEncoder().encodeToString("opencode:$password".toByteArray(StandardCharsets.UTF_8))
         repeat(120) {
             if (stopping) return false
+            // Dead process means the next retry must start immediately, not after a full wait window.
+            if (process?.isAlive == false) return false
             try {
                 val conn = URL("http://127.0.0.1:$port/").openConnection() as HttpURLConnection
                 conn.connectTimeout = 1500
