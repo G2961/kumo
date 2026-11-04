@@ -1,7 +1,7 @@
 <?xml version="1.0" encoding="utf-8"?>
 <resources>
-    <string name="app_name">OpenCode</string>
-    <string name="starting">Starting opencode…</string>
+    <string name="app_name">Grit</string>
+    <string name="starting">Starting the agent server…</string>
     <string name="retry">Retry</string>
     <string name="copy_logs">Copy logs</string>
     <string name="copied">Logs copied</string>

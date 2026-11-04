@@ -78,7 +78,7 @@ class LocalRuntime(private val context: Context, private val sshTools: SshToolsS
                 // Non-fatal: bun powers the node/npm sandbox, its failure is logged
                 // so the agent's tool errors have a visible cause in the server log.
                 runProbe("", loaderCommand(binPaths.getValue("libbun.so"), "--version"))
-                listener.onState(State.STARTING, "Starting opencode server…")
+                listener.onState(State.STARTING, "Starting the agent server…")
                 port = freePort(14100)
                 password = loadOrCreatePassword()
                 authProxy = AuthProxy(port, "opencode", password) { line -> appendLog("[web] $line") }.apply { start(14101) }
