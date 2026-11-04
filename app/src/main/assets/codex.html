@@ -3899,24 +3899,28 @@ function kwTailSync(from){
  if(!S.sid)return;
  const t=kwEnsureTail();
  if(!t.isConnected)$('#main').appendChild(t);
- if(S.running&&kwState!=='run'){
-  kwState='run';kwPhase='wait';kwT=0;kwLock=0;kwNextSt=2;kwNextSp=0;kwNextPk=0;kwBag=[];kwStars=[];
-  if(kwOrbit){kwOrbit.innerHTML='';kwOrbit.classList.remove('kw-off')}
-  if(kwKumo.closest('#kwTail')!==t)kwFlip(()=>t.prepend(kwKumo),from);
-  kwKumo.className='kw-kumo kw-wait';kwKumo.classList.remove('kw-peek','kw-read');
-  document.getElementById('kwStatBox').classList.add('kw-on');$('#kwSt').textContent='думаю…';$('#kwTm').textContent='0:00';
-  emo('thinking');kwLast=performance.now();clearInterval(kwTimer);kwTimer=setInterval(kwTick,100);
- }else if(!S.running){
+ if(!S.running){
   if(kwState==='run')kwFinish(false,true);
-  if(kwKumo.closest('#kwTail')!==t)kwFlip(()=>{t.prepend(kwKumo);kwKumo.className='kw-kumo kw-done'},from)}}
-function kwGo(){const t=kwEnsureTail();
- if(!t.isConnected)$('#main').appendChild(t);
- kwState='run';kwPhase='wait';kwT=0;kwLock=0;kwNextSt=3.5;kwNextSp=0;kwNextPk=0;kwBag=[];kwStars=[];
- kwOrbit.classList.remove('kw-off');kwOrbit.innerHTML='';
- kwFlip(()=>{if(kwKumo.closest('#kwTail')!==t)t.prepend(kwKumo);kwKumo.classList.remove('kw-peek','kw-read');kwKumo.className='kw-kumo kw-wait'});
- document.getElementById('kwStatBox').classList.add('kw-on');$('#kwSt').textContent='думаю…';$('#kwTm').textContent='0:00';
+  if(kwKumo.closest('#kwTail')!==t)kwFlip(()=>{t.prepend(kwKumo);kwKumo.className='kw-kumo kw-done'},from);
+  return}
+ if(kwKumo.closest('#kwTail')!==t){
+  kwFlip(()=>{t.prepend(kwKumo);kwKumo.className='kw-kumo kw-wait'},from);
+  if(kwState!=='run')kwStartPhase()}}
+function kwStartPhase(){kwState='run';kwPhase='wait';kwT=0;kwLock=0;kwNextSt=3.5;kwNextSp=0;kwNextPk=0;kwBag=[];kwStars=[];
+ if(kwOrbit){kwOrbit.classList.remove('kw-off');kwOrbit.innerHTML=''}
+ kwKumo.classList.remove('kw-peek','kw-read');
+ document.getElementById('kwStatBox').classList.add('kw-on');
+ $('#kwSt').textContent='думаю…';$('#kwTm').textContent='0:00';
  emo('thinking');
  kwLast=performance.now();clearInterval(kwTimer);kwTimer=setInterval(kwTick,100);kwUpdPill()}
+function kwGo(){const t=kwEnsureTail();
+ if(!t.isConnected)$('#main').appendChild(t);
+ // kwTailSync (inside renderMsgs) already flew the mascot in and started the phase:
+ // a second FLIP here would replace the flying animation mid-air (Chrome auto-replacement)
+ // and the mascot would teleport. Only run when we are the ones starting the turn.
+ if(kwState==='run'&&kwPhase==='wait'&&kwKumo.closest('#kwTail')===t)return;
+ kwFlip(()=>{if(kwKumo.closest('#kwTail')!==t)t.prepend(kwKumo);kwKumo.classList.remove('kw-peek','kw-read');kwKumo.className='kw-kumo kw-wait'});
+ kwStartPhase()}
 function kwFinish(finalOk,keepEmo){if(kwState!=='run')return;
  kwStopPulse();kwPhase='';kwState='idle';clearInterval(kwTimer);
  kwKumo.classList.remove('kw-peek','kw-read');
