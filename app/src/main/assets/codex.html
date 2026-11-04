@@ -531,7 +531,7 @@ details.activity[data-disclosure-hold]:not([open])>summary{border-bottom-color:v
 .kw-mini{width:42px;height:35px;flex:none}
 .kw-mini svg{width:100%;height:100%;overflow:visible}
 .home-icon#kwHeroSlot{height:130px;display:flex;align-items:flex-end;justify-content:center;animation:none}
-.home-icon#kwHeroSlot .kw-kumo{--w:120px}
+.home-icon#kwHeroSlot .kw-kumo{--w:120px;cursor:pointer}
 @media(prefers-reduced-motion:reduce){.kw-float,.kw-breath,.kw-tails,.kw-curl,.kw-hands,.kw-twi{animation:none}.kw-kumo.kw-read #kw-front{animation:none}}
 #kwTpl{display:none}
 </style>
@@ -3992,7 +3992,9 @@ function kwReset(){kwStopPulse();clearInterval(kwTimer);kwState='idle';kwPhase='
  if(kwOrbit){kwOrbit.innerHTML='';kwOrbit.classList.remove('kw-off')}
  if(kwTail){if(kwKumo&&kwKumo.parentElement===kwTail)document.body.appendChild(kwKumo);kwTail.remove();kwTail=null}}
 function kwMountHero(){const slot=document.getElementById('kwHeroSlot');if(!slot)return;
- if(!kwKumo){kwKumo=kwTpl.content.firstElementChild.cloneNode(true);document.body.appendChild(kwKumo);kwCollect()}
+ if(!kwKumo){kwKumo=kwTpl.content.firstElementChild.cloneNode(true);document.body.appendChild(kwKumo);kwCollect();
+  // Poke the mascot on the home screen: it cycles positive moods, never sad or angry.
+  kwKumo.onclick=()=>{if(kwKumo.closest('#kwHeroSlot')){const pool=['hello','excited','curious','surprised','shy','love'].filter(e=>e!==kwCur);emo(kwPick(pool))}}}
  kwTail=null;
  if(kwKumo.closest('#kwHeroSlot')!==slot)kwFlip(()=>{slot.appendChild(kwKumo);kwKumo.className='kw-kumo'});
  emo('hello')}
