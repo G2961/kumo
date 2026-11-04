@@ -87,6 +87,8 @@ class MainActivity : ComponentActivity(), LocalRuntime.Listener {
         }
         sshTools.start()
         runtime = LocalRuntime(this, sshTools)
+        // The in-memory log is invisible to adb; mirror server stdout into logcat.
+        runtime.logHook = { line -> android.util.Log.i("kumo-runtime", line) }
         buildUi()
         startRuntime()
         // Foreground keep-alive: agent streaming + bundled server survive backgrounding.

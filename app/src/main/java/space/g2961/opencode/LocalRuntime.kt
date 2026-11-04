@@ -499,7 +499,9 @@ class LocalRuntime(private val context: Context, private val sshTools: SshToolsS
 
     private fun awaitReady(): Boolean {
         val auth = "Basic " + Base64.getEncoder().encodeToString("opencode:$password".toByteArray(StandardCharsets.UTF_8))
-        repeat(120) {
+        // 2 minutes: under swap/IO pressure the server boots well past a minute
+        // and killing a healthy-but-slow process only restarts the same grind.
+        repeat(240) {
             if (stopping) return false
             // Dead process means the next retry must start immediately, not after a full wait window.
             if (process?.isAlive == false) return false
