@@ -501,6 +501,7 @@ details.activity[data-disclosure-hold]:not([open])>summary{border-bottom-color:v
 @media(prefers-reduced-motion:reduce){.think-body{transition:none}}
 /* ---------- kumo wait mascot (v9) ---------- */
 #kwTail{display:flex;align-items:center;gap:22px;min-height:58px;margin-top:8px;flex:none}
+#feed{display:flex;flex-direction:column;gap:var(--s-4)}
 .kw-kumo{--w:170px;width:var(--w);aspect-ratio:460/380;flex:none;position:relative;clip-path:inset(-60% -400% 0 -60%);transform-origin:50% 100%;transition:transform .7s cubic-bezier(.34,1.45,.5,1)}
 .kw-kumo.kw-peek{transform:translateX(calc(-16px - 14%)) rotate(8deg);transition-timing-function:cubic-bezier(.5,0,.3,1)}
 .kw-kumo.kw-wait{--w:112px}
@@ -3591,11 +3592,19 @@ function renderMsgs(force){
  if(S.lastErr&&!hadMsgError)h+=`<div class="card error-card"><div class="ch er">Error<span class="m er">Failed</span></div><pre class="er-body">${esc(readableError(S.lastErr))}</pre></div>`;
  if(!LS('oc_lp_hint'))h+='<div class="lp-hint">Long-press a message for actions</div>';
  if(S.pendingUser)h+=`<div class="msg user">${esc(S.pendingUser)}</div>`;
- const kwPrev=document.getElementById('kwTail');if(kwPrev)kwPrev.remove();
+ const kwPrev=document.getElementById('kwTail');
  const kwFrom=kwKumo&&kwKumo.closest('#kwHeroSlot')?kwKumo.getBoundingClientRect():null;
- m.innerHTML=h;
- if(S.sid){kwTailSync(kwFrom)}
- m.scrollTop=near?m.scrollHeight:scrollTop;
+ const kwTailFrom=kwPrev&&kwPrev.isConnected?kwPrev.getBoundingClientRect():null;
+ let feed=document.getElementById('feed');
+ if(!feed){m.innerHTML='';feed=document.createElement('div');feed.id='feed';m.appendChild(feed)}
+ feed.innerHTML=h;
+ if(S.sid){
+  kwTailSync(kwFrom);
+  m.scrollTop=near?m.scrollHeight:scrollTop;
+  // follow(): FLIP the tail when the growing feed moved it — smooth, like the demo.
+  if(kwTailFrom&&!kwReduce){const b=kwTail.getBoundingClientRect(),dy=kwTailFrom.top-b.top;
+   if(Math.abs(dy)>1)kwTail.animate([{transform:`translateY(${dy}px)`},{transform:'none'}],{duration:280,easing:'cubic-bezier(.3,1,.4,1)'})}
+ }
  refreshWorkSheet();updateCtxRing();
 }
 $('#main').addEventListener('toggle',async e=>{
@@ -3849,7 +3858,7 @@ function emo(n){if(kwCur===n||!kwKumo||!kwSv)return;kwCur=n;
  if(g)g.animate([{transform:'scale(.2)',opacity:0},{transform:'scale(1.2)',opacity:1,offset:.6},{transform:'scale(1)',opacity:1}],{duration:420,delay:90,easing:'ease-out',fill:'backwards'});
  kwSv.animate([{transform:'scale(1)'},{transform:'scale(1.03,.97)'},{transform:'scale(1)'}],{duration:200})}
 function kwFlip(fn,fromRect){if(!kwKumo)return;const a=fromRect||kwKumo.getBoundingClientRect();fn();const b=kwKumo.getBoundingClientRect();
- if(kwReduce||Math.abs(a.left-b.left)+Math.abs(a.top-b.top)<2)return;
+ if(kwReduce)return;
  kwKumo.animate([{transformOrigin:'0 0',transform:`translate(${a.left-b.left}px,${a.top-b.top}px) scale(${a.width/b.width})`},{transformOrigin:'0 0',transform:'none'}],{duration:720,easing:'cubic-bezier(.3,1.35,.5,1)'})}
 const kwSpos=i=>{if(i<16){const th=(190-200*i/15)*Math.PI/180;return[256+200*Math.cos(th),218-170*Math.sin(th)]}const j=i-16,th=(184-188*j/13)*Math.PI/180;return[256+238*Math.cos(th),220-196*Math.sin(th)]};
 const kwSquash=()=>{if(!kwReduce)kwSv.animate([{transform:'scale(1)'},{transform:'scale(1.04,.96)'},{transform:'scale(1)'}],{duration:260})};
@@ -3902,10 +3911,9 @@ function kwTailSync(from){
   if(kwKumo.closest('#kwTail')!==t)kwFlip(()=>{t.prepend(kwKumo);kwKumo.className='kw-kumo kw-done'},from)}}
 function kwGo(){const t=kwEnsureTail();
  if(!t.isConnected)$('#main').appendChild(t);
- if(kwKumo.closest('#kwTail')!==t)kwFlip(()=>t.prepend(kwKumo));
  kwState='run';kwPhase='wait';kwT=0;kwLock=0;kwNextSt=3.5;kwNextSp=0;kwNextPk=0;kwBag=[];kwStars=[];
  kwOrbit.classList.remove('kw-off');kwOrbit.innerHTML='';
- kwKumo.classList.remove('kw-peek','kw-read');kwKumo.className='kw-kumo kw-wait';
+ kwFlip(()=>{if(kwKumo.closest('#kwTail')!==t)t.prepend(kwKumo);kwKumo.classList.remove('kw-peek','kw-read');kwKumo.className='kw-kumo kw-wait'});
  document.getElementById('kwStatBox').classList.add('kw-on');$('#kwSt').textContent='думаю…';$('#kwTm').textContent='0:00';
  emo('thinking');
  kwLast=performance.now();clearInterval(kwTimer);kwTimer=setInterval(kwTick,100);kwUpdPill()}
@@ -3913,7 +3921,7 @@ function kwFinish(finalOk,keepEmo){if(kwState!=='run')return;
  kwStopPulse();kwPhase='';kwState='idle';clearInterval(kwTimer);
  kwKumo.classList.remove('kw-peek','kw-read');
  const ct=kwCollapseStars();
- kwLater(()=>{if(kwKumo.closest('#kwTail'))kwKumo.className='kw-kumo kw-done'},Math.max(320,ct));
+ kwLater(()=>{if(kwKumo.closest('#kwTail'))kwFlip(()=>{kwKumo.className='kw-kumo kw-done'})},Math.max(320,ct));
  if(!keepEmo)emo(finalOk?'hello':'sad');
  const sb=document.getElementById('kwStatBox');if(sb)sb.classList.remove('kw-on');
  kwUpdPill()}
@@ -3921,7 +3929,7 @@ function kwStop(){if(kwState!=='run')return;kwStopPulse();kwPhase='';kwState='st
  kwKumo.classList.remove('kw-peek','kw-read');
  if(kwOrbit)kwOrbit.classList.add('kw-off');
  kwCollapseStars();
- kwLater(()=>{if(kwKumo.closest('#kwTail'))kwKumo.className='kw-kumo kw-done'},400);
+ kwLater(()=>{if(kwKumo.closest('#kwTail'))kwFlip(()=>{kwKumo.className='kw-kumo kw-done'})},400);
  emo('surprised');kwLater(()=>emo('sad'),900);
  $('#kwSt').textContent='остановлено';
  kwLater(()=>{const sb=document.getElementById('kwStatBox');if(sb)sb.classList.remove('kw-on');kwUpdPill()},2000);
@@ -3943,7 +3951,7 @@ function kwLabel(pt){const st=pt.state||{},input=st.input||{};
  return 'гоняю команду…'}
 function kwToolRun(pt){if(kwState!=='run')return;
  const was=kwPhase;kwPhase='work';kwStopPulse();
- if(was==='wait'){kwCollapseStars();kwKumo.className='kw-kumo kw-work'}
+ if(was==='wait'){kwCollapseStars();kwFlip(()=>{kwKumo.className='kw-kumo kw-work'})}
  kwKumo.classList.remove('kw-peek');
  $('#kwSt').textContent=kwLabel(pt);
  const k=kwKind(pt);emo(k==='f'||k==='s'?'curious':'focused');
@@ -3960,7 +3968,7 @@ function kwTextDelta(){if(kwState!=='run')return;
 function kwFirstText(){if(kwState!=='run'||kwPhase!=='wait')return;kwPhase='say';
  kwKumo.classList.remove('kw-peek');
  emo('excited');const ct=kwCollapseStars();
- kwLater(()=>{if(kwState!=='run')return;kwKumo.className='kw-kumo kw-work';emo('thinking');$('#kwSt').textContent='пишу…'},Math.max(650,ct))}
+ kwLater(()=>{if(kwState!=='run')return;kwFlip(()=>{kwKumo.className='kw-kumo kw-work'});emo('thinking');$('#kwSt').textContent='пишу…'},Math.max(650,ct))}
 function kwReset(){kwStopPulse();clearInterval(kwTimer);kwState='idle';kwPhase='';kwStars=[];
  kwTmo.forEach(clearTimeout);kwTmo.length=0;
  if(kwOrbit){kwOrbit.innerHTML='';kwOrbit.classList.remove('kw-off')}
@@ -3968,8 +3976,8 @@ function kwReset(){kwStopPulse();clearInterval(kwTimer);kwState='idle';kwPhase='
 function kwMountHero(){const slot=document.getElementById('kwHeroSlot');if(!slot)return;
  if(!kwKumo){kwKumo=kwTpl.content.firstElementChild.cloneNode(true);document.body.appendChild(kwKumo);kwCollect()}
  kwTail=null;
- if(kwKumo.closest('#kwHeroSlot')!==slot)slot.appendChild(kwKumo);
- kwKumo.className='kw-kumo';emo('hello')}
+ if(kwKumo.closest('#kwHeroSlot')!==slot)kwFlip(()=>{slot.appendChild(kwKumo);kwKumo.className='kw-kumo'});
+ emo('hello')}
 (function kwInit(){
  const mini=kwTpl.content.firstElementChild.cloneNode(true);mini.removeAttribute('id');mini.querySelectorAll('[id]').forEach(e=>e.removeAttribute('id'));
  document.getElementById('kwMini').appendChild(mini);
