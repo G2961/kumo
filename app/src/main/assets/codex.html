@@ -1464,7 +1464,10 @@ function openWorkSheet(blockID){
  }
  if(workLogState.id!==null)closeWorkSheet();
  Object.assign(workLogState,{id:blockID,sid:S.sid,view:S.view,trigger:workSheetTrigger(blockID),previousFocus:document.activeElement,signature:null,unread:false,position:null,closing:false});
- setWorkSheetExpanded(false);updateWorkSheetNewEvents();
+ // Fresh open: reset the geometry silently — no height transition theatrics while
+ // the sheet slides in; setWorkSheetExpanded stays for the button and the drag.
+ dialog.removeAttribute('data-expanded');dialog.style.height='';
+ updateWorkSheetNewEvents();
  const scrolls=[document.scrollingElement,$('#main')].filter(Boolean).map(el=>[el,el.scrollTop,el.scrollLeft]);
  dialog.showModal();
  // Establish the transparent backdrop before its transition; the dialog stays modal throughout.
