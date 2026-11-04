@@ -44,6 +44,35 @@ class MainActivity : ComponentActivity(), LocalRuntime.Listener {
         fileCallback?.onReceiveValue(android.webkit.WebChromeClient.FileChooserParams.parseResult(result.resultCode, result.data))
         fileCallback = null
     }
+    // Native photo picker: the WebView file-chooser path silently drops results on this
+    // device (Google Photo picker + system Uri-grant hiccup), so photos ride the bridge.
+    private var photoRequest: String? = null
+    private val pickPhotos = registerForActivityResult(ActivityResultContracts.PickMultipleVisualMedia(8)) { uris ->
+        val req = photoRequest
+        photoRequest = null
+        if (req != null) {
+            if (uris.isEmpty()) {
+                nativeResult(req, JSONObject().put("files", JSONArray()))
+            } else Thread {
+                val files = JSONArray()
+                for (u in uris) {
+                    try {
+                        val mime = contentResolver.getType(u) ?: "image/jpeg"
+                        var name = "photo.jpg"
+                        contentResolver.query(u, arrayOf(android.provider.OpenableColumns.DISPLAY_NAME), null, null, null)?.use { c ->
+                            if (c.moveToFirst() && !c.isNull(0)) name = c.getString(0) ?: name
+                        }
+                        val bytes = contentResolver.openInputStream(u)?.use { it.readBytes() } ?: continue
+                        val b64 = android.util.Base64.encodeToString(bytes, android.util.Base64.NO_WRAP)
+                        files.put(JSONObject().put("type", "file").put("mime", mime).put("filename", name)
+                            .put("url", "data:$mime;base64,$b64").put("size", bytes.size))
+                    } catch (_: Throwable) {
+                    }
+                }
+                nativeResult(req, JSONObject().put("files", files))
+            }.start()
+        }
+    }
     private var folderRequest: String? = null
     @Volatile private var trustedUi = false
     private lateinit var sshTools: SshToolsServer
@@ -443,6 +472,15 @@ class MainActivity : ComponentActivity(), LocalRuntime.Listener {
                         }
                         "openFolder" -> {
                             folderRequest = id; runOnUiThread { openFolderPicker() }; return@execute
+                        }
+                        "pickPhotos" -> {
+                            photoRequest = id
+                            try {
+                                pickPhotos.launch(androidx.activity.result.PickVisualMediaRequest(ActivityResultContracts.PickVisualMedia.ImageOnly))
+                            } catch (_: Throwable) {
+                                nativeResult(id, JSONObject().put("files", JSONArray()))
+                            }
+                            return@execute
                         }
                         "appearance" -> {
                             runOnUiThread {
