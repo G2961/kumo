@@ -1,0 +1,7 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="512" height="512" viewBox="0 0 512 512" role="img" aria-labelledby="title desc">
+<title id="title">Kumo App Icon</title><desc id="desc">Square dark app icon with simplified white cloud and blue accent</desc>
+<g stroke-linecap="round" stroke-linejoin="round"><rect width="512" height="512" fill="#1B1B1B"/><g transform="translate(0 12) scale(1 0.96)">
+<path d="M 111 350 C 77 345 53 319 53 282 C 53 254 66 231 88 216 C 80 178 106 143 146 137 C 164 94 202 70 249 72 C 293 72 328 97 344 134 C 383 131 416 158 422 195 C 449 214 463 247 454 277 C 447 312 420 336 385 340 C 361 365 326 373 294 363 C 262 382 226 378 197 362 C 165 376 130 369 111 350 Z" transform="translate(0 8) scale(1 .96)" fill="#F8FAFF" stroke="#202941" stroke-width="11"/>
+<path d="M 326 103 C 347 94 367 105 375 125 C 381 141 391 152 405 158 C 418 164 417 181 405 188 C 389 197 369 185 357 168 C 348 154 342 145 327 143 C 310 141 309 111 326 103 Z" transform="translate(0 4) scale(1 .98)" fill="#168BFA" stroke="#202941" stroke-width="9"/>
+</g></g>
+</svg>
