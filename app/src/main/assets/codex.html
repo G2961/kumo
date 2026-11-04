@@ -205,7 +205,13 @@ footer{position:relative;padding:var(--s-4) var(--s-12) var(--s-12);padding-bott
 .q-echo-state{font-size:var(--fs-12);font-weight:500;margin-bottom:10px}
 .q-answer-btn{min-height:40px;padding:0 14px;border:1px solid var(--border);border-radius:var(--r-full);color:var(--accent);font-size:var(--fs-13);font-weight:600}
 .q-answer-btn:active{background:var(--surface-2)}
-.stage-note{display:flex;align-items:center;gap:8px;min-height:40px;padding:4px 4px 4px 0;color:var(--text-2);font-size:var(--fs-13)}
+.stage-note{display:flex;flex-direction:column;min-height:40px;color:var(--text-2);font-size:var(--fs-13)}
+.stage-head{display:flex;align-items:center;gap:8px;width:100%;min-height:40px;padding:4px 4px 4px 0;border:0;background:transparent;color:var(--text-2);font-size:var(--fs-13);text-align:left}
+.stage-head .stage-text{flex:1;min-width:0;overflow:hidden;display:-webkit-box;-webkit-box-orient:vertical;-webkit-line-clamp:2;overflow-wrap:anywhere}
+.stage-head .caret{width:14px;height:14px;flex:none;transition:transform .15s;color:var(--text-2)}
+.stage-note[data-open] .stage-head .caret{transform:rotate(180deg)}
+.stage-body{display:grid;grid-template-rows:0fr;overflow:hidden;transition:grid-template-rows 200ms cubic-bezier(.2,0,0,1)}
+.stage-note[data-open] .stage-body{grid-template-rows:1fr}
 .stage-note .stage-text{min-width:0;overflow-wrap:anywhere}
 .stage-note .stage-dur{flex:none}
 .activity[data-state="error"] .tool-status{color:var(--err)}
@@ -414,7 +420,7 @@ span.ib-right-col{font-size:var(--fs-12);color:var(--text-2)}
 .work-summary .caret{grid-column:3;display:inline-flex;align-items:center;width:14px;height:14px;flex:none;color:var(--text-2)}
 .work-summary .caret svg{width:14px;height:14px}
 .work-summary:active .work-summary-label{color:var(--text)}
-#workLogDialog{position:fixed;inset:auto 0 0;margin:0 auto;width:100%;max-width:720px;height:auto;min-height:160px;max-height:68vh;max-height:68dvh;padding:0;border:1px solid var(--border);border-bottom:0;border-radius:var(--r-28) var(--r-28) 0 0;background:var(--sheet-bg);color:var(--text);overflow:hidden;overscroll-behavior:contain}
+#workLogDialog{position:fixed;inset:auto 0 0;margin:0 auto;width:100%;max-width:720px;height:auto;min-height:160px;max-height:68vh;max-height:68dvh;padding:0;border:1px solid var(--border);border-bottom:0;border-radius:var(--r-28) var(--r-28) 0 0;background:var(--sheet-bg);color:var(--text);overflow:hidden;overscroll-behavior:contain;transition:height .28s cubic-bezier(.2,0,0,1)}
 #workLogDialog[open]{display:flex;flex-direction:column}
 #workLogDialog[data-expanded]{height:92vh;height:92dvh;max-height:calc(100% - max(var(--sat,0px),env(safe-area-inset-top,0px)) - 8px)}
 #workLogDialog[data-dragging]{transition:none}
@@ -1324,10 +1330,16 @@ function setWorkSheetExpanded(expanded){
  if(workLogState.closing)return;
  const dialog=$('#workLogDialog'),body=$('#workLogBody'),button=dialog.querySelector('[data-work-expand]');
  const position=workSheetScrollPosition(body),label=expanded?'Collapse work log':'Expand work log';
- dialog.toggleAttribute('data-expanded',expanded);
- button.setAttribute('aria-expanded',String(expanded));button.setAttribute('aria-label',label);button.title=label;
- button.querySelector('path').setAttribute('d',expanded?'M20 10h-6V4m0 6 7-7M4 14h6v6m0-6-7 7':'M14 4h6v6m0-6-7 7M10 20H4v-6m0 6 7-7');
- if(dialog.open){refreshFeedWindows(body);restoreWorkSheetScroll(body,position);updateWorkSheetNewEvents();rememberWorkSheetPosition()}
+ // Pin the current height so the change interpolates instead of snapping.
+ dialog.style.height=dialog.getBoundingClientRect().height+'px';
+ requestAnimationFrame(()=>{
+  dialog.toggleAttribute('data-expanded',expanded);
+  dialog.style.height=expanded?'92dvh':dialog.scrollHeight+'px';
+  setTimeout(()=>{if(!workLogState.drag)dialog.style.height=''},340);
+  button.setAttribute('aria-expanded',String(expanded));button.setAttribute('aria-label',label);button.title=label;
+  button.querySelector('path').setAttribute('d',expanded?'M20 10h-6V4m0 6 7-7M4 14h6v6m0-6-7 7':'M14 4h6v6m0-6-7 7M10 20H4v-6m0 6 7-7');
+  if(dialog.open){refreshFeedWindows(body);restoreWorkSheetScroll(body,position);updateWorkSheetNewEvents();rememberWorkSheetPosition()}
+ });
 }
 function workSheetMotionFrame(){
  const style=getComputedStyle($('#workLogDialog'));
@@ -1405,19 +1417,35 @@ function initWorkSheet(){
   if(!e.isPrimary||e.button!==0||!isWorkSheetOpen()||workLogState.closing)return;
   const from=workSheetMotionFrame(),offset=new DOMMatrixReadOnly(from.transform).m42;
   cancelWorkSheetMotion();dialog.style.transform=from.transform;dialog.style.opacity=from.opacity;
-  e.preventDefault();workLogState.drag={id:e.pointerId,x:e.clientX,y:e.clientY,offset};
+  e.preventDefault();
+  workLogState.drag={id:e.pointerId,x:e.clientX,y:e.clientY,offset,baseH:dialog.getBoundingClientRect().height};
   grab.setPointerCapture(e.pointerId);dialog.setAttribute('data-dragging','');
  });
  grab.addEventListener('pointermove',e=>{
   const drag=workLogState.drag;if(!drag||drag.id!==e.pointerId)return;
-  dialog.style.transform='translateY('+Math.max(0,drag.offset+e.clientY-drag.y)+'px)';
+  const dy=e.clientY-drag.y;
+  if(dy<0){
+   // Stretch the sheet continuously while dragging up: no threshold snap.
+   dialog.style.transform='translateY(0px)';
+   dialog.style.height=Math.min(drag.baseH-dy,window.innerHeight*0.92).toFixed(1)+'px';
+  }else{
+   if(dialog.style.height)dialog.style.height='';
+   dialog.style.transform='translateY('+Math.max(0,drag.offset+dy)+'px)';
+  }
  });
  grab.addEventListener('pointerup',e=>{
   const drag=workLogState.drag;if(!drag||drag.id!==e.pointerId)return;
   const dx=e.clientX-drag.x,dy=e.clientY-drag.y;
   if(Math.abs(dy)>Math.abs(dx)&&dy>80){requestCloseWorkSheet();return}
-  settleWorkSheetDrag();
-  if(Math.abs(dy)>Math.abs(dx)&&dy< -64)setWorkSheetExpanded(true);
+  const stretched=dialog.style.height&&parseFloat(dialog.style.height)>drag.baseH+40;
+  settleWorkSheetDrag(); // re-enables the height transition for the glide
+  if((Math.abs(dy)>Math.abs(dx)&&dy<-64)||stretched){
+   dialog.setAttribute('data-expanded','');
+   dialog.style.height='92dvh';
+  }else if(dialog.style.height){
+   dialog.style.height=drag.baseH+'px';
+   setTimeout(()=>{if(!workLogState.drag&&!dialog.hasAttribute('data-expanded'))dialog.style.height=''},320);
+  }
  });
  grab.addEventListener('pointercancel',settleWorkSheetDrag);
  grab.addEventListener('lostpointercapture',settleWorkSheetDrag);
@@ -3325,7 +3353,7 @@ const workDetailCache=new Map();
 function captureWorkDetails(root){
  const focused=root.contains(document.activeElement)?document.activeElement:null;
  return {
-  open:new Set([...root.querySelectorAll('details[open]:not([data-auto]),.think[data-open]')].map(e=>e.dataset.part)),
+  open:new Set([...root.querySelectorAll('details[open]:not([data-auto]),.think[data-open],.stage-note[data-open]')].map(e=>e.dataset.part)),
   closed:new Set([...root.querySelectorAll('[data-closed]')].map(e=>e.dataset.part)),
   expanded:new Set([...root.querySelectorAll('.feed-text-window.expanded')].map(e=>e.dataset.feedKey)),
   focus:focused?.dataset.feedExpand||null,
@@ -3333,15 +3361,19 @@ function captureWorkDetails(root){
  };
 }
 function workStageNote(event){
- // Progress note, not an action row: model-provided heading when present, else a
- // quiet duration marker. Never shows the raw reasoning chain.
+ // Progress note with a first-sentence preview of the actual reasoning; tap expands
+ // the full text (feed window with Show more). No preview when there is nothing to show.
  const raw=event.segment.thoughts.join('\n\n');
  const title=reasoningTitle(raw);
  const dur=event.running?(S.status?.type==='retry'?'Retrying…':'Thinking…'):thinkDuration(event.segment.parts);
  const key=esc(event.segment.key+'_stage'),state=event.running?'running':'done';
- if(title&&title!=='Reasoning')return `<div class="stage-note" data-part="${key}" data-state="${state}"><span class="stage-text">${esc(title)}</span>${dur?`<span class="stage-dur">${esc(dur)}</span>`:''}</div>`;
- const label=event.running?'Thinking…':dur?'Thought for '+dur:'Thought';
- return `<div class="stage-note" data-part="${key}" data-state="${state}"><span class="stage-text">${esc(label)}</span></div>`;
+ const first=raw.split(/(?<=[.!?.…])\s/)[0]||'';
+ let preview=title!=='Reasoning'?title:(first.length>96?first.slice(0,93)+'…':first);
+ if(!preview){
+  const label=event.running?'Thinking…':dur?'Thought for '+dur:'Thought';
+  return `<div class="stage-note" data-part="${key}" data-state="${state}"><span class="stage-text">${esc(label)}</span></div>`;
+ }
+ return `<div class="stage-note" data-part="${key}" data-state="${state}"><button class="stage-head" type="button" aria-expanded="false" aria-controls="${key}_body"><span class="stage-text">${esc(preview)}</span>${dur?`<span class="stage-dur">${esc(dur)}</span>`:''}<svg class="caret" viewBox="0 0 24 24" aria-hidden="true"><path d="m6 9 6 6 6-6"/></svg></button><div class="stage-body" id="${key}_body"><div class="think-inner">${feedTextBody(raw,event.segment.key+'_text','reasoning')}</div></div></div>`;
 }
 function workGroupCard(events,key,openSet=new Set(),closedSet=new Set()){
  const attempts=events.map(ev=>({ev,facts:workToolFacts(ev)}));
@@ -3399,6 +3431,11 @@ function renderWorkBlockDetails(block,root){
    const event=unit.event;
    kind='reasoning';markSvg=I.thought;stateKey=event.running?'running':'done';
    html='<span class="entry-mark" aria-hidden="true">'+markSvg+'</span>'+workStageNote(event);
+   if(previous.open.has(event.segment.key+'_stage')){
+    const sn=fresh.querySelector('.stage-note');
+    if(sn)sn.setAttribute('data-open','');
+    fresh.querySelector('.stage-head')?.setAttribute('aria-expanded','true');
+   }
   }else{
    const event=unit.event,facts=workToolFacts(event);
    kind=facts.kind;stateKey=facts.state.state;
@@ -3510,11 +3547,13 @@ function handleFeedDetailClick(e){
   if(owner.matches('.think'))owner.setAttribute('data-open','1');
   refreshFeedWindows(owner);return true;
  }
- const th=e.target.closest('.think-head');
+ const th=e.target.closest('.think-head,.stage-head');
  if(th){
-  const w=th.closest('.think'),wasOpen=th.getAttribute('aria-expanded')==='true';
+  const w=th.closest('.think,.stage-note'),wasOpen=th.getAttribute('aria-expanded')==='true';
   w.toggleAttribute('data-open',!wasOpen);w.toggleAttribute('data-closed',wasOpen);w.removeAttribute('data-live');
-  th.setAttribute('aria-expanded',String(!wasOpen));w.querySelector('.think-body').inert=wasOpen;refreshFeedWindows(w);return true;
+  th.setAttribute('aria-expanded',String(!wasOpen));
+  const bodyEl=w.querySelector('.think-body,.stage-body');if(bodyEl)bodyEl.inert=wasOpen;
+  refreshFeedWindows(w);return true;
  }
  const summary=e.target.closest('.activity>summary');
  if(summary){const row=summary.parentElement;row.removeAttribute('data-auto');row.toggleAttribute('data-closed',row.open);row.open=!row.open;workLogState.revealAt=Date.now();runDisclosure(row,row.open);e.preventDefault();refreshFeedWindows(row);return true}
