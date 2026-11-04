@@ -1172,28 +1172,35 @@ function runDisclosure(row,opening){
  const content=disclosureBody(row);
  if(!content)return;
  const state=disclosureAnims.get(content);
- let from=null;
+ let fromVal=null,toVal=null;
  if(state){
   // Reverse mid-flight from the current animated height so rapid toggling never snaps.
-  from=content.getBoundingClientRect().height;
+  fromVal=content.getBoundingClientRect().height+'px';
   disclosureAnims.delete(content);state.motion.onfinish=null;state.motion.cancel();
  }
  content.removeAttribute('data-disclosure-target');
  row.removeAttribute('data-disclosure-hold');
+ content.style.height='';
  if(disclosureReduced()||typeof content.animate!=='function')return;
- let to=0;
- if(opening)to=content.getBoundingClientRect().height;
+ if(opening){fromVal='0px';toVal=content.getBoundingClientRect().height+'px'}
  else{
   // details[open] was already cleared: keep the body measurable while it collapses.
   row.setAttribute('data-disclosure-hold','');
-  if(from===null)from=content.getBoundingClientRect().height;
+  fromVal=fromVal||content.getBoundingClientRect().height+'px';
+  toVal='0px';
  }
- if(Math.abs(to-from)<1){row.removeAttribute('data-disclosure-hold');return}
+ const fromN=parseFloat(fromVal||'0'),toN=parseFloat(toVal||'0');
+ if(Math.abs(toN-fromN)<1){row.removeAttribute('data-disclosure-hold');return}
+ // The start height must be an explicit keyframe: a null 'from' is an invalid frame
+ // (Chrome drops it and the animation interpolates height-to-height — a no-op flash).
  content.setAttribute('data-disclosure-target','');
  const token=++disclosureSeq;
+ // Tall bodies get proportionally more time so a group glides open instead of
+ // flying up in a blink; the cap keeps small rows snappy.
+ const duration=Math.round(Math.min(650,Math.max(220,Math.abs(toN-fromN)*0.5)));
  // fill:forwards pins the end height until cancel, so there is no full-height flash
  // between the animation's end time and this onfinish cleanup.
- const motion=content.animate([{height:from+'px'},{height:to+'px'}],{duration:200,fill:'forwards',easing:opening?'cubic-bezier(.2,0,0,1)':'cubic-bezier(.4,0,1,1)'});
+ const motion=content.animate([{height:fromVal},{height:toVal}],{duration,fill:'forwards',easing:opening?'cubic-bezier(.2,0,0,1)':'cubic-bezier(.4,0,1,1)'});
  disclosureAnims.set(content,{token,motion});
  motion.onfinish=()=>{
   const current=disclosureAnims.get(content);
