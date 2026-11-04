@@ -1,60 +1,72 @@
-"""Visual probe: think block with reasoning text + tool entries (regression for
-'thought text invisible' and 'tool output rendered side-by-side with the chip')."""
+"""Offline visual probe: strict reasoning/tool/reasoning/tool/answer sequence.
+
+Uses the same real-asset fixture as reasoning_activity_proof.py; no API/model calls.
+Evidence is written outside the repository in a printed temporary directory.
+"""
+import argparse
 import asyncio
-import json
-import subprocess
-import sys
 import tempfile
-import urllib.request
 from pathlib import Path
 
-sys.path.insert(0, str(Path(__file__).parent))
-import ui_round3 as R  # noqa: E402
-from playwright.async_api import async_playwright  # noqa: E402
+from playwright.async_api import async_playwright, expect
 
-OUT = R.ROOT / 'tests' / 'evidence' / 'ui_round3'
+from reasoning_activity_proof import (A1, U1, activity_segment, assert_sequence, boot_page,
+                                      launch_browser, message, open_thought, reason, seed, text, thought, tool, user)
 
 
-async def main():
-    R.TASK.mkdir(exist_ok=True)
-    port = R.free_port()
-    origin = f'http://127.0.0.1:{port}'
-    out = open(R.TASK / 'opencode.log', 'w', encoding='utf-8')
-    server = subprocess.Popen([R.OPENCODE, 'serve', '--hostname', '127.0.0.1', '--port', str(port)],
-                              cwd=R.TASK, stdout=out, stderr=out)
-    try:
-        await R.wait_server(origin)
-        async with async_playwright() as pw:
-            browser, context, page, errors = await R.boot_page(pw, origin, 'dark')
-            read_out = '\n'.join(f'{i}: line {i} of index.html {{' for i in range(1, 60))
-            await page.evaluate(f"""()=>{{
-              S.sid='x';
-              S.msgs.set('u1',{{info:{{id:'u1',sessionID:'x',role:'user'}},parts:new Map([['pu',{{id:'pu',type:'text',text:'задай мне вопрос'}}]])}});
-              const a={{info:{{id:'a1',sessionID:'x',role:'assistant',time:{{created:1000,completed:9000}}}},parts:new Map()}};
-              a.parts.set('r1',{{id:'r1',type:'reasoning',text:'Пользователь просит вопрос. Посмотрю структуру проекта, потом прочитаю index.html и сформулирую.',time:{{start:1000,end:2500}}}});
-              a.parts.set('t1',{{id:'t1',type:'tool',tool:'glob',callID:'c1',state:{{status:'completed',input:{{pattern:'**/*'}},output:'src/index.html\\nsrc/app.js'}}}});
-              a.parts.set('r2',{{id:'r2',type:'reasoning',text:'Ищу **/* — вижу index.html, читаю его.',time:{{start:2500,end:4000}}}});
-              a.parts.set('t2',{{id:'t2',type:'tool',tool:'read',callID:'c2',state:{{status:'completed',input:{{filePath:'index.html'}},output:{json.dumps(read_out)}}}}});
-              a.parts.set('x1',{{id:'x1',type:'text',text:'Вот структура проекта.'}});
-              S.msgs.set('a1',a);
-              renderMsgs(true);
-            }}""")
-            await page.wait_for_timeout(300)
-            await page.click('.think-head')
-            await page.wait_for_timeout(400)
-            await page.screenshot(path=str(OUT / 'probe-think-open.png'))
-            # open the read tool entry: its output must render BELOW the chip
-            await page.click('.think .topic:nth-of-type(2) .tsum')
-            await page.wait_for_timeout(400)
-            layout = await page.evaluate("""()=>{const t=document.querySelectorAll('.think .topic')[1];const s=t.querySelector('.tsum').getBoundingClientRect(),o=t.querySelector('.tout').getBoundingClientRect();return {gap:o.top-s.bottom}}""")
-            print('tout gap below summary:', layout)
-            await page.screenshot(path=str(OUT / 'probe-think-tool-open.png'))
-            print('pageerrors:', errors)
+async def main(browser_executable=None):
+    out = Path(tempfile.mkdtemp(prefix='probe-think-'))
+    print(f'Evidence: {out}', flush=True)
+    async with async_playwright() as pw:
+        browser = await launch_browser(pw, browser_executable)
+        try:
+            for theme in ['dark', 'light']:
+                context, page, errors, requests = await boot_page(browser, theme)
+                try:
+                    read_out = '\n'.join(f'{i}: line {i} of index.html {{' for i in range(1, 60))
+                    await seed(page, [user(), message(A1, 'assistant', [
+                        reason('r1', 'Пользователь просит вопрос.\n\nПроверю структуру проекта.', 1000, 2500),
+                        tool('t1', 'glob', {'pattern': '**/*'}, 'src/index.html\nsrc/app.js'),
+                        reason('r2', 'Выберу уточнение по найденному файлу.', 2500, 4000),
+                        tool('t2', 'read', {'filePath': 'index.html'}, read_out),
+                        text('answer', 'Вот структура проекта.')], U1, 9000)])
+                    await assert_sequence(page, [f'{A1}_r1_think', f'{A1}_t1_activity', f'{A1}_r2_think',
+                                                 f'{A1}_t2_activity', 'text:Вот структура проекта.'])
+                    await open_thought(page, thought(A1, 'r1'))
+                    await open_thought(page, thought(A1, 'r2'))
+                    await expect(page.locator('.think .rtext')).to_have_text([
+                        'Пользователь просит вопрос.\n\nПроверю структуру проекта.',
+                        'Выберу уточнение по найденному файлу.'])
+                    await expect(page.locator('.think .card, .think .tool-event, .topic')).to_have_count(0)
+                    await expect(page.locator('.think-indicator, .reason-step, .think-steps, .reasoning-details')).to_have_count(0)
+                    await expect(page.locator('.think-label')).to_have_text(['Reasoning', 'Reasoning'])
+                    await expect(page.locator(thought(A1, 'r1') + ' .think-duration')).to_have_text('2s')
+                    await expect(page.locator(thought(A1, 'r2') + ' .think-duration')).to_have_text('2s')
+                    await page.screenshot(path=str(out / f'{theme}-think-open.png'))
+                    activity = page.locator(activity_segment(A1, 't2'))
+                    await expect(activity.locator(':scope > summary')).not_to_contain_text('Activity')
+                    await expect(activity.locator(':scope > summary')).to_contain_text('Read')
+                    await activity.locator(':scope > summary').click()
+                    read_card = activity
+                    await expect(read_card).to_have_attribute('data-tool-part', 't2')
+                    await expect(read_card.locator('details, .card')).to_have_count(0)
+                    assert await read_card.locator('.tool-output').text_content() == read_out
+                    gap = await read_card.evaluate('''e=>{
+                      const summary=e.querySelector('summary').getBoundingClientRect();
+                      return e.querySelector('.tool-output').getBoundingClientRect().top-summary.bottom;
+                    }''')
+                    assert gap >= -1, f'Read output overlaps its summary: {gap}px'
+                    await page.screenshot(path=str(out / f'{theme}-activity-read-open.png'))
+                    assert not errors, errors
+                    assert not requests, requests
+                    print(f'PASS {theme}: ordered per-part segments; read output below its own summary ({gap}px)')
+                finally:
+                    await context.close()
+        finally:
             await browser.close()
-    finally:
-        server.terminate()
-        out.close()
 
 
 if __name__ == '__main__':
-    asyncio.run(main())
+    parser = argparse.ArgumentParser(description=__doc__)
+    parser.add_argument('--browser-executable', type=Path, help='Existing Chrome/Chromium (or PLAYWRIGHT_BROWSER_EXECUTABLE)')
+    asyncio.run(main(parser.parse_args().browser_executable))

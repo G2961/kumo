@@ -2,20 +2,22 @@
 
 Runs against a real opencode 1.19.3 server (no model calls: UI mechanics +
 permission ruleset round-trip + fork endpoint presence). Playwright 390x844,
-both themes. Screenshots go to tests/evidence/ui_round3/.
+both themes. Screenshots go to a printed system temporary directory.
 """
-import asyncio, json, re, socket, subprocess, sys, urllib.request, urllib.parse
+import argparse
+import asyncio, json, re, socket, subprocess, sys, tempfile, urllib.request, urllib.parse
 from pathlib import Path
-from uuid import uuid4
 
-from playwright.async_api import async_playwright
+
+from playwright.async_api import async_playwright, expect
+
+from reasoning_effort_proof import assert_isolated_paths, isolated_server_env
+from reasoning_activity_proof import launch_browser
 
 ROOT = Path(__file__).resolve().parents[1]
-LOCAL = ROOT.parent / '.local'
-TASK = LOCAL / ('ui-round3-' + uuid4().hex[:8])
-TASK.mkdir()
+TASK = Path(tempfile.mkdtemp(prefix='ui-round3-'))
 OPENCODE = 'D:/Dev/npm-global/node_modules/opencode-ai/bin/opencode.exe'
-EVIDENCE = ROOT / 'tests' / 'evidence' / 'ui_round3'
+EVIDENCE = TASK / 'evidence'
 
 VIEWPORT = {'width': 390, 'height': 844}
 
@@ -38,8 +40,8 @@ async def wait_server(origin):
     raise RuntimeError('opencode did not start')
 
 
-async def boot_page(pw, origin, theme):
-    browser = await pw.chromium.launch()
+async def boot_page(pw, origin, theme, browser_executable=None):
+    browser = await launch_browser(pw, browser_executable)
     context = await browser.new_context(viewport=VIEWPORT)
     await context.grant_permissions(['local-network-access'], origin=origin)
     await context.grant_permissions(['clipboard-read', 'clipboard-write'], origin=origin)
@@ -50,7 +52,8 @@ async def boot_page(pw, origin, theme):
         path=str(ROOT / 'app/src/main/assets/codex.html'), content_type='text/html'))
     await page.add_init_script(f"localStorage.setItem('oc_theme','\"{theme}\"');localStorage.removeItem('oc_lp_hint')")
     await page.goto(origin + '/_ui/index.html')
-    await page.wait_for_timeout(600)
+    await page.evaluate('S.bootP')
+    await page.wait_for_function('S.live && S.spec && S.health')
     return browser, context, page, errors
 
 
@@ -59,13 +62,15 @@ async def open_sheet(page, selector):
     await page.wait_for_timeout(350)
 
 
-async def main():
+async def main(browser_executable=None):
     EVIDENCE.mkdir(parents=True, exist_ok=True)
+    print(f'Evidence: {EVIDENCE}', flush=True)
     port = free_port()
     origin = f'http://127.0.0.1:{port}'
     out = open(TASK / 'opencode.log', 'w', encoding='utf-8')
+    env = isolated_server_env(TASK, {'provider': {}, 'enabled_providers': [], 'autoupdate': False})
     server = subprocess.Popen([OPENCODE, 'serve', '--hostname', '127.0.0.1', '--port', str(port)],
-                              cwd=TASK, stdout=out, stderr=out)
+                              env=env, cwd=TASK, stdout=out, stderr=out)
     result = {'checks': [], 'failures': []}
 
     def check(name, ok, detail=''):
@@ -81,7 +86,9 @@ async def main():
         real_project = TASK / 'perm-project'
         real_project.mkdir()
         with urllib.request.urlopen(origin + '/path', timeout=10) as r:
-            default_dir = json.load(r)['directory']
+            paths = json.load(r)
+            assert_isolated_paths(paths, TASK)
+        check('isolated_config_state_home', True)
 
         # ---- real-server permission round-trip (Block B plumbing) ----
         def api(path, body=None, method='GET', directory=None):
@@ -107,7 +114,7 @@ async def main():
 
         async with async_playwright() as pw:
             for theme in ['dark', 'light']:
-                browser, context, page, errors = await boot_page(pw, origin, theme)
+                browser, context, page, errors = await boot_page(pw, origin, theme, browser_executable)
                 shot = lambda name: page.screenshot(path=str(EVIDENCE / f'{theme}-{name}.png'))
 
                 # boot integrity
@@ -227,75 +234,118 @@ async def main():
 
                 # synthetic thread: cards + error card + context menu (Block C/F)
                 await page.evaluate("""() => {
-                  const uid='msg_u1',aid='msg_a1';
+                  const uid='msg_100_user',aid='msg_101_assistant';
                   const u={info:{id:uid,sessionID:'x',role:'user'},parts:new Map([['p1',{id:'p1',type:'text',text:'Fix the login bug'}]])};
-                  const a={info:{id:aid,sessionID:'x',role:'assistant',parentID:'msg_u1'},parts:new Map([
+                  const a={info:{id:aid,sessionID:'x',role:'assistant',parentID:'msg_100_user'},parts:new Map([
                     ['p2',{id:'p2',type:'tool',tool:'bash',callID:'c1',state:{status:'completed',input:{command:'df -h'},output:'total 9.8G',metadata:{},time:{start:1,end:2}}}],
                     ['p3',{id:'p3',type:'tool',tool:'edit',callID:'c2',state:{status:'completed',input:{filePath:'src/login.js'},output:'',metadata:{},time:{start:1,end:2}}}],
                     ['p4',{id:'p4',type:'text',text:'Here is the **fix** with `code`.'}]
                   ])};
-                  const err={info:{id:'msg_a2',sessionID:'x',role:'assistant',error:{name:'APIError',data:{message:'Rate limit exceeded',statusCode:429,isRetryable:true}}},parts:new Map()};
-                  const filler=[...Array(20)].map((_,i)=>['mf'+i,{info:{id:'msg_f'+String(i).padStart(2,'0'),sessionID:'x',role:'user'},parts:new Map([['pf'+i,{id:'pf'+i,type:'text',text:'Filler message '+i}]])}]);
-                  S.msgs=new Map([['msg_u1',u],['msg_a1',a],['msg_a2',err],...filler.map(([k,v])=>[v.info.id,v])]);
+                  const err={info:{id:'msg_102_assistant',sessionID:'x',role:'assistant',parentID:uid,error:{name:'APIError',data:{message:'Rate limit exceeded',statusCode:429,isRetryable:true}}},parts:new Map()};
+                  const filler=[...Array(20)].map((_,i)=>['mf'+i,{info:{id:'msg_000_f'+String(i).padStart(2,'0'),sessionID:'x',role:'user'},parts:new Map([['pf'+i,{id:'pf'+i,type:'text',text:'Filler message '+i}]])}]);
+                  S.msgs=new Map([['msg_100_user',u],['msg_101_assistant',a],['msg_102_assistant',err],...filler.map(([k,v])=>[v.info.id,v])]);
                   S.sid='x';S.historyFiles=new Map();
                   renderMsgs(true);
                 }""")
                 await page.wait_for_timeout(250)
                 await shot('thread')
-                user_attr = await page.eval_on_selector('.msg.user[data-mid="msg_u1"]', "e=>e.dataset.utext")
+                user_attr = await page.eval_on_selector('.msg.user[data-mid="msg_100_user"]', "e=>e.dataset.utext")
                 check(f'{theme}_user_msg_attrs', user_attr == 'Fix the login bug', str(user_attr))
-                ai_attr = await page.eval_on_selector('.msg.ai[data-mid="msg_a1"]', "e=>e.dataset.raw")
+                ai_attr = await page.eval_on_selector('.msg.ai[data-mid="msg_101_assistant"]', "e=>e.dataset.raw")
                 check(f'{theme}_ai_msg_attrs', ai_attr is not None)
                 err_card = await page.eval_on_selector('.error-card', 'e=>e.innerText')
                 check(f'{theme}_error_card_retry', 'Retry' in err_card and 'Switch model' in err_card, err_card[:150])
                 check(f'{theme}_error_card_code', '429' in err_card)
                 check(f'{theme}_error_no_working_spinner', 'Working...' not in await page.eval_on_selector('#main', 'e=>e.innerText'))
+                # Work summaries own the main feed; existing rows live only in the selected log.
+                tools_work = '#main .work-summary[data-work-open="work_msg_101_assistant_p2"]'
+                reasoning_work = '#main .work-summary[data-work-open="work_msg_101_assistant_p5"]'
+                log = page.locator('#workLogBody')
+                await page.locator(tools_work).click()
+                await expect(page.locator('#workLogDialog')).to_be_visible()
                 # ghost-card fix: completed edit w/o recorded diff renders compact, no empty details body
-                change_cards = await page.eval_on_selector_all('.change-card', "els=>els.map(e=>e.innerText)")
+                change_cards = await log.locator('.change-card').all_inner_texts()
                 check(f'{theme}_no_empty_diff_details', all('No diff recorded' not in c for c in change_cards), str(change_cards))
-                compact = await page.eval_on_selector_all('.think .topic .txt', "els=>els.map(e=>e.innerText)")
+                compact = await log.locator('.activity.tool-event[data-tool-part="p3"] .activity-label').all_text_contents()
                 check(f'{theme}_compact_change_row', any('login.js' in c for c in compact), str(compact))
-                # thinking block: two states + topics from real tool events
+                check(f'{theme}_compact_change_no_empty_details', await log.locator('.activity.tool-event[data-tool-part="p3"] details, .activity.tool-event[data-tool-part="p3"] .change-preview').count() == 0)
+                check(f'{theme}_work_summary_tools_grouped', await page.locator('#main .work-summary').count() == 1
+                      and await page.locator('#main .activity, #main .think').count() == 0
+                      and await log.locator('.work-log-entry > .activity.tool-event').count() == 2)
+                await page.locator('#workLogDialog [data-work-close]').click()
+                # Reasoning contains only actual source; public text starts a separate Work group.
                 await page.evaluate("""() => {
-                  const a=S.msgs.get('msg_a1');
+                  const a=S.msgs.get('msg_101_assistant');
                   a.info.time={created:1000,completed:7500};
                   a.parts.set('p5',{id:'p5',type:'reasoning',text:'The user wants a quick check.',time:{start:1000,end:7000}});
                   renderMsgs(true);
                 }""")
                 await page.wait_for_timeout(200)
-                head = await page.eval_on_selector('.think-head', 'e=>e.innerText')
-                check(f'{theme}_think_done_label', 'Thought for 7s' in head, head)
-                brain = await page.evaluate("!!document.querySelector('.think-head .think-icon')")
-                check(f'{theme}_think_done_brain', brain)
-                open_now = await page.evaluate("document.querySelector('.think').hasAttribute('data-open')")
+                await page.locator(reasoning_work).click()
+                head = await log.locator('.think-label').text_content()
+                duration = await log.locator('.think-duration').text_content()
+                check(f'{theme}_think_done_label', head == 'Reasoning' and duration == '6s', head + '/' + duration)
+                check(f'{theme}_think_no_legacy_timeline', await page.locator('.think-indicator, .reason-step, .think-steps, .reasoning-details').count() == 0)
+                open_now = await log.locator('.think').evaluate("e=>e.hasAttribute('data-open')")
                 check(f'{theme}_think_done_collapsed', not open_now)
-                await page.click('.think-head')
+                await log.locator('.think-head').click()
                 await page.wait_for_timeout(300)
-                panel = await page.eval_on_selector('.think-panel', 'e=>e.innerText')
-                check(f'{theme}_think_topics', 'Running df -h' in panel and 'Editing login.js' in panel, panel[:200])
-                check(f'{theme}_think_reasoning_visible', 'The user wants a quick check.' in panel and await page.evaluate("!!document.querySelector('.think .rtext')"), panel[:200])
-                check(f'{theme}_think_topic_marks', await page.evaluate("document.querySelectorAll('.think .topic.done').length") == 2)
-                # opened tool entry: output renders BELOW the chip, never side-by-side
-                layout = await page.evaluate("()=>{const t=document.querySelector('.think .topic');t.setAttribute('open','');const s=t.querySelector('.tsum').getBoundingClientRect(),o=t.querySelector('.tout').getBoundingClientRect();return {below:o.top>=s.bottom-1,overlap:o.top<s.bottom-1}}")
-                check(f'{theme}_think_tout_below_summary', layout['below'], str(layout))
-                await page.click('.think-head')
+                panel = await log.locator('.think .rtext').text_content()
+                check(f'{theme}_think_reasoning_only', 'df -h' not in panel and 'login.js' not in panel, panel[:200])
+                check(f'{theme}_think_reasoning_visible', panel == 'The user wants a quick check.' and await log.locator('.think .rtext').count() == 1, panel[:200])
+                check(f'{theme}_think_no_tool_topics', await log.locator('.think .tool-event, .think .card, .topic').count() == 0)
+                check(f'{theme}_think_accessible_expanded', await log.locator('.think-head').get_attribute('aria-expanded') == 'true' and bool(await log.locator('.think-head').get_attribute('aria-controls')))
+                await log.locator('.think-head').click()
                 await page.wait_for_timeout(250)
-                check(f'{theme}_think_closes', not await page.evaluate("document.querySelector('.think').hasAttribute('data-open')"))
-                # reasoning-only message: caret + thought text visible inside
-                caret_none = await page.evaluate("()=>{const a=S.msgs.get('msg_a2');a.parts.set('p7',{id:'p7',type:'reasoning',text:'Brief.',time:{start:8000,end:9000}});a.info.time={created:8000,completed:9500};renderMsgs(true);const w=[...document.querySelectorAll('.think')].pop();return {head:w.querySelector('.think-head').innerText,caret:!!w.querySelector('.caret'),rtxt:(w.querySelector('.rtext')||{}).textContent}}")
-                check(f'{theme}_think_reasoning_only_expandable', 'Thought for 2s' in caret_none['head'] and caret_none['caret'] and caret_none['rtxt'] == 'Brief.', str(caret_none))
-                # Americ-thought tags inside a text part: go to the think panel, not the bubble
-                tagged = await page.evaluate("()=>{const a=S.msgs.get('msg_a2');a.parts.set('p8',{id:'p8',type:'text',text:'<think>мысль из текста</think>Ответ готов'});renderMsgs(true);const w=[...document.querySelectorAll('.think')].pop();return {rts:[...w.querySelectorAll('.rtext')].map(r=>r.textContent),bubbles:[...document.querySelectorAll('.msg.ai')].map(b=>b.textContent)}}")
-                check(f'{theme}_think_tagged_text', tagged['rts'][-1] == 'мысль из текста' and not any('мысль из текста' in b for b in tagged['bubbles']), str(tagged)[:200])
+                check(f'{theme}_think_closes', await log.locator('.think-head').get_attribute('aria-expanded') == 'false')
+                await page.locator('#workLogDialog [data-work-close]').click()
+                await page.locator(tools_work).click()
+                await log.locator('.activity[data-tool-part="p2"] > summary').click()
+                activity_text = '\n'.join(await log.locator('.activity').all_text_contents())
+                check(f'{theme}_activity_tools', 'df -h' in activity_text and 'login.js' in activity_text and 'total 9.8G' in activity_text, activity_text[:200])
+                layout = await log.locator('.activity[data-tool-part="p2"]').evaluate('''t=>{const s=t.querySelector('summary').getBoundingClientRect(),o=t.querySelector('.tool-output').getBoundingClientRect();return {below:o.top>=s.bottom-1,overlap:o.top<s.bottom-1}}''')
+                check(f'{theme}_activity_output_below_summary', layout['below'], str(layout))
+                await log.locator('.activity[data-tool-part="p2"] > summary').click()
+                await page.locator('#workLogDialog [data-work-close]').click()
+                await page.locator(reasoning_work).click()
+                # Adjacent messages share a Work group but retain independent reasoning keys/durations.
+                grouped = await page.evaluate("""()=>{
+                  const a=S.msgs.get('msg_102_assistant');
+                  a.parts.set('p7',{id:'p7',type:'reasoning',text:'Brief.',time:{start:8000,end:9000}});
+                  a.info.time={created:8000,completed:9500};renderMsgs(true);
+                  return [...document.querySelectorAll('#workLogBody .think')].map(w=>({key:w.dataset.part,
+                    head:w.querySelector('.think-duration').textContent,caret:!!w.querySelector('.caret'),
+                    source:[...w.querySelectorAll('.rtext')].map(r=>r.textContent)}))
+                }""")
+                check(f'{theme}_think_independent_message_segments',
+                      len(grouped) == 2 and [w['key'] for w in grouped] == ['msg_101_assistant_p5_think', 'msg_102_assistant_p7_think']
+                      and grouped[0]['head'] == '6s' and grouped[1]['head'] == '1s'
+                      and all(w['caret'] for w in grouped)
+                      and [w['source'] for w in grouped] == [['The user wants a quick check.'], ['Brief.']], str(grouped))
+                # Tagged reasoning stays a detail entry; visible text stays after the Work summary.
+                tagged = await page.evaluate("""()=>{
+                  const a=S.msgs.get('msg_102_assistant');
+                  a.parts.set('p8',{id:'p8',type:'text',text:'<think>мысль из текста</think>Ответ готов'});
+                  renderMsgs(true);
+                  return {keys:[...document.querySelectorAll('#workLogBody .think')].map(w=>w.dataset.part),
+                    rts:[...document.querySelectorAll('#workLogBody .think .rtext')].map(r=>r.textContent),
+                    sequence:[...document.querySelectorAll('#main > .work-summary,#main > .msg.ai')].map(e=>e.dataset.workOpen||'text:'+e.dataset.raw),
+                    bubbles:[...document.querySelectorAll('.msg.ai')].map(b=>b.textContent)}
+                }""")
+                check(f'{theme}_think_tagged_text', tagged['keys'] == ['msg_101_assistant_p5_think', 'msg_102_assistant_p7_think', 'msg_102_assistant_p8_think']
+                      and tagged['rts'][-1] == 'мысль из текста' and not any('мысль из текста' in b for b in tagged['bubbles']), str(tagged))
+                check(f'{theme}_strict_segment_order', tagged['sequence'] == ['work_msg_101_assistant_p2',
+                      'text:Here is the **fix** with `code`.', 'work_msg_101_assistant_p5', 'text:Ответ готов'], str(tagged['sequence']))
+                await page.locator('#workLogDialog [data-work-close]').click()
                 # actions bar: ONE per turn, under the last completed assistant message
                 acts = await page.eval_on_selector_all('.msg-actions button', 'els=>els.length')
                 check(f'{theme}_actions_bar', acts == 5, str(acts))
                 bars = await page.eval_on_selector_all('.msg-actions', "els=>els.map(e=>e.dataset.amid)")
-                check(f'{theme}_actions_bar_last_msg', bars == ['msg_a2'], str(bars))
+                check(f'{theme}_actions_bar_last_msg', bars == ['msg_102_assistant'], str(bars))
                 await page.click('.msg-actions [data-ma="like"]')
                 await page.wait_for_timeout(200)
                 lk = await page.evaluate("({r:S.reactions,p:localStorage.getItem('oc_reactions')})")
-                check(f'{theme}_like_persists', lk['r'].get('msg_a2') == 'like' and lk['p'] and 'like' in lk['p'], str(lk))
+                check(f'{theme}_like_persists', lk['r'].get('msg_102_assistant') == 'like' and lk['p'] and 'like' in lk['p'], str(lk))
                 await page.click('.msg-actions [data-ma="copy"]')
                 await page.wait_for_timeout(250)
                 clip2 = await page.evaluate("navigator.clipboard.readText()")
@@ -303,9 +353,9 @@ async def main():
                 # long-press does not block scrolling (Block F tests)
                 scroll_info = await page.evaluate("()=>{const m=document.querySelector('#main');const can=m.scrollHeight>m.clientHeight;m.scrollTop=50;return {can,v:m.scrollTop}}")
                 check(f'{theme}_scroll_after_lp', scroll_info['can'] and scroll_info['v'] == 50, str(scroll_info))
-                # return the bar to msg_a1 (drop msg_a2's text part) for the retry test
-                await page.evaluate("()=>{const a=S.msgs.get('msg_a2');if(a)a.parts.delete('p8');renderMsgs(true)}")
-                # retry: deletes the old pair, re-sends the same text, no duplicates on the wire
+                # return the bar to msg_101_assistant (drop msg_102_assistant's text part) for the retry test
+                await page.evaluate("()=>{const a=S.msgs.get('msg_102_assistant');if(a)a.parts.delete('p8');renderMsgs(true)}")
+                # Retry deletes the user and every assistant message in the turn, with no duplicate requests.
                 dels = []
                 newprompts = []
                 async def del_route(route):
@@ -314,8 +364,8 @@ async def main():
                 await page.route('**/session/x/message/msg_*', del_route)
                 async def list_route(route):
                     await route.fulfill(status=200, content_type='application/json', body=json.dumps([
-                        {'info': {'id': 'msg_u9', 'sessionID': 'x', 'role': 'user', 'time': {'created': 1}}, 'parts': [{'id': 'pu9', 'type': 'text', 'text': 'Fix the login bug'}]},
-                        {'info': {'id': 'msg_a9', 'sessionID': 'x', 'role': 'assistant', 'parentID': 'msg_u9', 'time': {'created': 2, 'completed': 3}}, 'parts': []}]))
+                        {'info': {'id': 'msg_200_user', 'sessionID': 'x', 'role': 'user', 'time': {'created': 1}}, 'parts': [{'id': 'pu9', 'type': 'text', 'text': 'Fix the login bug'}]},
+                        {'info': {'id': 'msg_201_assistant', 'sessionID': 'x', 'role': 'assistant', 'parentID': 'msg_200_user', 'time': {'created': 2, 'completed': 3}}, 'parts': []}]))
                 await page.route(re.compile(r'.*/session/x/message\?.*'), list_route)
                 async def sess_route(route):
                     if route.request.method == 'GET':
@@ -329,13 +379,13 @@ async def main():
                 await page.route('**/prompt_async*', prompt2)
                 await page.click('.msg-actions [data-ma="retry"]')
                 await page.wait_for_timeout(1500)
-                check(f'{theme}_retry_deletes_pair', sorted(dels) == ['msg_a1', 'msg_u1'], str(dels))
+                check(f'{theme}_retry_deletes_turn', sorted(dels) == ['msg_100_user', 'msg_101_assistant', 'msg_102_assistant'], str(dels))
                 pb = newprompts[-1] if newprompts else None
                 check(f'{theme}_retry_resends_same_text', bool(pb) and pb.get('parts', [{}])[0].get('text') == 'Fix the login bug', str(pb)[:150])
                 check(f'{theme}_retry_state_clean', await page.evaluate("S.msgs.size") == 2, str(await page.evaluate("S.msgs.size")))
 
                 # long-press: no custom menu anymore, text stays natively selectable
-                box = await page.evaluate("()=>{const e=document.querySelector('.msg.user[data-mid=\"msg_u9\"]');e.scrollIntoView({block:'center'});const r=e.getBoundingClientRect();return {x:r.x+r.width/2,y:Math.max(60,r.y+10)}}")
+                box = await page.evaluate("()=>{const e=document.querySelector('.msg.user[data-mid=\"msg_200_user\"]');e.scrollIntoView({block:'center'});const r=e.getBoundingClientRect();return {x:r.x+r.width/2,y:Math.max(60,r.y+10)}}")
                 await page.mouse.move(box['x'], box['y'])
                 await page.mouse.down()
                 await page.wait_for_timeout(600)
@@ -343,11 +393,13 @@ async def main():
                 await page.wait_for_timeout(350)
                 menu = await page.eval_on_selector('#sheet', "e=>e.classList.contains('on')?e.innerText:'OFF'")
                 check(f'{theme}_lp_no_menu', menu == 'OFF', menu[:120])
-                sel_st = await page.evaluate("getComputedStyle(document.querySelector('.msg.user[data-mid=\"msg_u9\"]')).userSelect")
+                sel_st = await page.evaluate("getComputedStyle(document.querySelector('.msg.user[data-mid=\"msg_200_user\"]')).userSelect")
                 check(f'{theme}_text_selectable', sel_st != 'none', sel_st)
 
+                # The fake prompt has no server-side stream: finish it before testing completed-message actions.
+                await page.evaluate("onEvent({type:'session.status',properties:{sessionID:'x',status:{type:'idle'}}})")
                 # ai message: actions live in the More (...) button menu: copy + fork
-                await page.evaluate("()=>{const a=S.msgs.get('msg_a9');a.parts.set('pa9',{id:'pa9',type:'text',text:'Assistant answer'});renderMsgs(true)}")
+                await page.evaluate("()=>{const a=S.msgs.get('msg_201_assistant');a.parts.set('pa9',{id:'pa9',type:'text',text:'Assistant answer'});renderMsgs(true)}")
                 await page.click('.msg-actions [data-ma="more"]')
                 await page.wait_for_timeout(350)
                 menu2 = await page.eval_on_selector('#sheet', "e=>e.classList.contains('on')?e.innerText:'OFF'")
@@ -368,14 +420,14 @@ async def main():
                 await page.route('**/session/x/fork*', fork_route)
                 await page.click('#sheet .opt:nth-child(4)')
                 await page.wait_for_timeout(600)
-                check(f'{theme}_fork_request', len(fork_calls) == 1 and fork_calls[0] == {'messageID': 'msg_a9'}, str(fork_calls))
+                check(f'{theme}_fork_request', len(fork_calls) == 1 and fork_calls[0] == {'messageID': 'msg_201_assistant'}, str(fork_calls))
 
                 await browser.close()
 
             # edit & resend fork-on-send flow (Block F): single theme pass
-            browser, context, page, errors = await boot_page(pw, origin, 'dark')
+            browser, context, page, errors = await boot_page(pw, origin, 'dark', browser_executable)
             await page.evaluate("""() => {
-              const u={info:{id:'msg_u1',sessionID:'x',role:'user'},parts:new Map([['p1',{id:'p1',type:'text',text:'Original ask'}]])};
+              const u={info:{id:'msg_100_user',sessionID:'x',role:'user'},parts:new Map([['p1',{id:'p1',type:'text',text:'Original ask'}]])};
               S.msgs=new Map([['m1',u]]);S.sid='x';renderMsgs(true);
             }""")
             forks = []
@@ -394,21 +446,21 @@ async def main():
                 prompts.append(route.request.post_data_json)
                 await route.fulfill(status=204)
             await page.route('**/session/ses_fork2/prompt_async*', prompt_route)
-            await page.evaluate("startEditResend('msg_u1','Edited text')")
+            await page.evaluate("startEditResend('msg_100_user','Edited text')")
             banner = await page.eval_on_selector('#editBanner', "e=>e.hidden?'HIDDEN':e.innerText")
             check('edit_banner_visible', 'Editing · will fork from here' in banner, banner)
             await page.click('#editCancel')
             banner2 = await page.eval_on_selector('#editBanner', "e=>e.hidden")
             check('edit_banner_cancel', banner2 is True)
-            await page.evaluate("startEditResend('msg_u1','Edited text')")
+            await page.evaluate("startEditResend('msg_100_user','Edited text')")
             await page.click('#send')
             await page.wait_for_timeout(700)
-            check('edit_resend_fork_body', len(forks) == 1 and forks[0] == {'messageID': 'msg_u1'}, str(forks))
+            check('edit_resend_fork_body', len(forks) == 1 and forks[0] == {'messageID': 'msg_100_user'}, str(forks))
             check('edit_resend_prompt_to_fork', len(prompts) == 1 and any('Edited text' == p.get('parts', [{}])[0].get('text') for p in prompts if isinstance(p, dict)), str(prompts)[:200])
             await browser.close()
 
             # provider save closes the sheet immediately (bugfix)
-            browser, context, page, errors = await boot_page(pw, origin, 'dark')
+            browser, context, page, errors = await boot_page(pw, origin, 'dark', browser_executable)
             await page.route('**/global/config', lambda route: route.fulfill(status=200, content_type='application/json', body='{}'))
             await page.route('**/auth/*', lambda route: route.fulfill(status=200, content_type='application/json', body='true'))
             slow_provs = []
@@ -486,7 +538,7 @@ async def main():
                     title = 'Zebra cross-project' if (gi == 2 and j == 0) else f'G thread {gi}-{j}'
                     api('/session', {'title': title}, 'POST', str(gd))
             for theme2 in ['dark', 'light']:
-                browser, context, page, errors = await boot_page(pw, origin, theme2)
+                browser, context, page, errors = await boot_page(pw, origin, theme2, browser_executable)
                 gshot = lambda name: page.screenshot(path=str(EVIDENCE / f'g-{theme2}-{name}.png'))
                 check(f'g_{theme2}_boot', not errors, '; '.join(errors[:2]))
                 await page.evaluate(f"""async () => {{
@@ -537,14 +589,19 @@ async def main():
                 await page.click('#drawer [data-a="search"]')
                 await page.wait_for_timeout(250)
                 await gshot('search')
-                await page.fill('#drawerSearchInput', 'Zebra')
-                await page.wait_for_timeout(800)
+                async with page.expect_response(lambda response: '/experimental/session?' in response.url and
+                                                urllib.parse.parse_qs(urllib.parse.urlsplit(response.url).query).get('search') == ['Zebra']) as search_response:
+                    await page.fill('#drawerSearchInput', 'Zebra')
+                search_result = await (await search_response.value).json()
+                check(f'g_{theme2}_search_api_filtered', bool(search_result) and all('Zebra' in s['title'] for s in search_result),
+                      str([s['title'] for s in search_result]))
+                await expect(page.locator('#drawerSearchResults .th-title')).to_have_text(['Zebra cross-project'])
                 res = await page.eval_on_selector_all('#drawerSearchResults .th', 'els=>els.map(e=>e.innerText)')
                 projname = await page.evaluate(f"projName({json.dumps(str(gdirs[2]))})")
                 check(f'g_{theme2}_search_found', len(res) >= 1 and 'Zebra' in res[0], str(res))
                 check(f'g_{theme2}_search_shows_project', projname in res[0], res[0] + ' vs ' + projname)
                 await page.click('#drawerSearchResults .th')
-                await page.wait_for_timeout(900)
+                await expect(page.locator('#title')).to_contain_text('Zebra')
                 title = await page.eval_on_selector('#title', 'e=>e.textContent')
                 check(f'g_{theme2}_search_opens_thread', 'Zebra' in title, title)
                 dimc = await page.evaluate("getComputedStyle(document.querySelector('#dim')).backgroundColor")
@@ -554,7 +611,7 @@ async def main():
                 await browser.close()
 
             # Settings screen (dark)
-            browser, context, page, errors = await boot_page(pw, origin, 'dark')
+            browser, context, page, errors = await boot_page(pw, origin, 'dark', browser_executable)
             await page.evaluate("openSettings()")
             await page.wait_for_timeout(300)
             visible = await page.evaluate("!document.querySelector('#settingsScreen').hidden")
@@ -606,7 +663,8 @@ async def main():
             check('set_no_websearch_row', 'Web search' not in body)
             check('set_no_ssh_row', 'SSH connections' not in body, body[:200])
             await page.click('#settingsScreen [data-sa="providers"]')
-            await page.wait_for_timeout(600)
+            # Wait for the actual async result, not the identically titled loading sheet.
+            await expect(page.locator('#providerAdd')).to_be_visible(timeout=30000)
             pt = await page.eval_on_selector('#sheet h3', 'e=>e.textContent')
             check('set_providers_sheet', pt == 'Providers', pt)
             await page.click('#dim', position={'x': 195, 'y': 40})
@@ -631,7 +689,7 @@ async def main():
             await browser.close()
 
             # detail screens: skill / plugin / ssh
-            browser, context, page, errors = await boot_page(pw, origin, 'dark')
+            browser, context, page, errors = await boot_page(pw, origin, 'dark', browser_executable)
             await page.evaluate("S.skillsList=[{name:'deploy-helper',description:'Deploys the site',location:'/skills/deploy',content:'SKILL_BODY_123'}];openSkillDetail(0)")
             await page.wait_for_timeout(250)
             vis = await page.evaluate("!document.querySelector('#detailScreen').hidden")
@@ -664,21 +722,21 @@ async def main():
             check('det_ssh_set_active', cid == 'c1', str(cid))
             await page.screenshot(path=str(EVIDENCE / 'detail-ssh-dark.png'))
             await page.evaluate("closeDetail()")
-            # context ring
+            # Context usage remains reachable in Settings, without a composer ring.
             await page.evaluate("""()=>{S.provs=[{id:'p1',name:'Prov',models:[{id:'m1',name:'Model One',capabilities:{reasoning:true},variants:{low:{},high:{}},limit:{context:100000,output:32000}}]}];S.model={p:'p1',m:'m1'};
-              S.msgs.set('m9',{info:{id:'msg_a9',sessionID:'x',role:'assistant',tokens:{input:30000,output:2000,reasoning:1000,cache:{read:40000,write:1000}}},parts:new Map()});
+              S.msgs.set('m9',{info:{id:'msg_201_assistant',sessionID:'x',role:'assistant',tokens:{input:30000,output:2000,reasoning:1000,cache:{read:40000,write:1000}}},parts:new Map()});
               S.sid='x';chips();renderMsgs(true)}""")
             await page.wait_for_timeout(250)
-            ring = await page.evaluate("({hidden:document.querySelector('#ctxRing').hidden,rot:document.querySelector('#ctxDot').style.transform})")
-            check('ctx_ring_visible', not ring['hidden'] and ring['rot'] == 'rotate(266deg)', str(ring))
-            await page.click('#ctxRing')
+            check('ctx_ring_removed', await page.locator('#ctxRing, .ctx-ring').count() == 0)
+            await page.evaluate('openSettings()')
+            await page.locator('#settingsScreen [data-sa="context"]').click()
             await page.wait_for_timeout(300)
             ctx_txt = await page.eval_on_selector('#sheet', 'e=>e.innerText')
-            check('ctx_ring_sheet', 'Context' in ctx_txt and '74' in ctx_txt and '100k' in ctx_txt, ctx_txt[:150])
+            check('ctx_usage_sheet', 'Context' in ctx_txt and '74' in ctx_txt and '100k' in ctx_txt, ctx_txt[:150])
             await browser.close()
 
             # auto mode maps to the build agent on the wire (createUserMessage fix)
-            browser, context, page, errors = await boot_page(pw, origin, 'dark')
+            browser, context, page, errors = await boot_page(pw, origin, 'dark', browser_executable)
             captured2 = []
             async def cap2(route):
                 captured2.append(route.request.post_data_json)
@@ -694,7 +752,7 @@ async def main():
             await browser.close()
 
             # interactive questions: card, selection, reply round-trip
-            browser, context, page, errors = await boot_page(pw, origin, 'dark')
+            browser, context, page, errors = await boot_page(pw, origin, 'dark', browser_executable)
             qreplies = []
             async def q_reply(route):
                 qreplies.append(route.request.post_data_json)
@@ -782,7 +840,7 @@ async def main():
         with urllib.request.urlopen(origin + '/doc', timeout=15) as r:
             spec = json.load(r)
         check('fork_endpoint_in_doc', '/session/{sessionID}/fork' in spec['paths'])
-        # cleanup: remove the test provider injected into the user's global config
+        # Cleanup is confined to this run's isolated global config.
         try:
             req = urllib.request.Request(origin + '/global/config', data=json.dumps({'provider': {'p1': None}}).encode(),
                                          headers={'Content-Type': 'application/json'}, method='PATCH')
@@ -794,7 +852,7 @@ async def main():
         server.terminate()
         out.close()
         (TASK / 'result.json').write_text(json.dumps(result, indent=2), 'utf-8')
-        (LOCAL / 'ui-round3-last.txt').write_text(str(TASK), 'utf-8')
+
     if result['failures']:
         print('FAILURES: ' + ', '.join(result['failures']), flush=True)
         sys.exit(1)
@@ -802,4 +860,6 @@ async def main():
 
 
 if __name__ == '__main__':
-    asyncio.run(main())
+    parser = argparse.ArgumentParser(description=__doc__)
+    parser.add_argument('--browser-executable', type=Path, help='Existing Chrome/Chromium (or PLAYWRIGHT_BROWSER_EXECUTABLE)')
+    asyncio.run(asyncio.wait_for(main(parser.parse_args().browser_executable), timeout=180))

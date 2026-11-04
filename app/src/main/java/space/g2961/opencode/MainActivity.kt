@@ -3,6 +3,7 @@ package space.g2961.opencode
 import android.Manifest
 import android.annotation.SuppressLint
 import androidx.activity.ComponentActivity
+import androidx.activity.enableEdgeToEdge
 import android.content.Intent
 import android.content.pm.PackageManager
 import android.graphics.Color
@@ -61,11 +62,21 @@ class MainActivity : ComponentActivity(), LocalRuntime.Listener {
     private lateinit var progressBar: ProgressBar
     private lateinit var retryButton: Button
     private lateinit var webview: WebView
+    private var recognizer: android.speech.SpeechRecognizer? = null
+    private var lastInsetJs: String? = null
+
+    private val requestAudio = registerForActivityResult(ActivityResultContracts.RequestPermission()) { granted ->
+        appendRuntimeLog(if (granted) "voice: mic granted" else "voice: mic denied")
+        if (granted) startVoiceRecognition()
+    }
 
     private val bridge = MobileBridge()
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
+        // Draw behind the gesture bar so sheets/dim reach the true screen edge;
+        // the page handles insets itself via env(safe-area-inset-*).
+        enableEdgeToEdge()
         window.setSoftInputMode(android.view.WindowManager.LayoutParams.SOFT_INPUT_ADJUST_RESIZE)
         sshTools = SshToolsServer(SshConnectionStore(this)) { event ->
             runOnUiThread { if (trustedUi) webview.evaluateJavascript("window.dispatchEvent(new CustomEvent('codex-remote-event',{detail:$event}));", null) }
@@ -74,16 +85,29 @@ class MainActivity : ComponentActivity(), LocalRuntime.Listener {
         runtime = LocalRuntime(this, sshTools)
         buildUi()
         startRuntime()
+        // Foreground keep-alive: agent streaming + bundled server survive backgrounding.
+        startForegroundService(Intent(this, KeepAliveService::class.java))
     }
 
     @Deprecated("Deprecated in Java")
     override fun onBackPressed() {
+        if (trustedUi && webview.visibility == View.VISIBLE) {
+            webview.evaluateJavascript(
+                "(() => { if (typeof isWorkSheetOpen === 'function' && isWorkSheetOpen()) { if (typeof requestCloseWorkSheet === 'function') requestCloseWorkSheet(); else closeWorkSheet(); return true; } return false; })()"
+            ) { handled ->
+                if (handled != "true") navigateBack()
+            }
+        } else navigateBack()
+    }
+
+    private fun navigateBack() {
         if (webview.visibility == View.VISIBLE && webview.canGoBack()) webview.goBack() else finish()
     }
 
     override fun onDestroy() {
         bridge.shutdown()
         runtime.stop()
+        recognizer?.destroy(); recognizer = null
         sshTools.stop()
         fileCallback?.onReceiveValue(null)
         super.onDestroy()
@@ -152,6 +176,65 @@ class MainActivity : ComponentActivity(), LocalRuntime.Listener {
             ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.MATCH_PARENT))
 
         setContentView(root)
+        // With edge-to-edge, adjustResize no longer resizes for the IME; apply the
+        // keyboard inset as bottom padding so the composer stays above the keyboard.
+        // System bar insets are handed to the page as CSS vars: WebView's env(safe-area-*)
+        // covers the cutout but not the gesture bar, so sheets would touch the nav area.
+        androidx.core.view.ViewCompat.setOnApplyWindowInsetsListener(root) { v, insets ->
+            val ime = androidx.core.view.WindowInsetsCompat.Type.ime().let { insets.getInsets(it) }
+            val bars = androidx.core.view.WindowInsetsCompat.Type.systemBars().let { insets.getInsets(it) }
+            v.setPadding(0, 0, 0, ime.bottom)
+            // Insets arrive in physical pixels; CSS px are density-independent — convert,
+            // or the header padding becomes density× too tall.
+            val density = resources.displayMetrics.density
+            val js = "document.documentElement.style.setProperty('--sat','${(bars.top / density).toInt()}px');document.documentElement.style.setProperty('--sab','${(bars.bottom / density).toInt()}px');"
+            if (js != lastInsetJs) {
+                lastInsetJs = js
+                runOnUiThread { if (trustedUi) webview.evaluateJavascript(js, null) }
+            }
+            insets
+        }
+    }
+
+    /** Voice input: Android speech recognition → window.__voiceResult(text) in the page. */
+    fun startVoiceInput() {
+        if (ContextCompat.checkSelfPermission(this, Manifest.permission.RECORD_AUDIO) == PackageManager.PERMISSION_GRANTED) startVoiceRecognition()
+        else requestAudio.launch(Manifest.permission.RECORD_AUDIO)
+    }
+
+    private fun startVoiceRecognition() {
+        if (!android.speech.SpeechRecognizer.isRecognitionAvailable(this)) {
+            if (trustedUi) webview.evaluateJavascript("typeof window.__voiceError==='function'&&window.__voiceError('Speech recognition is not available on this device')", null)
+            return
+        }
+        recognizer?.destroy()
+        val intent = android.content.Intent(android.speech.RecognizerIntent.ACTION_RECOGNIZE_SPEECH).apply {
+            putExtra(android.speech.RecognizerIntent.EXTRA_LANGUAGE_MODEL, android.speech.RecognizerIntent.LANGUAGE_MODEL_FREE_FORM)
+        }
+        recognizer = android.speech.SpeechRecognizer.createSpeechRecognizer(this).apply {
+            setRecognitionListener(object : android.speech.RecognitionListener {
+                override fun onReadyForSpeech(params: Bundle?) {}
+                override fun onBeginningOfSpeech() {}
+                override fun onRmsChanged(rmsdB: Float) {}
+                override fun onBufferReceived(buffer: ByteArray?) {}
+                override fun onEndOfSpeech() {}
+                override fun onError(error: Int) {
+                    val message = when (error) {
+                        android.speech.SpeechRecognizer.ERROR_NO_MATCH, android.speech.SpeechRecognizer.ERROR_SPEECH_TIMEOUT -> "Did not catch anything"
+                        android.speech.SpeechRecognizer.ERROR_INSUFFICIENT_PERMISSIONS -> "Microphone permission denied"
+                        else -> "Recognition failed ($error)"
+                    }
+                    if (trustedUi) webview.evaluateJavascript("typeof window.__voiceError==='function'&&window.__voiceError(${JSONObject.quote(message)})", null)
+                }
+                override fun onResults(results: Bundle?) {
+                    val text = results?.getStringArrayList(android.speech.SpeechRecognizer.RESULTS_RECOGNITION)?.firstOrNull() ?: return
+                    if (trustedUi) webview.evaluateJavascript("typeof window.__voiceResult==='function'&&window.__voiceResult(${JSONObject.quote(text)})", null)
+                }
+                override fun onPartialResults(partialResults: Bundle?) {}
+                override fun onEvent(eventType: Int, params: Bundle?) {}
+            })
+            startListening(intent)
+        }
     }
 
     @SuppressLint("SetJavaScriptEnabled")
@@ -174,6 +257,10 @@ class MainActivity : ComponentActivity(), LocalRuntime.Listener {
                 val u = url?.let { Uri.parse(it) }
                 trustedUi = u != null && u.host == "127.0.0.1" && u.port == runtime.authPort && u.path == "/_ui/index.html"
             }
+            override fun onPageFinished(view: WebView?, url: String?) {
+                // The insets listener can fire before the page exists; re-apply its vars now.
+                lastInsetJs?.let { js -> if (trustedUi) view?.evaluateJavascript(js, null) }
+            }
             override fun shouldOverrideUrlLoading(view: WebView?, request: WebResourceRequest?): Boolean {
                 val url = request?.url ?: return false
                 if (url.host == "127.0.0.1" || url.host == "localhost") return false
@@ -186,6 +273,12 @@ class MainActivity : ComponentActivity(), LocalRuntime.Listener {
 
             override fun shouldInterceptRequest(view: WebView?, request: WebResourceRequest?): WebResourceResponse? {
                 val u = request?.url ?: return null
+                if (u.host == "127.0.0.1" && u.port == runtime.authPort && u.path == "/_ui/thread-preview.html") {
+                    return WebResourceResponse(
+                        "text/html", "utf-8", 200, "OK",
+                        mapOf("Cache-Control" to "no-store"), assets.open("thread-preview.html")
+                    )
+                }
                 if (u.host == "127.0.0.1" && u.path == "/_ui/index.html") {
                     return try {
                         val devFile = getExternalFilesDir(null)?.resolve("codex.html")
@@ -247,6 +340,8 @@ class MainActivity : ComponentActivity(), LocalRuntime.Listener {
             bgExecutor.shutdown()
         }
 
+        @JavascriptInterface fun voiceAvailable(): Boolean = android.speech.SpeechRecognizer.isRecognitionAvailable(this@MainActivity)
+
         @JavascriptInterface fun request(raw: String) {
             if (!trustedUi || raw.length > 2 * 1024 * 1024) return
             bgExecutor.execute {
@@ -276,10 +371,33 @@ class MainActivity : ComponentActivity(), LocalRuntime.Listener {
                         "appearance" -> {
                             runOnUiThread {
                                 val dark = data.optString("theme") == "dark"
-                                val color = if (dark) Color.BLACK else Color.WHITE
+                                // Paint the system bars with the page's own surface color: the
+                                // legacy scrim must match --base or it reads as a foreign strip.
+                                val color = try {
+                                    Color.parseColor(data.optString("base", if (dark) "#212121" else "#FFFFFF"))
+                                } catch (_: IllegalArgumentException) {
+                                    if (dark) Color.parseColor("#212121") else Color.WHITE
+                                }
                                 webview.setBackgroundColor(color); window.statusBarColor = color; window.navigationBarColor = color
                                 window.decorView.systemUiVisibility = if (dark) 0 else View.SYSTEM_UI_FLAG_LIGHT_STATUS_BAR or View.SYSTEM_UI_FLAG_LIGHT_NAVIGATION_BAR
                             }
+                            JSONObject().put("saved", true)
+                        }
+                        "voiceInput" -> {
+                            runOnUiThread { startVoiceInput() }
+                            JSONObject().put("started", true)
+                        }
+                        "githubToken" -> {
+                            val token = data.optString("token").trim()
+                            val home = File(filesDir, "home").apply { mkdirs() }
+                            val file = File(home, ".github-token")
+                            if (token.isEmpty()) file.delete()
+                            else {
+                                file.writeText(token)
+                                file.setReadable(false, false); file.setWritable(false, false)
+                                file.setReadable(true); file.setWritable(true)
+                            }
+                            appendRuntimeLog("github: token ${if (token.isEmpty()) "cleared" else "saved"}")
                             JSONObject().put("saved", true)
                         }
                         "logs" -> JSONObject().put("log", runtime.logSnapshot(400))

@@ -102,7 +102,8 @@ async def main():
 
             ssh_label = await page.locator('#cEnv').inner_text()
             print('SSH connection label:', ssh_label)
-            assert 'SSH: 2KopeikiAeza' in ssh_label, f'Expected "SSH: 2KopeikiAeza", got "{ssh_label}"'
+            assert 'Local + SSH (optional)' in ssh_label, f'Expected optional SSH alongside Local, got "{ssh_label}"'
+            assert '2KopeikiAeza' in await page.locator('#cEnv').get_attribute('aria-label')
             # Must have terminal icon
             assert await page.locator('#cEnv svg').count() >= 1
             results['checks'].append('clear_ssh_connection_label_and_icon')

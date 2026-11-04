@@ -19,6 +19,8 @@ class LocalRuntime(private val context: Context, private val sshTools: SshToolsS
 
     val changeHistory = ChangeHistory { ProjectManager.list(context) }
 
+    @Volatile private var expectingExit = false
+
     enum class State { PREPARING, STARTING, READY, STOPPED, FAILED }
 
     interface Listener {
@@ -73,25 +75,45 @@ class LocalRuntime(private val context: Context, private val sshTools: SshToolsS
                 if (!runProbe("1.19.3", loaderCommand(binPaths.getValue("libopencode.so"), "--version"))) {
                     throw IOException("opencode probe failed")
                 }
+                // Non-fatal: bun powers the node/npm sandbox, its failure is logged
+                // so the agent's tool errors have a visible cause in the server log.
+                runProbe("", loaderCommand(binPaths.getValue("libbun.so"), "--version"))
                 listener.onState(State.STARTING, "Starting opencode server…")
                 port = freePort(14100)
                 password = loadOrCreatePassword()
                 authProxy = AuthProxy(port, "opencode", password) { line -> appendLog("[web] $line") }.apply { start(14101) }
                 authPort = authProxy?.port ?: port
-                val cmd = buildCommand()
-                appendLog("$ ${cmd.joinToString(" ")}")
-                val pb = ProcessBuilder(cmd)
-                pb.redirectErrorStream(true)
-                applyEnv(pb, true)
-                pb.directory(ProjectManager.currentDir(context))
-                process = pb.start()
-                pumpOutput(process!!, listener)
-                val ready = awaitReady()
-                if (ready && !stopping && process?.isAlive == true) {
-                    listener.onState(State.READY, "Ready on 127.0.0.1:$port")
-                    listener.onReady(authProxy?.port ?: port, password)
-                } else if (!stopping) {
-                    listener.onState(State.FAILED, "Server did not become ready")
+                // A cold start occasionally exits before becoming ready (port/FS/init races).
+                // Retry a couple of times instead of failing the whole boot.
+                var attempt = 0
+                while (true) {
+                    attempt++
+                    expectingExit = false
+                    val cmd = buildCommand()
+                    appendLog("$ ${cmd.joinToString(" ")}")
+                    val pb = ProcessBuilder(cmd)
+                    pb.redirectErrorStream(true)
+                    applyEnv(pb, true)
+                    pb.directory(ProjectManager.currentDir(context))
+                    process = pb.start()
+                    pumpOutput(process!!, listener)
+                    val ready = awaitReady()
+                    if (ready && !stopping && process?.isAlive == true) {
+                        expectingExit = false
+                        listener.onState(State.READY, "Ready on 127.0.0.1:$port")
+                        listener.onReady(authProxy?.port ?: port, password)
+                        break
+                    }
+                    if (stopping) break
+                    if (attempt >= 3) {
+                        listener.onState(State.FAILED, "Server did not become ready")
+                        break
+                    }
+                    appendLog("[retry] server not ready, restarting ($attempt/2)")
+                    expectingExit = true
+                    findDescendant(Process.myPid(), "libopencode")?.let { killTree(it) }
+                    process = null
+                    try { Thread.sleep(800) } catch (_: InterruptedException) {}
                 }
             } catch (e: Exception) {
                 appendLog("runtime error: ${e.message}")
@@ -138,7 +160,7 @@ class LocalRuntime(private val context: Context, private val sshTools: SshToolsS
     private fun nativeLibraryDir(): String = context.applicationInfo.nativeLibraryDir
 
     private val libNames = listOf(
-        "libldmusl.so", "libstdcxx.so", "libgcc.so", "libopencode.so", "librg.so"
+        "libldmusl.so", "libstdcxx.so", "libgcc.so", "libopencode.so", "librg.so", "libbun.so"
     )
 
     private fun resolveRuntimeBinaries(): Map<String, String> {
@@ -171,12 +193,180 @@ class LocalRuntime(private val context: Context, private val sshTools: SshToolsS
         symlink(File(bin, "sh"), "/system/bin/sh")
         symlink(File(bin, "bash"), "/system/bin/sh")
         symlink(File(bin, "opencode"), binPaths.getValue("libopencode.so"))
+        // bun is musl-linked (PT_INTERP), so it must run through the musl loader
+        // exactly like opencode; everything else rides on top of it.
+        val bunCmd = loaderCommand(binPaths.getValue("libbun.so"))
+            .joinToString(" ") { tok -> "'" + tok.replace("'", "'\\''") + "'" }
+        shim(File(bin, "bun"), "exec $bunCmd \"\$@\"")
+        shim(File(bin, "node"), "exec bun \"$@\"")
+        shim(File(bin, "npx"), "exec bun x \"$@\"")
+        val rootfs = extractRootfs()
+        stageGitHelpers(rootfs)
+        stageGitCredentialConfig()
+        val npmCli = File(rootfs, "usr/lib/node_modules/npm/bin/npm-cli.js")
+        if (npmCli.exists()) shim(File(bin, "npm"), "exec bun '${npmCli.absolutePath.replace("'", "'\\''")}' \"\$@\"")
+        else appendLog("npm unavailable: npm-cli.js missing from rootfs")
         val git = File(bin, "git")
-        if (!git.exists()) {
+        val gitReal = File(rootfs, "usr/bin/git")
+        if (gitReal.exists()) {
+            val loader = binPaths.getValue("libldmusl.so")
+            val libDir = loaderLibDir().absolutePath + ":" + File(rootfs, "usr/lib").absolutePath
+            val q = { s: String -> "'" + s.replace("'", "'\\''") + "'" }
+            shim(File(bin, "git"),
+                "export GIT_EXEC_PATH=${q(File(rootfs, "usr/libexec/git-core").absolutePath)} " +
+                "GIT_SSL_CAINFO=${q(File(rootfs, "etc/ssl/certs/ca-certificates.crt").absolutePath)} " +
+                "GIT_TEMPLATE_DIR=${q(File(rootfs, "usr/share/git-core/templates").absolutePath)} " +
+                "GIT_TERMINAL_PROMPT=0\n" +
+                "exec ${q(loader)} --library-path ${q(libDir)} ${q(gitReal.absolutePath)} \"\$@\"")
+        } else {
             git.writeText("#!/system/bin/sh\nexit 128\n")
             git.setExecutable(true, false)
+            appendLog("git unavailable: usr/bin/git missing from rootfs")
         }
-        appendLog("bin dir: ${bin.absolutePath} (rg, sh, bash, opencode, git)")
+        val curlBin = File(rootfs, "usr/bin/curl")
+        if (curlBin.exists()) {
+            val loader = binPaths.getValue("libldmusl.so")
+            val libDir = loaderLibDir().absolutePath + ":" + File(rootfs, "usr/lib").absolutePath
+            val q = { s: String -> "'" + s.replace("'", "'\\''") + "'" }
+            shim(File(bin, "curl"), "exec ${q(loader)} --library-path ${q(libDir)} ${q(curlBin.absolutePath)} \"\$@\"")
+        }
+        appendLog("bin dir: ${bin.absolutePath} (rg, sh, bash, opencode, bun, node, npm, npx, git)")
+    }
+
+    /** git-core helpers are musl ELF binaries; Android has no /lib interpreter, so each
+     *  helper is wrapped into a loader-invoking script and the binary moves to *.bin. */
+    private fun stageGitHelpers(rootfs: File) {
+        val core = File(rootfs, "usr/libexec/git-core")
+        if (!core.isDirectory) return
+        val loader = binPaths.getValue("libldmusl.so")
+        val libDir = loaderLibDir().absolutePath + ":" + File(rootfs, "usr/lib").absolutePath
+        val q = { s: String -> "'" + s.replace("'", "'\\''") + "'" }
+        val head = ByteArray(4)
+        core.listFiles()?.forEach { f ->
+            if (!f.isFile || f.name.endsWith(".bin") || f.name.endsWith(".sh")) return@forEach
+            try {
+                java.io.RandomAccessFile(f, "r").use { r ->
+                    r.readFully(head)
+                    if (!head.contentEquals(byteArrayOf(0x7F, 0x45, 0x4C, 0x46))) return@forEach
+                }
+                val real = File(f.parentFile, f.name + ".bin")
+                if (!real.exists()) f.renameTo(real)
+                f.writeText("#!/system/bin/sh\nexec ${q(loader)} --library-path ${q(libDir)} ${q(real.absolutePath)} \"\$@\"\n")
+                f.setExecutable(true, false)
+            } catch (e: Throwable) {
+                appendLog("git-core wrap failed: ${f.name}: ${e.message}")
+            }
+        }
+    }
+
+    /** Local GitHub auth: a credential helper reads the PAT saved from Settings.
+     *  The config file is written once; user edits survive restarts. */
+    private fun stageGitCredentialConfig() {
+        val bin = File(context.filesDir, "bin").apply { mkdirs() }
+        val home = File(context.filesDir, "home").apply { mkdirs() }
+        val helper = File(bin, "git-credential-codex")
+        helper.writeText(
+            "#!/system/bin/sh\n" +
+            "if [ \"\$1\" = \"get\" ]; then\n" +
+            " token=\$(cat ${home.absolutePath}/.github-token 2>/dev/null | tr -d '\\n')\n" +
+            " if [ -n \"\$token\" ]; then echo 'username=x-access-token'; echo \"password=\$token\"; fi\n" +
+            "fi\n"
+        )
+        helper.setExecutable(true, false)
+        val config = File(home, ".gitconfig")
+        if (!config.exists()) {
+            config.writeText(
+                "[credential]\n\thelper = ${helper.absolutePath}\n" +
+                "[safe]\n\tdirectory = *\n" +
+                "[init]\n\tdefaultBranch = main\n" +
+                "[user]\n\tname = Codex Mobile\n\temail = agent@codex-mobile.invalid\n"
+            )
+        }
+    }
+
+    private fun shim(file: File, command: String) {
+        file.writeText("#!/system/bin/sh\n$command\n")
+        file.setExecutable(true, false)
+    }
+
+    /** Extracts assets/rootfs.tgz into filesDir/rootfs; re-extracts when the asset changes. */
+    private fun extractRootfs(): File {
+        val root = File(context.filesDir, "rootfs")
+        try {
+            val bytes = context.assets.open("rootfs.tgz").use { it.readBytes() }
+            val hash = java.security.MessageDigest.getInstance("SHA-256").digest(bytes)
+                .joinToString("") { "%02x".format(it) }
+            val marker = File(context.filesDir, "rootfs.hash")
+            if (marker.exists() && marker.readText() == hash && File(root, "usr").isDirectory) return root
+            appendLog("extracting rootfs.tgz (${bytes.size} bytes)…")
+            root.deleteRecursively()
+            root.mkdirs()
+            TarGz.extract(bytes, root)
+            marker.writeText(hash)
+            appendLog("rootfs ready: ${root.absolutePath}")
+        } catch (e: Throwable) {
+            appendLog("rootfs extraction failed: ${e.message}")
+        }
+        return root
+    }
+
+    /** Minimal ustar (with GNU longname fallback) reader for the npm rootfs archive. */
+    private object TarGz {
+        fun extract(bytes: ByteArray, dest: File) {
+            java.util.zip.GZIPInputStream(bytes.inputStream()).use { gz ->
+                val header = ByteArray(512)
+                var longName: String? = null
+                while (true) {
+                    var read = 0
+                    while (read < 512) {
+                        val r = gz.read(header, read, 512 - read)
+                        if (r < 0) return
+                        read += r
+                    }
+                    if (header.all { it == 0.toByte() }) continue
+                    val name = String(header, 0, 100).trimEnd('\u0000', ' ')
+                    val prefix = String(header, 345, 155).trimEnd('\u0000', ' ')
+                    val size = String(header, 124, 12).trimEnd('\u0000', ' ').toLongOrNull(8) ?: 0L
+                    val type = header[156].toInt().toChar()
+                    val data = if (size > 0) ByteArray(size.toInt()).also { buf ->
+                        var off = 0
+                        while (off < size) {
+                            val r = gz.read(buf, off, (size - off).toInt())
+                            if (r < 0) break
+                            off += r
+                        }
+                    } else ByteArray(0)
+                    // Tar blocks are 512-aligned: skip the zero padding after the data,
+                    // or the next header parse desyncs into file contents.
+                    var pad = (512 - (size % 512)) % 512
+                    while (pad > 0) {
+                        val r = gz.skip(pad)
+                        if (r <= 0) break
+                        pad -= r
+                    }
+                    when (type) {
+                        'L' -> longName = data.toString(StandardCharsets.UTF_8).trimEnd('\u0000')
+                        '0', '\u0000', '5' -> {
+                            val path = longName ?: buildString {
+                                append(name); if (prefix.isNotEmpty()) insert(0, "$prefix/")
+                            }
+                            longName = null
+                            if (path.isBlank() || path.contains("..")) continue
+                            val f = File(dest, path)
+                            if (type == '5') {
+                                f.mkdirs()
+                            } else {
+                                f.parentFile?.mkdirs()
+                                f.writeBytes(data)
+                                f.setReadable(true, false)
+                                f.setWritable(true, true)
+                            }
+                        }
+                        else -> longName = null
+                    }
+                }
+            }
+        }
     }
 
     private fun loaderLibDir(): File {
@@ -259,6 +449,16 @@ class LocalRuntime(private val context: Context, private val sshTools: SshToolsS
         env["TMPDIR"] = tmp
         env["PATH"] = "$bin:/system/bin:/system/xbin"
         env["LANG"] = "C.UTF-8"
+        // Sandbox TLS: curl is built against /etc/ssl/cert.pem, git uses GIT_SSL_CAINFO;
+        // SSL_CERT_FILE covers every other openssl-based tool in the sandbox.
+        val ca = File(context.filesDir, "rootfs/etc/ssl/certs/ca-certificates.crt")
+        if (ca.exists()) {
+            env["SSL_CERT_FILE"] = ca.absolutePath
+            env["CURL_CA_BUNDLE"] = ca.absolutePath
+        }
+        // The device runs near-zero free RAM and a full swap; an unbounded JSC heap
+        // makes the server page-fault through swap and freeze the whole UI. Cap it.
+        env["BUN_JSC_forceRAMSize"] = "201326592" // 192MB
         if (withAuth) {
             env["OPENCODE_SERVER_PASSWORD"] = password
             env["HTTPS_PROXY"] = "http://127.0.0.1:${proxy.port}"
@@ -288,8 +488,8 @@ class LocalRuntime(private val context: Context, private val sshTools: SshToolsS
                 }
             } catch (_: Throwable) {
             }
-            if (!stopping) {
-                appendLog("[process exited]")
+            if (!stopping && !expectingExit) {
+                appendLog("[process exited] code=${runCatching { p.exitValue() }.getOrElse { -1 }}")
                 listener.onState(State.FAILED, "opencode process exited")
             }
         }, "runtime-log").start()
