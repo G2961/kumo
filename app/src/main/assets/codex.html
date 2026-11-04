@@ -408,12 +408,10 @@ span.ib-right-col{font-size:var(--fs-12);color:var(--text-2)}
 .lp-hint{font-size:var(--fs-12);color:var(--text-2);text-align:center;padding:var(--s-4)}
 .lp-wait,.lp-wait *{user-select:none!important;-webkit-user-select:none!important}
 :focus-visible{outline:none}
-@media(prefers-reduced-motion:reduce){#dim,#drawer,#sheet,.think-body,.think-head .caret,.activity>summary .caret{transition:none}.spin,.think-spin{animation:none}.work-summary-glyph img{animation:none}}
+@media(prefers-reduced-motion:reduce){#dim,#drawer,#sheet,.think-body,.think-head .caret,.activity>summary .caret{transition:none}.spin,.think-spin{animation:none}}
 /* ---------- dedicated work log ---------- */
 .work-summary{display:grid;grid-template-columns:18px minmax(0,1fr) 14px;align-items:center;column-gap:10px;width:100%;min-width:0;min-height:40px;padding:4px 0;margin:2px 0;border:0;background:none;color:var(--text-2);text-align:left;font-size:var(--fs-14)}
 .work-summary-glyph{grid-column:1;width:18px;height:18px;display:grid;place-items:center;color:var(--text-2)}
-.work-summary-glyph img{width:26px;height:26px;object-fit:contain}
-.work-summary[data-status="running"] .work-summary-glyph img{animation:home-bob 2.4s ease-in-out infinite}
 .work-summary-glyph svg{width:15px;height:15px}
 .work-summary-glyph .spin{width:13px;height:13px}
 .work-summary[data-status="running"] .work-summary-glyph,.work-summary[data-status="waiting"] .work-summary-glyph{color:var(--accent)}
@@ -791,7 +789,7 @@ function onEvent(ev){
   m.parts.set(pt.id,existing?{...existing,...pt,text:pt.text||existing.text||''}:pt);
   if(pt.type==='tool'){const st=pt.state||{},stt=st.status;
    if(stt==='error'||(stt==='completed'&&pt.tool==='bash'&&st.metadata&&st.metadata.exitCode!=null&&Number(st.metadata.exitCode)!==0))kwToolFail();
-   else if(stt==='completed')kwToolOk();
+   else if(stt==='completed')kwToolOk(pt);
    else if(stt==='running'||stt==='pending'||stt==='in_progress')kwToolRun(pt)}
   sched();
  }else if(t==='message.part.delta'){
@@ -3541,8 +3539,7 @@ function renderWorkBlockDetails(block,root){
  if(workDetailCache.size>100)workDetailCache.delete(workDetailCache.keys().next().value);
 }
 function workSummaryHtml(block){
- const sticker=s=>`<img src="kumo_${s}.png" alt="">`;
- const glyph=block.status==='running'?sticker('thinking'):block.status==='error'?sticker('sad'):block.status==='waiting'?sticker('peek'):block.status==='stopped'?'<svg viewBox="0 0 24 24" aria-hidden="true"><rect x="7" y="7" width="10" height="10" rx="2"/></svg>':'<svg viewBox="0 0 24 24" aria-hidden="true"><path d="m5 12 4 4L19 6"/></svg>';
+ const glyph=block.status==='running'?'<span class="spin" aria-hidden="true"></span>':block.status==='error'?'<svg viewBox="0 0 24 24" aria-hidden="true"><path d="m6 6 12 12M6 18 18 6"/></svg>':block.status==='waiting'?'<svg viewBox="0 0 24 24" aria-hidden="true"><circle cx="12" cy="12" r="9"/><path d="M12 7v5l3 2"/></svg>':block.status==='stopped'?'<svg viewBox="0 0 24 24" aria-hidden="true"><rect x="7" y="7" width="10" height="10" rx="2"/></svg>':'<svg viewBox="0 0 24 24" aria-hidden="true"><path d="m5 12 4 4L19 6"/></svg>';
  const detail=block.detail?block.detail.split(' · ').map(part=>/fail|stop|abort/i.test(part)?'<span class="er">'+esc(part)+'</span>':esc(part)).join(' · '):'';
  return `<button type="button" class="work-summary" data-work-open="${esc(block.id)}" data-status="${esc(block.status)}" aria-haspopup="dialog" aria-controls="workLogDialog"><span class="work-summary-glyph" aria-hidden="true">${glyph}</span><span class="work-summary-main"><span class="work-summary-label">${esc(block.label)}</span>${detail?`<span class="work-summary-detail">${detail}</span>`:''}</span><svg class="caret" viewBox="0 0 24 24" aria-hidden="true"><path d="m9 6 6 6-6 6"/></svg></button>`;
 }
@@ -3926,7 +3923,9 @@ function kwFinish(finalOk,keepEmo){if(kwState!=='run')return;
  kwKumo.classList.remove('kw-peek','kw-read');
  const ct=kwCollapseStars();
  kwLater(()=>{if(kwKumo.closest('#kwTail'))kwFlip(()=>{kwKumo.className='kw-kumo kw-done'})},Math.max(320,ct));
- if(!keepEmo)emo(finalOk?'hello':'sad');
+ if(!keepEmo){
+  if(finalOk&&kwCur==='love')kwLater(()=>{if(kwState==='idle')emo('hello')},1200);
+  else emo(finalOk?'hello':'sad')}
  const sb=document.getElementById('kwStatBox');if(sb)sb.classList.remove('kw-on');
  kwUpdPill()}
 function kwStop(){if(kwState!=='run')return;kwStopPulse();kwPhase='';kwState='stopped';clearInterval(kwTimer);
@@ -3961,7 +3960,14 @@ function kwToolRun(pt){if(kwState!=='run')return;
  const k=kwKind(pt);emo(k==='f'||k==='s'?'curious':'focused');
  kwKumo.classList.toggle('kw-read',k==='f'||k==='s');
  kwPulse(k)}
-function kwToolOk(){if(kwState!=='run')return;kwAddStar()}
+function kwToolOk(pt){if(kwState!=='run')return;kwAddStar();
+ // Green test run: the big maskot itself falls in love (demo v9 behavior).
+ const st=pt&&pt.state||{},meta=st.metadata||{},input=st.input||{};
+ const exit=meta.exitCode!=null?Number(meta.exitCode):(meta.exit!=null?Number(meta.exit):null);
+ const cmd=String(input.command||'');
+ if(pt&&pt.tool==='bash'&&(exit==null||exit===0)&&/\b(test|pytest|jest|vitest|gradle|npm run)/i.test(cmd)){
+  emo('love');kwLater(()=>{if(kwState!=='run')return;kwAddStar()},250);
+  kwLater(()=>{if(kwState!=='run')return;kwAddStar()},500)}}
 function kwToolFail(){if(kwState!=='run')return;
  $('#kwSt').textContent='упс, не вышло';
  emo('surprised');kwDropStars(2);kwSquash();
