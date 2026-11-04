@@ -279,12 +279,17 @@ footer{position:relative;padding:var(--s-4) var(--s-12) var(--s-12);padding-bott
 .drawer-sep{height:1px;background:var(--sep);margin:var(--s-8) var(--s-8)}
 .skill-desc{max-width:170px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
 .drawer-th-head{display:flex;align-items:center;justify-content:space-between;padding:var(--s-4) var(--s-4) var(--s-4) var(--s-8)}
+.drawer-top-bar{max-height:64px;opacity:1;overflow:hidden;transition:max-height .25s cubic-bezier(.2,0,0,1),opacity .2s,transform .25s}
+#drawer.searching .drawer-top-bar{max-height:0;opacity:0;transform:translateY(-10px)}
+.drawer-search{max-height:0;opacity:0;overflow:hidden;transform:translateY(-8px);transition:max-height .25s cubic-bezier(.2,0,0,1),opacity .2s,transform .25s}
+#drawer.searching .drawer-search{max-height:72px;opacity:1;transform:none}
+@media(prefers-reduced-motion:reduce){.drawer-top-bar,.drawer-search{transition:none}}
 .drawer-th-title{font-size:var(--fs-14);font-weight:600;color:var(--text)}
 .drawer-bottom{flex:none;display:flex;align-items:center;justify-content:space-between;gap:var(--s-8);padding:var(--s-8) 0 0;padding-bottom:max(var(--s-8),var(--sab,0px),env(safe-area-inset-bottom,0px));position:relative}
 .drawer-bottom::before{content:'';position:absolute;top:-28px;left:-8px;right:-8px;height:28px;background:linear-gradient(to bottom,rgba(var(--side-rgb),0),rgba(var(--side-rgb),1));pointer-events:none}
 .drawer-gear{width:52px;height:52px;min-width:52px;min-height:52px;border-radius:var(--r-full);display:grid;place-items:center;color:var(--text-2);background:var(--surface-2);border:none;cursor:pointer}
 .drawer-gear:active{background:var(--surface-active)}
-#settingsScreen,#remoteScreen,#detailScreen{position:absolute;inset:0;background:var(--base);z-index:4;display:flex;flex-direction:column;overflow-y:auto;overscroll-behavior:contain;-webkit-overflow-scrolling:touch;padding:max(var(--s-8),var(--sat,0px),env(safe-area-inset-top,0px)) var(--s-12) var(--s-24);box-sizing:border-box}
+#settingsScreen,#remoteScreen,#detailScreen{position:absolute;inset:0;background:var(--base);z-index:4;display:flex;flex-direction:column;overflow-y:auto;overscroll-behavior:contain;-webkit-overflow-scrolling:touch;padding:0 var(--s-12) var(--s-24);box-sizing:border-box}
 #settingsScreen>*,#remoteScreen>*,#detailScreen>*{flex-shrink:0}
 #settingsScreen[hidden],#remoteScreen[hidden],#detailScreen[hidden]{display:none}
 #settingsScreen header h1,#remoteScreen header h1,#detailScreen header h1{font-size:var(--fs-16)}
@@ -926,7 +931,7 @@ function renderDrawer(){
  const hasSkills=!!(specFind(/^\/skill$/,'get')||specFind(/^\/api\/skill$/,'get'));
  const conn=selectedConnection();
  const remoteSub=conn?conn.name:(S.connections.length?String(S.connections.length):'');
- let h=`<div class="drawer-header"><div class="drawer-top-bar" ${S.drawerSearch?'hidden':''}><span class="drawer-title">kumo 雲</span><button class="ib" data-a="search" aria-label="Search threads">${I.search}</button></div><div class="drawer-search" id="drawerSearchBox" ${S.drawerSearch?'':'hidden'}><input class="in" id="drawerSearchInput" placeholder="Search threads" autocomplete="off" autocapitalize="none" spellcheck="false"><button class="ib" data-a="searchclose" aria-label="Close search"><svg viewBox="0 0 24 24"><path d="M18 6 6 18M6 6l12 12"/></svg></button></div><div class="drawer-nav"><button class="nav-row" data-a="remote">${I.term}<span>Remote</span><span class="r"><span class="m">${esc(remoteSub)}</span></span></button>${hasMcp?`<button class="nav-row" data-a="plugins">${I.plug}<span>Plugins</span><span class="r"><span class="m" id="mcpBadge"></span></span></button>`:''}${hasSkills?`<button class="nav-row" data-a="skills">${I.book}<span>Skills</span></button>`:''}</div><div class="drawer-sep"></div></div><div id="drawerProjects" class="drawer-projects">`;
+ let h=`<div class="drawer-header"><div class="drawer-top-bar"><span class="drawer-title">kumo 雲</span><button class="ib" data-a="search" aria-label="Search threads">${I.search}</button></div><div class="drawer-search" id="drawerSearchBox"><input class="in" id="drawerSearchInput" placeholder="Search threads" autocomplete="off" autocapitalize="none" spellcheck="false"><button class="ib" data-a="searchclose" aria-label="Close search"><svg viewBox="0 0 24 24"><path d="M18 6 6 18M6 6l12 12"/></svg></button></div><div class="drawer-nav"><button class="nav-row" data-a="remote">${I.term}<span>Remote</span><span class="r"><span class="m">${esc(remoteSub)}</span></span></button>${hasMcp?`<button class="nav-row" data-a="plugins">${I.plug}<span>Plugins</span><span class="r"><span class="m" id="mcpBadge"></span></span></button>`:''}${hasSkills?`<button class="nav-row" data-a="skills">${I.book}<span>Skills</span></button>`:''}</div><div class="drawer-sep"></div></div><div id="drawerProjects" class="drawer-projects">`;
  if(S.drawerSearch){
   h+=`<div id="drawerSearchResults"><div class="note" style="padding:var(--s-8)">Type to search threads</div></div>`;
  }else{
@@ -940,6 +945,8 @@ function renderDrawer(){
  h+='</div>';
  h+=`<div class="drawer-bottom"><button class="btn-new-thread" data-a="new">${I.edit}<span>New thread</span></button><button class="ib drawer-gear" data-a="settings" aria-label="Settings"><svg viewBox="0 0 24 24"><circle cx="12" cy="12" r="3"/><path d="M19.4 15a1.7 1.7 0 0 0 .3 1.8l.1.1a2 2 0 1 1-2.8 2.8l-.1-.1a1.7 1.7 0 0 0-1.8-.3 1.7 1.7 0 0 0-1 1.5V21a2 2 0 1 1-4 0v-.1a1.7 1.7 0 0 0-1.1-1.5 1.7 1.7 0 0 0-1.8.3l-.1.1a2 2 0 1 1-2.8-2.8l.1-.1a1.7 1.7 0 0 0 .3-1.8 1.7 1.7 0 0 0-1.5-1H3a2 2 0 1 1 0-4h.1a1.7 1.7 0 0 0 1.5-1.1 1.7 1.7 0 0 0-.3-1.8l-.1-.1a2 2 0 1 1 2.8-2.8l.1.1a1.7 1.7 0 0 0 1.8.3H9a1.7 1.7 0 0 0 1-1.5V3a2 2 0 1 1 4 0v.1a1.7 1.7 0 0 0 1 1.5 1.7 1.7 0 0 0 1.8-.3l.1-.1a2 2 0 1 1 2.8 2.8l-.1.1a1.7 1.7 0 0 0-.3 1.8V9a1.7 1.7 0 0 0 1.5 1H21a2 2 0 1 1 0 4h-.1a1.7 1.7 0 0 0-1.5 1z"/></svg></button></div>`;
  $('#drawer').innerHTML=h;
+ // Smooth search reveal: the title bar collapses while the search slides in.
+ const dr=$('#drawer');requestAnimationFrame(()=>dr.classList.toggle('searching',S.drawerSearch));
  if($('#drawerProjects'))$('#drawerProjects').scrollTop=st;
  if(S.drawerSearch){
   drawerSearchBind();
