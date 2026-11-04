@@ -397,11 +397,26 @@ span.ib-right-col{font-size:var(--fs-12);color:var(--text-2)}
 .note{font-size:var(--fs-12);color:var(--text-2);margin:var(--s-8) 0}
 .attachments{display:flex;flex-wrap:wrap;gap:6px;margin-bottom:6px}.attachments:empty{display:none}
 .attachment{display:flex;align-items:center;gap:7px;background:var(--surface-2);border:1px solid var(--border);border-radius:var(--r-8);padding:5px 7px;max-width:100%;font-size:var(--fs-12)}
-.attachment img{width:32px;height:32px;object-fit:cover;border-radius:6px}.attachment span{overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.attachments{display:flex;flex-wrap:wrap;gap:10px}
+.attachment{position:relative;width:96px;height:96px;flex:none;border-radius:16px;overflow:hidden;background:var(--surface-1);border:1px solid var(--border);display:grid;place-items:center;padding:8px;box-sizing:border-box}
+.attachment>img{position:absolute;inset:0;width:100%;height:100%;object-fit:cover;border-radius:0;cursor:pointer}
+.attachment .att-icon svg{width:30px;height:30px}
+.attachment .att-name{font-size:11px;line-height:1.3;color:var(--text-2);overflow:hidden;display:-webkit-box;-webkit-box-orient:vertical;-webkit-line-clamp:3;text-align:center;overflow-wrap:anywhere}
+.attachment [data-attachment]{position:absolute;top:5px;right:5px;width:22px;height:22px;border-radius:var(--r-full);background:rgba(0,0,0,.62);color:#fff;display:grid;place-items:center;font-size:14px;line-height:1;border:0;cursor:pointer;z-index:1;padding:0}
+.attachment [data-attachment]:active{opacity:.75}
 .settings-row{border-bottom:1px solid var(--border)}.settings-row:last-child{border-bottom:0}
 .settings-row svg{width:17px;height:17px}.muted{color:var(--text-2)}.error-note{color:var(--err)}
 .range{width:100%;accent-color:var(--accent)}.form-row{display:flex;gap:10px}.form-row>*{min-width:0;flex:1}
-.msg .attachments{margin:6px 0 0}.msg .attachment{max-width:260px}
+.msg .attachments{margin:6px 0 0}
+/* ---------- photo viewer ---------- */
+#pv{position:fixed;inset:0;z-index:60;background:rgba(0,0,0,.93);display:flex;flex-direction:column}
+#pv[hidden]{display:none!important}
+#pvx{position:absolute;top:calc(max(var(--sat,0px),env(safe-area-inset-top,0px)) + 8px);right:10px;width:38px;height:38px;border-radius:var(--r-full);background:rgba(255,255,255,.12);color:#fff;font-size:18px;line-height:1;display:grid;place-items:center;border:0;cursor:pointer;z-index:2}
+#pvTrack{flex:1;display:flex;overflow-x:auto;overflow-y:hidden;scroll-snap-type:x mandatory;overscroll-behavior:contain;-webkit-overflow-scrolling:touch;scrollbar-width:none}
+#pvTrack::-webkit-scrollbar{display:none}
+#pvTrack .pv-slide{flex:0 0 100%;min-width:100%;scroll-snap-align:center;display:grid;place-items:center;padding:14px;box-sizing:border-box}
+#pvTrack .pv-slide img{max-width:100%;max-height:100%;object-fit:contain;border-radius:10px}
+#pvCap{color:#9a9a9a;font-size:12px;text-align:center;padding:10px 0 max(16px,var(--sab,0px),env(safe-area-inset-bottom,0px));font-family:ui-monospace,Menlo,monospace}
 .edit-banner{display:flex;align-items:center;gap:var(--s-8);padding:var(--s-4) var(--s-12);color:var(--text-2);font-size:var(--fs-12)}
 .edit-banner[hidden]{display:none}
 .edit-banner button{margin-left:auto;width:36px;height:36px;min-width:36px;min-height:36px;display:grid;place-items:center;border-radius:var(--r-full);color:var(--text-2);background:none;border:none;cursor:pointer;font-size:var(--fs-16)}
@@ -581,6 +596,7 @@ details.activity[data-disclosure-hold]:not([open])>summary{border-bottom-color:v
     <g id="kw-orbit"></g><g id="kw-fx"></g>
   </svg></div></div></template>
   <div id="kwPill" role="button" aria-label="К последнему сообщению"><div class="kw-mini" id="kwMini"></div><span id="kwPt"></span><span>↓</span></div>
+  <div id="pv" hidden><button id="pvx" aria-label="Закрыть">✕</button><div id="pvTrack"></div><div id="pvCap"></div></div>
   <div id="dim"></div>
   <div id="settingsScreen" hidden></div>
   <div id="remoteScreen" hidden></div>
@@ -656,7 +672,7 @@ const S={
  provs:[],model:LS('oc_model'),agent:(()=>{const a=LS('oc_agent');return ['build','plan','auto'].includes(a)?a:'build'})(),
  spec:null,specErr:null,health:null
 };
-S.savedProjects=LS('oc_projects')||[];S.attachments=[];S.connections=[];S.connectionID=LS('oc_connection');
+S.savedProjects=LS('oc_projects')||[];S.attachments=LS('oc_att')||[];S.connections=[];S.connectionID=LS('oc_connection');
 S.changeHints=new Map();S.historyErrors=new Map();S.historyFiles=new Map();
 S.localPolicies=LS('oc_local_policies')||{};
 S.efforts=LS('oc_efforts')||{};S.webSearch=!!LS('oc_web_search');S.remoteRuns=new Map();
@@ -849,7 +865,9 @@ function resetThread(id=null){
  if(S.qSheetOpen){S.qSheetOpen=false;$('#sheet').classList.remove('on');resetSheetSwipe()}
  S.historyFiles=new Map();S.changeHints=new Map();
  S.status={type:'idle'};S.lastErr=null;S.pendingUser=null;S.sending=false;setRun();
- S.attachments=[];renderAttachments();
+ // Pending attachments intentionally survive thread switches and app restarts
+ // until they are sent or removed by hand.
+ renderAttachments();
  kwReset();
  updateCommitButton();
 }
@@ -2199,19 +2217,38 @@ $('#plus').onclick=()=>{
  sheet(`<h3>Add to message</h3><button class="opt" id="attachFiles">${I.file}Files</button><button class="opt" id="attachPhotos">${I.file}Photos</button><button class="opt" id="attachSearch">Web search<span class="m">${S.webSearch?'On':'Off'}</span></button><button class="opt" id="attachSsh">${I.term}SSH server<span class="m">${esc(selectedConnection()?.name||'Local')}</span></button>`);
  $('#sheet').onclick=e=>{const b=e.target.closest('button');if(!b)return;if(b.id==='attachFiles'){closeAll();$('#filePicker').click()}if(b.id==='attachPhotos'){closeAll();$('#photoPicker').click()}if(b.id==='attachSearch'){toggleSearch();closeAll()}if(b.id==='attachSsh')connectionSheet(false)};
 };
-function attachmentHtml(files,remove){return files.map((f,i)=>`<div class="attachment">${/^data:image\/(png|jpeg|webp|gif);base64,/i.test(f.url)?`<img src="${esc(f.url)}" alt="">`:I.file}<span>${esc(f.filename||'Attachment')}</span>${remove?`<button aria-label="Remove attachment" data-attachment="${i}">×</button>`:''}</div>`).join('')}
-function renderAttachments(){$('#attachments').innerHTML=attachmentHtml(S.attachments,true)}
-$('#attachments').onclick=e=>{const b=e.target.closest('[data-attachment]');if(b){S.attachments.splice(+b.dataset.attachment,1);renderAttachments()}};
+function attachmentHtml(files,remove){return files.map((f,i)=>{const img=/^data:image\/(png|jpeg|webp|gif);base64,/i.test(f.url||'');
+ const body=img?`<img src="${esc(f.url)}" alt=""${remove?'':` data-att-view="${i}"`}>`:`<span class="att-icon">${I.file}</span><span class="att-name">${esc(f.filename||'Attachment')}</span>`;
+ return `<div class="attachment">${body}${remove?`<button aria-label="Remove attachment" data-attachment="${i}">×</button>`:''}</div>`}).join('')}
+function renderAttachments(){$('#attachments').innerHTML=attachmentHtml(S.attachments,true);lset('oc_att',S.attachments)}
+$('#attachments').onclick=e=>{const b=e.target.closest('[data-attachment]');if(b){S.attachments.splice(+b.dataset.attachment,1);renderAttachments();return}
+ const card=e.target.closest('.attachment');if(!card)return;
+ const kids=[...$('#attachments').children],idx=kids.indexOf(card);if(idx<0)return;
+ const imgs=S.attachments.filter(f=>/^data:image\//i.test(f.url||''));if(!imgs.length)return;
+ const gi=S.attachments.slice(0,idx).filter(f=>/^data:image\//i.test(f.url||'')).length;
+ openPhotoView(imgs.map(f=>({url:f.url,filename:f.filename})),gi)};
 async function addFiles(files){
  const view=S.view;S.attLoading=true;$('#send').disabled=true;
  try{for(const file of files){
+  const isImg=/^image\//.test(file.type);
   if(file.size>8*1024*1024||S.attachments.reduce((n,f)=>n+f.size,0)+file.size>24*1024*1024)throw new Error('Choose files up to 8 MB each and 24 MB per message.');
   let mime=file.type;if(!mime||/^text\//.test(mime)||/\.(md|txt|js|ts|tsx|jsx|json|py|kt|java|html|css|sh|yml|yaml|csv)$/i.test(file.name))mime='text/plain';
-  if(mime.startsWith('image/')&&!currentModel()?.capabilities?.input?.image)throw new Error('Choose a model that supports images.');
-  if(mime==='application/pdf'&&!currentModel()?.capabilities?.input?.pdf)throw new Error('Choose a model that supports PDF files.');
   if(mime!=='text/plain'&&mime!=='application/pdf'&&!/^image\/(png|jpeg|gif|webp)$/.test(mime))throw new Error('Choose a text file, PDF or image.');
   const raw=await new Promise((resolve,reject)=>{const r=new FileReader();r.onload=()=>resolve(r.result);r.onerror=()=>reject(new Error('Could not read the file.'));r.readAsDataURL(file)});
-  if(view!==S.view)return;S.attachments.push({type:'file',mime,filename:file.name,url:'data:'+mime+';base64,'+String(raw).split(',')[1],size:file.size});
+  if(view!==S.view)return;
+  let url='data:'+mime+';base64,'+String(raw).split(',')[1];
+  // Big photos get re-encoded (JPEG ≤1600px): the model receives a sane payload and
+  // pending previews survive an app restart inside localStorage instead of blowing quota.
+  if(isImg&&file.size>300*1024&&mime!=='image/gif'){
+   try{
+    const bmp=await createImageBitmap(file);
+    const max=1600,s=Math.min(1,max/Math.max(bmp.width,bmp.height));
+    const c=document.createElement('canvas');c.width=Math.round(bmp.width*s);c.height=Math.round(bmp.height*s);
+    c.getContext('2d').drawImage(bmp,0,0,c.width,c.height);
+    const jpg=c.toDataURL('image/jpeg',0.82);
+    if(jpg.length<url.length){url=jpg;mime='image/jpeg'}
+   }catch(_){}}
+  S.attachments.push({type:'file',mime,filename:file.name,url,size:Math.round(url.length*0.75)});
  }renderAttachments()}catch(x){sheet('<h3>Attachment</h3><p class="note error-note">'+esc(x.message)+'</p>')}
  finally{S.attLoading=false;$('#send').disabled=false}
 }
@@ -3656,6 +3693,11 @@ function handleFeedDetailClick(e){
 $('#workLogBody').addEventListener('click',handleFeedDetailClick);
 $('#workLogBody').addEventListener('toggle',e=>{if(e.target.matches('details.activity'))refreshFeedWindows(e.target)},true);
 $('#main').onclick=async e=>{
+ const av=e.target.closest('[data-att-view]');
+ if(av){const msg=av.closest('.msg');const mid=msg&&msg.dataset.mid;const m=mid&&S.msgs.get(mid);
+  let files=m?[...m.parts.values()].filter(p=>p.type==='file'&&/^data:image\//i.test(p.url||'')):[];
+  if(!files.length)files=[{url:e.target.src||av.src,filename:''}];
+  openPhotoView(files.map(p2=>({url:p2.url,filename:p2.filename})),+av.dataset.attView);return}
  const work=e.target.closest('[data-work-open]');if(work){openWorkSheet(work.dataset.workOpen);return}
  if(handleFeedDetailClick(e))return;
  const qop=e.target.closest('[data-qopen]');
@@ -4017,7 +4059,19 @@ function kwMountHero(){const slot=document.getElementById('kwHeroSlot');if(!slot
  setTimeout(()=>{if(kwKumo)kwKumo.querySelectorAll('.kw-eye.kw-bl').forEach(e=>e.classList.remove('kw-bl'))},150)}
  setTimeout(kwBl,kwR(2200,5200))})();
 
-chips();setRun();render();S.bootP=boot();
+/* ---------- photo viewer: swipe gallery, opens at the tapped shot ---------- */
+let pvItems=[],pvIdx=0;
+function openPhotoView(items,start){if(!items||!items.length)return;
+ pvItems=items;pvIdx=Math.max(0,Math.min(items.length-1,start||0));
+ const tr=$('#pvTrack');tr.innerHTML=items.map(f=>`<div class="pv-slide"><img src="${esc(f.url)}" alt=""></div>`).join('');
+ $('#pv').hidden=false;
+ requestAnimationFrame(()=>{tr.scrollLeft=pvIdx*tr.clientWidth;pvCap()})}
+function pvCap(){const f=pvItems[pvIdx]||{};$('#pvCap').textContent=(pvIdx+1)+' / '+pvItems.length+(f.filename?' · '+f.filename:'')}
+$('#pvTrack').onscroll=()=>{const tr=$('#pvTrack');const i=Math.round(tr.scrollLeft/Math.max(1,tr.clientWidth));if(i!==pvIdx){pvIdx=i;pvCap()}};
+$('#pvx').onclick=()=>{$('#pv').hidden=true};
+$('#pv').onclick=e=>{if(e.target.id==='pv'||e.target.id==='pvTrack'||e.target.classList.contains('pv-slide'))$('#pv').hidden=true};
+
+chips();setRun();renderAttachments();render();S.bootP=boot();
 </script>
 </body>
 </html>
