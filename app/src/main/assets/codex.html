@@ -743,10 +743,17 @@ async function loadProjects(){
  try{remote=await api('/project',{directory:dir})}catch(e){err('projects: '+e.message)}
  let native=[];if(window.CodexNative)try{native=(await nativeCall('projects')).projects||[]}catch(e){}
  if(dir!==S.dir)return;
- const seen=new Set(S.savedProjects.map(normPath));
+ const nn=x=>normPath(x);
+ // The native list only contains folders that actually exist; anything else in the
+ // cache or registered server-side is a dead folder (removed externally) — drop it.
+ const alive=new Set([dir,...native].map(nn));
+ S.savedProjects=S.savedProjects.filter(p=>alive.has(nn(p)));
+ const seen=new Set(S.savedProjects.map(nn));
  for(const p of [dir,...native,...(Array.isArray(remote)?remote:[]).map(x=>x.worktree)]){
-  const n=normPath(p);
-  if(p&&p!=='/'&&!seen.has(n)){S.savedProjects.push(p);seen.add(n)}
+  const n=nn(p);
+  if(!p||p==='/'||seen.has(n))continue;
+  if(window.CodexNative&&!alive.has(n))continue; // server resurrects removed folders; skip
+  S.savedProjects.push(p);seen.add(n);
  }
  lset('oc_projects',S.savedProjects);
  S.projects=sortProjects(S.savedProjects.map(worktree=>({worktree})));
@@ -2659,7 +2666,7 @@ function projectPickerSheet(){
  sheet(h);
  $('#sheet').onclick=async e=>{
   const b=e.target.closest('[data-dir]');
-  if(b){closeAll();await setDir(b.dataset.dir);return}
+  if(b){closeAll();await setDir(b.dataset.dir).catch(x=>nativeCall('toast',{msg:'Папка недоступна: '+x.message}).catch(()=>{}));return}
   if(e.target.id==='ppAdd'){closeAll();projectSheet()}
  };
 }
