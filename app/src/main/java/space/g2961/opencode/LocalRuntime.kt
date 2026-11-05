@@ -201,12 +201,15 @@ class LocalRuntime(private val context: Context, private val sshTools: SshToolsS
             .joinToString(" ") { tok -> "'" + tok.replace("'", "'\\''") + "'" }
         shim(File(bin, "bun"), "exec $bunCmd \"\$@\"")
         shim(File(bin, "node"), "exec bun \"$@\"")
-        shim(File(bin, "npx"), "exec bun x \"$@\"")
         val rootfs = extractRootfs()
         stageGitHelpers(rootfs)
         stageGitCredentialConfig()
         val npmCli = File(rootfs, "usr/lib/node_modules/npm/bin/npm-cli.js")
-        if (npmCli.exists()) shim(File(bin, "npm"), "exec bun '${npmCli.absolutePath.replace("'", "'\\''")}' \"\$@\"")
+        if (npmCli.exists()) {
+            shim(File(bin, "npm"), "exec bun '${npmCli.absolutePath.replace("'", "'\\''")}' \"$@\"")
+            // npx semantics via the real npm CLI (bun x chokes on npm flags like -y)
+            shim(File(bin, "npx"), "exec bun '" + File(rootfs, "usr/lib/node_modules/npm/bin/npx-cli.js").absolutePath.replace("'", "'\\''") + "' \"$@\"")
+        }
         else appendLog("npm unavailable: npm-cli.js missing from rootfs")
         val git = File(bin, "git")
         val gitReal = File(rootfs, "usr/bin/git")
