@@ -4535,16 +4535,20 @@ $('#pv').onclick=e=>{if(e.target.id==='pv'||e.target.id==='pvTrack'||e.target.cl
   return n.startsWith(proj)?('~/'+n.slice(proj.length).replace(/^\//,'')):n};
  const line=(cls,text)=>{const d=document.createElement('div');d.className=cls||'';d.textContent=text;box.appendChild(d);box.scrollTop=box.scrollHeight};
  const prompt=()=>{const d=document.createElement('div');d.className='t-dim';d.textContent='[ '+shortCwd(termCwd)+' ]';box.appendChild(d);box.scrollTop=box.scrollHeight};
- let fit=null,fitRaf=0,snapRaf=0;
+ let fit=null,fitRaf=0;
  const termSnapScroll=t=>{
   try{
    const vp=t.element&&t.element.querySelector('.xterm-viewport');if(!vp)return;
-   vp.addEventListener('scroll',()=>{if(snapRaf)return;snapRaf=requestAnimationFrame(()=>{snapRaf=0;
-    const row=t.element.querySelector('.xterm-rows > div');if(!row)return;
-    const lh=row.getBoundingClientRect().height;if(!lh)return;
-    const snapped=Math.round(vp.scrollTop/lh)*lh;
-    if(Math.abs(snapped-vp.scrollTop)>.5)vp.scrollTop=snapped;
-   })},{passive:true});
+   let snapTmo=0;
+   vp.addEventListener('scroll',()=>{
+    if(snapTmo)clearTimeout(snapTmo);
+    snapTmo=setTimeout(()=>{snapTmo=0;
+     const row=t.element.querySelector('.xterm-rows > div');if(!row)return;
+     const lh=row.getBoundingClientRect().height;if(!lh)return;
+     const snapped=Math.round(vp.scrollTop/lh)*lh;
+     if(Math.abs(snapped-vp.scrollTop)>.5)vp.scrollTop=snapped;
+    },140);
+   },{passive:true});
   }catch(e){}
  };
  const termBoot=useFit=>{
