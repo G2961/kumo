@@ -4178,7 +4178,7 @@ $('#pv').onclick=e=>{if(e.target.id==='pv'||e.target.id==='pvTrack'||e.target.cl
   const u=(frame.dataset.url||'');const m=/:(\d+)/.exec(u);const port=m?m[1]:0;
   if(!port){toastJs('Не вижу порт в адресе');return}
   nativeCall('exposePort',{port}).then(v=>{
-   toastJs(v&&v.ip?('Открыто снаружи: http://'+v.ip+':'+port):'Не нашёл IP устройства — проверь Wi-Fi')
+   toastJs(v&&v.ip?('Открыто снаружи: http://'+v.ip+':'+v.port):'Не нашёл IP устройства — проверь Wi-Fi')
   }).catch(()=>{});
  };
  document.getElementById('apvShare').onclick=shareApv;

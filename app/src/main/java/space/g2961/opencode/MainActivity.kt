@@ -722,42 +722,50 @@ class MainActivity : ComponentActivity(), LocalRuntime.Listener {
                         }
                         "exposePort" -> {
                             val port = data.optInt("port", 0)
-                            if (port > 0 && exposeSockets.none { it.localPort == port }) Thread {
+                            if (port > 0 && exposeSockets.none { it.localPort == port + 10_000 }) Thread {
                                 try {
                                     val ss = java.net.ServerSocket()
                                     ss.reuseAddress = true
-                                    ss.bind(java.net.InetSocketAddress("0.0.0.0", port))
+                                    // The sandbox already binds 127.0.0.1:<port>, so 0.0.0.0:<port> would
+                                    // collide (EADDRINUSE). Listen outside on <port>+10000 and forward in.
+                                    ss.bind(java.net.InetSocketAddress("0.0.0.0", port + 10_000))
                                     exposeSockets.add(ss)
+                                    android.util.Log.i("expose", "forwarding 0.0.0.0:${port + 10_000} -> 127.0.0.1:$port")
                                     while (true) {
                                         val client = ss.accept()
+                                        android.util.Log.i("expose", "accepted ${client.inetAddress?.hostAddress ?: '?'}:${client.port}")
                                         Thread {
                                             try {
                                                 client.tcpNoDelay = true
                                                 val upstream = java.net.Socket("127.0.0.1", port)
+                                                android.util.Log.i("expose", "upstream connected")
                                                 Thread {
                                                     try { upstream.getInputStream().copyTo(client.getOutputStream()) } catch (_: Throwable) {
                                                     }
                                                     try { client.close(); upstream.close() } catch (_: Throwable) {
                                                     }
                                                 }.start()
-                                                try { client.getInputStream().copyTo(upstream.getOutputStream()) } catch (_: Throwable) {
+                                                try { client.getInputStream().copyTo(upstream.getOutputStream()) } catch (e: Throwable) {
+                                                    android.util.Log.i("expose", "c->u copy failed: $e")
                                                 }
                                                 try { client.close(); upstream.close() } catch (_: Throwable) {
                                                 }
-                                            } catch (_: Throwable) {
+                                            } catch (e: Throwable) {
+                                                android.util.Log.i("expose", "upstream connect failed: $e")
                                                 try { client.close() } catch (_: Throwable) {
                                                 }
                                             }
                                         }.start()
                                     }
-                                } catch (_: Throwable) {
+                                } catch (e: Throwable) {
+                                    android.util.Log.i("expose", "forwarder failed: $e")
                                 }
                             }.start()
                             val ip = java.net.NetworkInterface.getNetworkInterfaces().asSequence()
                                 .flatMap { nif -> nif.inetAddresses.asSequence() }
                                 .firstOrNull { !it.isLoopbackAddress && it is java.net.Inet4Address && it.hostAddress?.contains(':') == false }
                                 ?.hostAddress ?: ""
-                            JSONObject().put("ip", ip).put("port", port)
+                            JSONObject().put("ip", ip).put("port", port + 10_000)
                         }
                         "logs" -> JSONObject().put("log", runtime.logSnapshot(400))
                         else -> if (request.getString("action").startsWith("history")) runtime.changeHistory.action(request) else sshTools.action(request)
