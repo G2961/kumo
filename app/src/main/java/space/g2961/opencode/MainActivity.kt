@@ -95,6 +95,8 @@ class MainActivity : ComponentActivity(), LocalRuntime.Listener {
     private var recognizer: android.speech.SpeechRecognizer? = null
     private var lastInsetJs: String? = null
     private var splashActive = true
+    private var inForeground = true
+    private val TURN_NOTIF_ID = 4242
     private lateinit var rootLayout: FrameLayout
     private var pendingCrossFade: (() -> Unit)? = null
 
@@ -238,6 +240,7 @@ class MainActivity : ComponentActivity(), LocalRuntime.Listener {
         val themePref = getSharedPreferences("app", Context.MODE_PRIVATE).getString("uiTheme", null)
         webview.loadUrl("file:///android_asset/splash.html" + if (themePref != null) "?theme=$themePref" else "")
 
+        ensureNotifChannels()
         setContentView(root)
         // With edge-to-edge, adjustResize no longer resizes for the IME; apply the
         // keyboard inset as bottom padding so the composer stays above the keyboard.
@@ -595,6 +598,25 @@ class MainActivity : ComponentActivity(), LocalRuntime.Listener {
         } else moveTaskToBack(true)
     }
 
+    private fun ensureNotifChannels() {
+        val nm = getSystemService(android.app.NotificationManager::class.java) ?: return
+        val ch = android.app.NotificationChannel("agent-events", "Agent events", android.app.NotificationManager.IMPORTANCE_HIGH)
+        ch.description = "Завершение и сбои ходов агента, пока приложение свёрнуто"
+        ch.setSound(null, null)
+        nm.createNotificationChannel(ch)
+    }
+
+    override fun onStart() {
+        super.onStart()
+        inForeground = true
+        getSystemService(android.app.NotificationManager::class.java)?.cancel(TURN_NOTIF_ID)
+    }
+
+    override fun onStop() {
+        super.onStop()
+        inForeground = false
+    }
+
     private fun appendRuntimeLog(line: String) {
         runtime.appendLogPublic(line)
     }
@@ -719,6 +741,27 @@ class MainActivity : ComponentActivity(), LocalRuntime.Listener {
                             val msg = data.optString("msg", "")
                             runOnUiThread { android.widget.Toast.makeText(this@MainActivity, msg, android.widget.Toast.LENGTH_LONG).show() }
                             JSONObject().put("shown", true)
+                        }
+                        "turnDone" -> {
+                            // Push when a turn finishes while the app is backgrounded.
+                            if (!inForeground) {
+                                val title = data.optString("title", "").trim()
+                                val summary = data.optString("summary", "").trim()
+                                val failed = data.optBoolean("error", false)
+                                val pi = android.app.PendingIntent.getActivity(this@MainActivity, 1,
+                                    Intent(this@MainActivity, MainActivity::class.java).setFlags(Intent.FLAG_ACTIVITY_SINGLE_TOP),
+                                    android.app.PendingIntent.FLAG_IMMUTABLE or android.app.PendingIntent.FLAG_UPDATE_CURRENT)
+                                val n = android.app.Notification.Builder(this@MainActivity, "agent-events")
+                                    .setSmallIcon(R.mipmap.ic_launcher)
+                                    .setContentTitle((if (failed) "Kumo: сбой хода" else "Kumo закончил") + (if (title.isNotEmpty()) " · " + title else ""))
+                                    .setContentText(summary.ifEmpty { if (failed) "Ход завершился ошибкой" else "Ход завершён" })
+                                    .setContentIntent(pi)
+                                    .setAutoCancel(true)
+                                    .setTimeoutAfter(12_000)
+                                    .build()
+                                getSystemService(android.app.NotificationManager::class.java).notify(TURN_NOTIF_ID, n)
+                            }
+                            JSONObject().put("ok", true)
                         }
                         "exposePort" -> {
                             val port = data.optInt("port", 0)

@@ -824,12 +824,21 @@ function ensureMsg(sid,id){
  if(!m){m={info:{id,sessionID:sid,role:'assistant'},parts:new Map()};S.msgs.set(id,m)}
  return m;
 }
+function notifyTurnDone(error){
+ if(!window.CodexNative)return;
+ let summary='';
+ const msgs=[...S.msgs.values()].sort((a,b)=>a.info.id<b.info.id?1:-1);
+ for(const m of msgs){if(m.info.role!=='assistant')continue;
+  for(const p of m.parts.values()){if(p.type==='text'&&p.text){summary=p.text.replace(/\s+/g,' ').trim().slice(0,90);break}}
+  if(summary)break}
+ try{CodexNative.request(JSON.stringify({action:'turnDone',data:{title:($('#title').textContent||'').trim(),summary,error:!!error}}))}catch(e){}
+}
 function onEvent(ev){
  const t=ev.type,p=ev.properties||ev.payload&&ev.payload.properties||{};
  if(t==='message.updated'){
   const i=p.info;if(!i||i.sessionID!==S.sid)return;
   S.revision++;ensureMsg(i.sessionID,i.id).info=i;if(i.role==='user')S.pendingUser=null;
-  if(i.role==='assistant'&&i.error){S.running=false;S.status={type:'idle'};setRun();kwError()}sched();
+  if(i.role==='assistant'&&i.error){S.running=false;S.status={type:'idle'};setRun();kwError();notifyTurnDone(true)}sched();
  }else if(t==='message.part.updated'){
   const pt=p.part;if(!pt||pt.sessionID!==S.sid)return;
   S.revision++;const m=ensureMsg(pt.sessionID,pt.messageID),existing=m.parts.get(pt.id);
@@ -853,7 +862,7 @@ function onEvent(ev){
   const wasRunning=S.running;
   S.revision++;S.status={type:'idle'};S.running=false;setRun();sched();
   if(wasRunning){
-   kwFinish(true);
+   kwFinish(true);notifyTurnDone(false);
    saveHistory(S.dir,S.sid);
    loadSessions(S.dir).then(()=>{});
   }
@@ -868,7 +877,7 @@ function onEvent(ev){
  }else if(t==='session.error'){
   if(p.sessionID&&p.sessionID!==S.sid)return;
   const e=p.error;S.lastErr=redact(e&&(e.data&&e.data.message||e.message||e.name)||'session error');err('session.error: '+S.lastErr);
-  S.revision++;S.status={type:'idle'};S.running=false;setRun();sched();kwError();
+  S.revision++;S.status={type:'idle'};S.running=false;setRun();sched();kwError();notifyTurnDone(true);
  }else if(t==='permission.asked'){
   if(p.sessionID!==S.sid)return;closeWorkSheet();rememberChangeHint(p);S.revision++;S.perms.set(p.id,p);sched();kwPerm();
  }else if(t==='question.asked'){
