@@ -4034,8 +4034,11 @@ function kwNextStatus(){if(!kwBag.length)kwBag=kwST.map((s,i)=>i).sort(()=>Math.
 let pillStableSince=0;
 function kwUpdPill(){const pill=document.getElementById('kwPill');if(!pill)return;
  if(!kwTail||kwState!=='run'){pill.classList.remove('kw-on');pillStableSince=0;return}
- const r=kwTail.getBoundingClientRect(),c=document.getElementById('main').getBoundingClientRect();
- const hid=r.bottom>c.bottom+2||r.top<c.top-2;
+ const r=kwTail.getBoundingClientRect();
+ // «Tail hidden» is not enough: the keyboard animation (≈300ms) drags the bottom edge
+ // around, making the tail formally out of view for a few frames → half-second ghost
+ // pill. The pill is for «user actually scrolled away»: distance from the bottom.
+ const hid=document.getElementById('main').scrollHeight-document.getElementById('main').scrollTop-document.getElementById('main').clientHeight>150;
  // Debounce: the pill's opacity transition makes even a one-frame flash visible for
  // ~0.5s (fade-in + fade-out), e.g. on keyboard resizes mid-submit. Require the tail
  // to stay hidden for 200ms before lighting the pill up.
