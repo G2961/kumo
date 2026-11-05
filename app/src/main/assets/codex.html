@@ -103,6 +103,12 @@ tr:last-child td{border-bottom:0}
 .tool-action{font-weight:500;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
 .error-card{border-color:var(--err)}
 .er-body{color:var(--err);background:var(--del);padding:8px 10px;margin:0;font-size:var(--fs-12);overflow-x:auto;white-space:pre-wrap}
+.er-diag{color:var(--err);font-weight:600;font-size:var(--fs-14);padding:10px 10px 0}
+.er-hint{color:var(--text-2);font-size:var(--fs-12);padding:3px 10px 8px}
+.er-raw summary{cursor:pointer;color:var(--text-2);font-size:var(--fs-12);padding:2px 10px 8px;user-select:none;list-style:none}
+.er-raw summary::-webkit-details-marker{display:none}
+.er-raw summary::before{content:'▸ '}
+.er-raw[open] summary::before{content:'▾ '}
 .diff-line{display:flex;font:calc(13.5px * var(--font-scale))/1.6 ui-monospace,Menlo,monospace;white-space:pre}
 .diff-line.a{background:var(--add)}
 .diff-line.d{background:var(--del)}
@@ -2713,6 +2719,18 @@ async function toolFeedHistory(card){
  }
 }
 function readableError(value){const text=redact(value);return /chat\/completions[\s\S]*responses/i.test(text)?'This model needs the Responses API. Open Settings → Providers and change its API format to Responses.':text}
+function humanError(text){
+ const t=String(text||'');
+ if(/chat\/completions[\s\S]*responses|needs the responses api/i.test(t))return {diag:'Модель требует Responses API',hint:'Открой Settings → Providers и смени у провайдера API format на Responses.'};
+ if(/401|unauthorized|invalid[ _-]api[ _-]key|incorrect api key/i.test(t))return {diag:'Ключ невалиден',hint:'Проверь API-ключ: Settings → Providers.'};
+ if(/403|forbidden/i.test(t))return {diag:'Доступ запрещён',hint:'Этому ключу не хватает прав на эту модель.'};
+ if(/429|rate limit|too many requests|quota/i.test(t))return {diag:'Лимит запросов',hint:'Провайдер просит подождать — попробуй через пару минут.'};
+ if(/insufficient|balance|billing|credit/i.test(t))return {diag:'Закончился баланс',hint:'Пополни счёт у провайдера или переключись на другую модель.'};
+ if(/context length|too long|maximum.*tokens|max_tokens/i.test(t))return {diag:'Промпт не влез в контекст',hint:'Тред слишком длинный — начни новый или убери тяжёлые вложения.'};
+ if(/econnrefused|enotfound|econnreset|etimedout|fetch failed|unable to connect|network|socket hang up|dns/i.test(t))return {diag:'Сеть недоступна',hint:'Проверь интернет на телефоне или статус провайдера.'};
+ if(/50[023]|bad gateway|service unavailable|internal server error|overloaded/i.test(t))return {diag:'Провайдер недоступен',hint:'Проблемы на стороне сервера — подожди или смени модель.'};
+ return null;
+}
 appearance();
 
 
@@ -3037,7 +3055,12 @@ function errorCardHTML(e,mid){
  const m=currentModel();
  const modelName=m?`${m.pn} · ${m.mn}`:'current model';
  const label=meta.aborted?'Stopped':'Error';
- return `<div class="card error-card" ${meta.aborted?'':`data-mid="${esc(mid)}"`}><div class="ch ${meta.aborted?'':'er'}">${meta.aborted?I.bot:'<img src="kumo_sad.png" alt="" class="er-sad">'}<span class="tool-action">${esc(modelName)}</span>${code&&!meta.aborted?`<span class="m er">${esc(code)}</span>`:''}<span class="m ${meta.aborted?'':'er'}">${meta.aborted?'Stopped':'Failed'}</span></div><pre class="er-body" style="${meta.aborted?'color:var(--text-2);background:var(--surface-1)':''}">${esc(msg)}${retryIn&&!meta.aborted?`\nRetry after ${esc(retryIn)}s`:''}</pre>${meta.aborted?'':`<div class="btns"><button class="btn p" data-erract="retry">Retry</button><button class="btn" data-erract="model">Switch model</button></div>`}</div>`;
+ const hu=meta.aborted?null:humanError(msg);
+ const tail=retryIn&&!meta.aborted?`\nRetry after ${esc(retryIn)}s`:'';
+ const body=hu
+  ?`<div class="er-diag">${esc(hu.diag)}</div><div class="er-hint">${esc(hu.hint)}</div><details class="er-raw"><summary>Детали</summary><pre class="er-body">${esc(msg)}${tail}</pre></details>`
+  :`<pre class="er-body" style="${meta.aborted?'color:var(--text-2);background:var(--surface-1)':''}">${esc(msg)}${tail}</pre>`;
+ return `<div class="card error-card" ${meta.aborted?'':`data-mid="${esc(mid)}"`}><div class="ch ${meta.aborted?'':'er'}">${meta.aborted?I.bot:'<img src="kumo_sad.png" alt="" class="er-sad">'}<span class="tool-action">${esc(modelName)}</span>${code&&!meta.aborted?`<span class="m er">${esc(code)}</span>`:''}<span class="m ${meta.aborted?'':'er'}">${meta.aborted?'Stopped':'Failed'}</span></div>${body}${meta.aborted?'':`<div class="btns"><button class="btn p" data-erract="retry">Retry</button><button class="btn" data-erract="model">Switch model</button></div>`}</div>`;
 }
 function lastUserText(){
  const list=[...S.msgs.values()].filter(x=>x.info.role==='user').sort((a,b)=>a.info.id<b.info.id?1:-1);
@@ -3752,7 +3775,7 @@ function renderMsgs(force){
  }
  [...S.perms.values()].forEach(p=>{h+=permCard(p)});
  if(S.questions.size&&!S.qSheetOpen){const q0=[...S.questions.values()][0];const qs0=(q0.questions||[])[0]||{};h+=`<button class="q-pending" type="button" data-qopen="1"><span class="dot"></span><span class="qlbl">${esc(qs0.header||qs0.question||'Question')}</span></button>`}
- if(S.lastErr&&!hadMsgError)h+=`<div class="card error-card"><div class="ch er">Error<span class="m er">Failed</span></div><pre class="er-body">${esc(readableError(S.lastErr))}</pre></div>`;
+ if(S.lastErr&&!hadMsgError){const le=String(readableError(S.lastErr));const hu=humanError(le);h+=`<div class="card error-card"><div class="ch er">Error<span class="m er">Failed</span></div>${hu?`<div class="er-diag">${esc(hu.diag)}</div><div class="er-hint">${esc(hu.hint)}</div><details class="er-raw"><summary>Детали</summary><pre class="er-body">${esc(le)}</pre></details>`:`<pre class="er-body">${esc(le)}</pre>`}</div>`}
  if(!LS('oc_lp_hint'))h+='<div class="lp-hint">Long-press a message for actions</div>';
  if(S.pendingUser)h+=`<div class="msg user">${esc(S.pendingUser)}</div>`;
  const kwPrev=document.getElementById('kwTail');
