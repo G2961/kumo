@@ -76,6 +76,17 @@ class MainActivity : ComponentActivity(), LocalRuntime.Listener {
     private var folderRequest: String? = null
     @Volatile private var trustedUi = false
     private lateinit var sshTools: SshToolsServer
+    private val termProcs = java.util.concurrent.ConcurrentHashMap<String, Process>()
+
+    private fun termSend(run: String, delta: String) {
+        val b64 = android.util.Base64.encodeToString(delta.toByteArray(Charsets.UTF_8), android.util.Base64.NO_WRAP)
+        runOnUiThread { webview.evaluateJavascript("window.__termData&&window.__termData('$run','$b64')", null) }
+    }
+
+    private fun termEnd(run: String, code: Int, cwd: String) {
+        val b64 = android.util.Base64.encodeToString(cwd.toByteArray(Charsets.UTF_8), android.util.Base64.NO_WRAP)
+        runOnUiThread { webview.evaluateJavascript("window.__termEnd&&window.__termEnd('$run',$code,'$b64')", null) }
+    }
 
     private val requestStorage = registerForActivityResult(ActivityResultContracts.RequestMultiplePermissions()) { result ->
         val granted = result.values.all { it }
@@ -156,6 +167,7 @@ class MainActivity : ComponentActivity(), LocalRuntime.Listener {
     override fun onDestroy() {
         bridge.shutdown()
         runtime.stop()
+        termProcs.values.forEach { it.destroyForcibly() }
         recognizer?.destroy(); recognizer = null
         sshTools.stop()
         fileCallback?.onReceiveValue(null)
@@ -895,38 +907,71 @@ class MainActivity : ComponentActivity(), LocalRuntime.Listener {
                         "termExec" -> {
                             val cwd = data.optString("cwd", ProjectManager.currentDir(this@MainActivity).absolutePath)
                             val cmd = data.optString("cmd", "")
-                            if (cmd.isEmpty()) JSONObject().put("out", "").put("code", 0).put("cwd", cwd)
+                            if (cmd.isEmpty()) JSONObject().put("run", "")
                             else {
+                                val run = "t" + java.util.UUID.randomUUID().toString().substring(0, 8)
                                 val pb = ProcessBuilder(listOf("/system/bin/sh", "-c", "{ $cmd; } ; printf '\n__KWD__%s' \"\$(pwd)\""))
                                 val dir = File(cwd)
                                 if (dir.isDirectory) pb.directory(dir)
                                 runtime.applyEnv(pb, true)
                                 pb.redirectErrorStream(true)
                                 val p = pb.start()
-                                val out = StringBuilder()
-                                val th = Thread {
-                                    p.inputStream.use { r ->
-                                        val b = ByteArray(8192)
-                                        var n = r.read(b)
-                                        while (n > 0) {
-                                            out.append(String(b, 0, n, Charsets.UTF_8))
-                                            n = r.read(b)
+                                termProcs[run] = p
+                                val cwdBox = java.util.concurrent.atomic.AtomicReference("")
+                                Thread {
+                                    try {
+                                        p.inputStream.use { r ->
+                                            val b = ByteArray(4096)
+                                            val buf = StringBuilder()
+                                            var last = 0L
+                                            var sawKwd = false
+                                            while (true) {
+                                                val n = r.read(b)
+                                                if (n < 0) break
+                                                var chunk = String(b, 0, n, Charsets.UTF_8)
+                                                if (!sawKwd) {
+                                                    val i = chunk.indexOf("__KWD__")
+                                                    if (i >= 0) {
+                                                        cwdBox.set(chunk.substring(i + 7).trim())
+                                                        chunk = chunk.substring(0, i)
+                                                        sawKwd = true
+                                                    }
+                                                }
+                                                if (!sawKwd && chunk.isNotEmpty()) {
+                                                    buf.append(chunk)
+                                                    val now = System.currentTimeMillis()
+                                                    if (buf.length >= 512 || now - last > 150) {
+                                                        termSend(run, buf.toString()); buf.setLength(0); last = now
+                                                    }
+                                                }
+                                            }
+                                            if (buf.isNotEmpty()) termSend(run, buf.toString())
                                         }
+                                    } catch (_: Throwable) {
                                     }
-                                }
-                                th.start()
-                                val done = p.waitFor(120, java.util.concurrent.TimeUnit.SECONDS)
-                                if (!done) {
-                                    p.destroy()
-                                    out.append("\n[превышен лимит 120с]")
-                                }
-                                th.join(500)
-                                val s = out.toString()
-                                val idx = s.lastIndexOf("__KWD__")
-                                val newCwd = if (idx >= 0) s.substring(idx + 7).trim() else cwd
-                                val clean = if (idx >= 0) s.substring(0, idx) else s
-                                JSONObject().put("out", clean).put("code", if (done) p.exitValue() else -1).put("cwd", newCwd)
+                                }.start()
+                                Thread {
+                                    var code = -1
+                                    var stopped = false
+                                    try {
+                                        if (!p.waitFor(10, java.util.concurrent.TimeUnit.MINUTES)) {
+                                            p.destroyForcibly(); stopped = true
+                                            termSend(run, "\n[stopped: 10m limit]")
+                                        } else code = p.exitValue()
+                                    } catch (_: Throwable) {
+                                        stopped = true
+                                    }
+                                    termProcs.remove(run)
+                                    termEnd(run, if (stopped) -1 else code, cwdBox.get())
+                                }.start()
+                                JSONObject().put("run", run)
                             }
+                        }
+                        "termStop" -> {
+                            val run = data.optString("run", "")
+                            val ids = if (run.isEmpty()) termProcs.keys.toList() else listOf(run)
+                            ids.forEach { id -> termProcs.remove(id)?.destroyForcibly() }
+                            JSONObject().put("stopped", ids.size)
                         }
                         else -> if (request.getString("action").startsWith("history")) runtime.changeHistory.action(request) else sshTools.action(request)
                     }

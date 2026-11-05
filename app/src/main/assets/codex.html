@@ -455,6 +455,8 @@ span.ib-right-col{font-size:var(--fs-12);color:var(--text-2)}
 .term-row{flex:none;display:flex;align-items:center;gap:8px;padding:8px 12px max(10px,var(--sab,0px),env(safe-area-inset-bottom,0px));border-top:1px solid var(--border);background:var(--base)}
 .term-row input{flex:1;background:var(--surface-1);border:1px solid var(--border);border-radius:12px;color:var(--text);font:13px ui-monospace,Menlo,monospace;padding:10px 14px;outline:0}
 .term-row input:focus{border-color:var(--accent)}
+#termStop{width:40px;height:40px;min-width:40px;color:var(--err)}
+#termStop[hidden]{display:none!important}
 /* ---------- file manager ---------- */
 #fmScreen{position:fixed;inset:0;z-index:50;background:var(--base);display:flex;flex-direction:column}
 #fmScreen[hidden]{display:none!important}
@@ -676,7 +678,7 @@ details.activity[data-disclosure-hold]:not([open])>summary{border-bottom-color:v
   <div id="termScreen" hidden>
    <header><button class="ib back-round" id="termBack" aria-label="Back"><svg viewBox="0 0 24 24"><path d="M19 12H5M12 19l-7-7 7-7"/></svg></button><h1>Terminal</h1><span class="m" id="termCwdLbl"></span></header>
    <div id="termBox"></div>
-   <div class="term-row"><input id="termInput" placeholder="command…" autocapitalize="none" autocomplete="off" spellcheck="false"><button class="send" id="termRun" aria-label="Выполнить"><svg viewBox="0 0 24 24"><path d="M12 19V5M5 12l7-7 7 7"/></svg></button></div>
+   <div class="term-row"><button class="ib" id="termStop" aria-label="Stop" hidden><svg viewBox="0 0 24 24"><rect x="7" y="7" width="10" height="10" rx="2"/></svg></button><input id="termInput" placeholder="command…" autocapitalize="none" autocomplete="off" spellcheck="false"><button class="send" id="termRun" aria-label="Выполнить"><svg viewBox="0 0 24 24"><path d="M12 19V5M5 12l7-7 7 7"/></svg></button></div>
   </div>
   <div id="fmScreen" hidden>
    <header><button class="ib back-round" id="fmBack" aria-label="Back"><svg viewBox="0 0 24 24"><path d="M19 12H5M12 19l-7-7 7-7"/></svg></button><h1 id="fmTitle">Files</h1><button class="ib" id="fmNew" aria-label="New folder"><svg viewBox="0 0 24 24"><path d="M12 5v14M5 12h14"/></svg></button></header>
@@ -4525,7 +4527,9 @@ $('#pv').onclick=e=>{if(e.target.id==='pv'||e.target.id==='pvTrack'||e.target.cl
 {
  const screen=document.getElementById('termScreen'),box=document.getElementById('termBox'),
        input=document.getElementById('termInput'),cwdLbl=document.getElementById('termCwdLbl');
- let term=null,termCwd=null,termBusy=false;const termHist=[];let histIdx=-1;
+ let term=null,termCwd=null;const termHist=[];let histIdx=-1;
+ const alive=new Set();
+ const updStop=()=>{const b=document.getElementById('termStop');if(b)b.hidden=!alive.size};
  const escHtml=s=>s.replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;');
  const shortCwd=p=>{const proj=(S.dir||'').replace(/\\/g,'/');const n=(p||'').replace(/\\/g,'/');
   return n.startsWith(proj)?('~/'+n.slice(proj.length).replace(/^\//,'')):n};
@@ -4570,22 +4574,34 @@ $('#pv').onclick=e=>{if(e.target.id==='pv'||e.target.id==='pvTrack'||e.target.cl
  };
  const closeTerm=()=>{screen.hidden=true;input.blur()};
  document.getElementById('termBack').onclick=closeTerm;
+ window.__termData=function(run,b64){
+  try{
+   const d=new TextDecoder().decode(Uint8Array.from(atob(b64),c=>c.charCodeAt(0)));
+   if(term)term.write(d);else line('',d.replace(/\n$/,''));
+   box.scrollTop=box.scrollHeight;
+  }catch(e){}
+ };
+ window.__termEnd=function(run,code,cwdB64){
+  alive.delete(run);updStop();
+  let cwd='';
+  try{cwd=cwdB64?new TextDecoder().decode(Uint8Array.from(atob(cwdB64),c=>c.charCodeAt(0))):''}catch(e){}
+  const lbl=code===0?'ok':code===-1?'stopped':'code '+code;
+  if(term)term.write('\x1b[33m['+lbl+']\x1b[0m\r\n');else line('t-dim','['+lbl+']');
+  if(cwd&&cwd!==termCwd){termCwd=cwd;cwdLbl.textContent=shortCwd(termCwd)}
+  prompt();
+ };
  const run=async()=>{
-  if(termBusy)return;
   const cmd=input.value.trim();if(!cmd)return;
   termHist.push(cmd);histIdx=-1;input.value='';
   if(term)term.write('\x1b[36m$ '+escHtml(cmd)+'\x1b[0m\r\n');else line('t-cmd','$ '+cmd);
-  termBusy=true;
   try{
    const r=await nativeCall('termExec',{cmd,cwd:termCwd||S.dir||''});
-   const out=(r&&r.out)||'code=?';
-   if(term)term.write(escHtml(out).replace(/\n/g,'\r\n')+'\r\n');else line('',out);
-   const code=(r&&r.code)||0;
-   if(term)term.write('\x1b[33m['+(code===0?'ok':'code '+code)+']\x1b[0m\r\n');else line('t-dim','['+(code===0?'ok':'code '+code)+']');
-   if(r&&r.cwd&&r.cwd!==termCwd){termCwd=r.cwd;cwdLbl.textContent=shortCwd(termCwd)}
-  }catch(x){const m='Ошибка: '+((x&&x.message)||x);if(term)term.write('\x1b[31m'+escHtml(m)+'\x1b[0m\r\n');else line('t-err',m)}
-  termBusy=false;prompt();input.focus();
+   const id=(r&&r.run)||'';
+   if(id){alive.add(id);updStop()}
+   input.focus();
+  }catch(x){const m='Error: '+((x&&x.message)||x);if(term)term.write('\x1b[31m'+escHtml(m)+'\x1b[0m\r\n');else line('t-err',m);prompt()}
  };
+ document.getElementById('termStop').onclick=()=>{nativeCall('termStop',{run:''}).catch(()=>{})};
  document.getElementById('termRun').onclick=run;
  input.addEventListener('keydown',e=>{
   if(e.key==='Enter'){run()}
