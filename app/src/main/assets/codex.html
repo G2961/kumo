@@ -2042,7 +2042,7 @@ function voiceSheet(){
  const modes=[['native','Built-in (device)'],['groq','Groq'],['openrouter','OpenRouter'],['custom','Custom · OpenAI-compatible']];
  sheet(`<h3>Voice input</h3><p class="note">Engine behind the mic button. Whisper-grade transcription via your own API key; the key is stored only on this device.</p>
  ${modes.map(([v,l])=>`<button class="opt${(cur.mode||'native')===v?' sel':''}" data-stt="${v}">${l}<span class="r">${(cur.mode||'native')===v?OPT_CK:''}</span></button>`).join('')}
- ${cur.mode!=='native'?`<label class="fld" for="sttKey">API key</label><input class="in" id="sttKey" type="password" placeholder="${cur.mode==='groq'?'gsk_…':cur.mode==='openrouter'?'sk-or-…':'sk-…'}" autocomplete="off" autocapitalize="none" spellcheck="false">${cur.hasKey?'<div class="note">Key is saved — leave empty to keep it.</div>':''}
+ ${cur.mode!=='native'?`<label class="fld" for="sttKey">API key</label><input class="in" id="sttKey" type="password" placeholder="${cur.mode==='groq'?'gsk_…':cur.mode==='openrouter'?'sk-or-…':'sk-…'}" autocomplete="off" autocapitalize="none" spellcheck="false">${cur.hasKey?`<div class="note">Key saved: ${esc(cur.keyMask||'yes')} — leave empty to keep it.</div>`:''}
  <label class="fld" for="sttModel">Model</label><input class="in" id="sttModel" type="text" value="${esc(cur.model||'')}" placeholder="${cur.mode==='groq'?'whisper-large-v3-turbo':cur.mode==='openrouter'?'openai/gpt-4o-mini-transcribe':'whisper-large-v3-turbo'}" autocapitalize="none" spellcheck="false">
  ${cur.mode==='custom'?`<label class="fld" for="sttBase">Base URL</label><input class="in" id="sttBase" type="text" value="${esc(cur.base||'')}" placeholder="https://api.openai.com/v1" autocapitalize="none" spellcheck="false">`:''}
  <p class="note">${cur.mode==='groq'?'Groq serves whisper-large-v3-turbo and whisper-large-v3; the free tier is generous.':cur.mode==='openrouter'?'OpenRouter routes transcription models over chat/completions, e.g. openai/gpt-4o-transcribe or openai/gpt-4o-mini-transcribe.':'Any endpoint exposing OpenAI POST /audio/transcriptions works — OpenAI itself or a self-hosted whisper server.'}</p>`:''}
@@ -3922,12 +3922,12 @@ window.__voiceError=function(message){const mic=$('#mic');if(mic)mic.classList.r
   mic.onclick=()=>{
    if(mic.classList.contains('listening')){ // second tap: stop recording, native side sends the result
     mic.classList.remove('listening');
-    try{CodexNative.request(JSON.stringify({action:'sttRecord',data:{on:false}}))}catch(e){err('voice: '+e.message)}
+    nativeCall('sttRecord',{on:false}).catch(()=>{});
     return}
    const st=S.stt||{};
    if(st.mode&&st.mode!=='native'&&st.hasKey){ // Whisper-grade STT: record until second tap
     mic.classList.add('listening');
-    try{CodexNative.request(JSON.stringify({action:'sttRecord',data:{on:true}}))}catch(e){mic.classList.remove('listening');err('voice: '+e.message)}
+    nativeCall('sttRecord',{on:true}).catch(e=>{mic.classList.remove('listening');err('voice: '+e.message)});
    }else{ // built-in recognizer fallback
     mic.classList.add('listening');setTimeout(()=>mic.classList.remove('listening'),20000);
     try{CodexNative.request(JSON.stringify({action:'voiceInput'}))}catch(e){mic.classList.remove('listening');err('voice: '+e.message)}

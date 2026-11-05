@@ -338,6 +338,9 @@ class MainActivity : ComponentActivity(), LocalRuntime.Listener {
 
     private fun stopSttRecording() {
         sttActive = false
+        // rec.read is blocking; stop() kicks it out of the wait so the thread sees sttActive=false
+        try { sttRecorder?.stop() } catch (_: Throwable) {
+        }
     }
 
     private fun pcmToWav(pcm: ByteArray, sampleRate: Int): ByteArray {
@@ -698,10 +701,13 @@ class MainActivity : ComponentActivity(), LocalRuntime.Listener {
                         }
                         "sttGet" -> {
                             val p = getSharedPreferences("stt", Context.MODE_PRIVATE)
+                            val k = p.getString("key", "") ?: ""
+                            val mask = if (k.length > 10) k.take(6) + "…" + k.takeLast(4) else ""
                             JSONObject().put("mode", p.getString("mode", "native") ?: "native")
                                 .put("model", p.getString("model", "") ?: "")
                                 .put("base", p.getString("base", "") ?: "")
-                                .put("hasKey", !(p.getString("key", "") ?: "").isEmpty())
+                                .put("hasKey", k.isNotEmpty())
+                                .put("keyMask", mask)
                         }
                         "sttRecord" -> {
                             val on = data.optBoolean("on", true)
