@@ -445,7 +445,7 @@ class LocalRuntime(private val context: Context, private val sshTools: SshToolsS
         }
     }
 
-    private fun applyEnv(pb: ProcessBuilder, withAuth: Boolean) {
+    internal fun applyEnv(pb: ProcessBuilder, withAuth: Boolean) {
         val env = pb.environment()
         val home = File(context.filesDir, "home").apply { mkdirs() }.absolutePath
         val tmp = File(context.cacheDir, "tmp").apply { mkdirs() }.absolutePath

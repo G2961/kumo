@@ -547,6 +547,12 @@ class MainActivity : ComponentActivity(), LocalRuntime.Listener {
                         }
                     }
                 }
+                if (u.host == "127.0.0.1" && u.port == runtime.authPort) {
+                    when (u.path) {
+                        "/_ui/xterm.js" -> return WebResourceResponse("application/javascript", null, 200, "OK", mapOf("Cache-Control" to "max-age=86400"), assets.open("xterm.js"))
+                        "/_ui/xterm.css" -> return WebResourceResponse("text/css", null, 200, "OK", mapOf("Cache-Control" to "max-age=86400"), assets.open("xterm.css"))
+                    }
+                }
                 if (u.host == "127.0.0.1" && u.path == "/_ui/index.html") {
                     return try {
                         val devFile = getExternalFilesDir(null)?.resolve("codex.html")
@@ -812,9 +818,113 @@ class MainActivity : ComponentActivity(), LocalRuntime.Listener {
                         }
                         "logs" -> JSONObject().put("log", runtime.logSnapshot(400))
                             .put("serverPort", runtime.port).put("authPort", runtime.authPort).put("proxyPort", runtime.proxy.port)
+                        "saveExport" -> {
+                            val name = data.optString("name", "export.md").ifEmpty { "export.md" }
+                            val content = data.optString("content", "")
+                            var dir = File(
+                                android.os.Environment.getExternalStoragePublicDirectory(android.os.Environment.DIRECTORY_DOCUMENTS),
+                                "Kumo/exports"
+                            )
+                            if (!(dir.isDirectory || dir.mkdirs()))
+                                dir = File(getExternalFilesDir(null), "Kumo/exports").apply { mkdirs() }
+                            val f = File(dir, name)
+                            f.writeText(content)
+                            appendRuntimeLog("export: ${f.absolutePath}")
+                            JSONObject().put("path", f.absolutePath)
+                        }
+                        "shareText" -> {
+                            val text = data.optString("text", "")
+                            val title = data.optString("title", "Kumo thread")
+                            runOnUiThread {
+                                val i = Intent(Intent.ACTION_SEND).apply {
+                                    type = "text/plain"
+                                    putExtra(Intent.EXTRA_TITLE, title)
+                                    putExtra(Intent.EXTRA_TEXT, text)
+                                }
+                                startActivity(Intent.createChooser(i, "Экспорт треда"))
+                            }
+                            JSONObject().put("shared", true)
+                        }
+                        "fsList" -> {
+                            val path = data.optString("path", ProjectManager.currentDir(this@MainActivity).absolutePath)
+                            val dir = File(path)
+                            if (!dir.isDirectory || dir.listFiles() == null) throw IllegalArgumentException("Папка недоступна: $path")
+                            val dirs = JSONArray(); val files = JSONArray()
+                            dir.listFiles()?.sortedBy { it.name.lowercase() }?.forEach { f ->
+                                if (f.isDirectory) dirs.put(f.name)
+                                else files.put(JSONObject().put("name", f.name).put("size", f.length()))
+                            }
+                            JSONObject().put("path", dir.absolutePath).put("dirs", dirs).put("files", files)
+                        }
+                        "fsRead" -> {
+                            val f = File(data.optString("path", ""))
+                            if (!f.isFile) throw IllegalArgumentException("Файл не найден")
+                            if (f.length() > 512 * 1024) throw IllegalArgumentException("Файл больше 512 КБ — открой через агент")
+                            val bytes = f.readBytes()
+                            val binary = bytes.any { it == 0.toByte() }
+                            if (binary) throw IllegalArgumentException("Бинарный файл — вьюер не для него")
+                            JSONObject().put("content", String(bytes, Charsets.UTF_8)).put("size", f.length())
+                        }
+                        "fsWrite" -> {
+                            val f = File(data.optString("path", ""))
+                            f.writeText(data.optString("content", ""))
+                            appendRuntimeLog("files: wrote ${f.name}")
+                            JSONObject().put("saved", true).put("size", f.length())
+                        }
+                        "fsMkdir" -> {
+                            val f = File(data.optString("path", ""))
+                            if (!f.mkdirs() && !f.isDirectory) throw IllegalArgumentException("Не создать папку")
+                            JSONObject().put("made", true)
+                        }
+                        "fsDelete" -> {
+                            val f = File(data.optString("path", ""))
+                            val cwd = ProjectManager.currentDir(this@MainActivity).absolutePath
+                            if (!f.absolutePath.startsWith(cwd) && !f.absolutePath.startsWith("/storage/emulated/0/Documents/Kumo"))
+                                throw IllegalArgumentException("Удалять можно только внутри проекта и Documents/Kumo")
+                            val ok = (if (f.isDirectory) f.deleteRecursively() else f.delete())
+                            if (!ok) throw IllegalArgumentException("Не удалилось")
+                            appendRuntimeLog("files: deleted ${f.name}")
+                            JSONObject().put("deleted", true)
+                        }
                         "restartServer" -> {
                             JSONObject().put("restarting", true).also {
                                 runOnUiThread { restartServer() }
+                            }
+                        }
+                        "termExec" -> {
+                            val cwd = data.optString("cwd", ProjectManager.currentDir(this@MainActivity).absolutePath)
+                            val cmd = data.optString("cmd", "")
+                            if (cmd.isEmpty()) JSONObject().put("out", "").put("code", 0).put("cwd", cwd)
+                            else {
+                                val pb = ProcessBuilder(listOf("/system/bin/sh", "-c", "{ $cmd; } ; printf '\n__KWD__%s' \"\$(pwd)\""))
+                                val dir = File(cwd)
+                                if (dir.isDirectory) pb.directory(dir)
+                                runtime.applyEnv(pb, true)
+                                pb.redirectErrorStream(true)
+                                val p = pb.start()
+                                val out = StringBuilder()
+                                val th = Thread {
+                                    p.inputStream.use { r ->
+                                        val b = ByteArray(8192)
+                                        var n = r.read(b)
+                                        while (n > 0) {
+                                            out.append(String(b, 0, n, Charsets.UTF_8))
+                                            n = r.read(b)
+                                        }
+                                    }
+                                }
+                                th.start()
+                                val done = p.waitFor(120, java.util.concurrent.TimeUnit.SECONDS)
+                                if (!done) {
+                                    p.destroy()
+                                    out.append("\n[превышен лимит 120с]")
+                                }
+                                th.join(500)
+                                val s = out.toString()
+                                val idx = s.lastIndexOf("__KWD__")
+                                val newCwd = if (idx >= 0) s.substring(idx + 7).trim() else cwd
+                                val clean = if (idx >= 0) s.substring(0, idx) else s
+                                JSONObject().put("out", clean).put("code", if (done) p.exitValue() else -1).put("cwd", newCwd)
                             }
                         }
                         else -> if (request.getString("action").startsWith("history")) runtime.changeHistory.action(request) else sshTools.action(request)
