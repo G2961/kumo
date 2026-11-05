@@ -550,6 +550,7 @@ class MainActivity : ComponentActivity(), LocalRuntime.Listener {
                 if (u.host == "127.0.0.1" && u.port == runtime.authPort) {
                     when (u.path) {
                         "/_ui/xterm.js" -> return WebResourceResponse("application/javascript", null, 200, "OK", mapOf("Cache-Control" to "max-age=86400"), assets.open("xterm.js"))
+                        "/_ui/xterm-addon-fit.js" -> return WebResourceResponse("application/javascript", null, 200, "OK", mapOf("Cache-Control" to "max-age=86400"), assets.open("xterm-addon-fit.js"))
                         "/_ui/xterm.css" -> return WebResourceResponse("text/css", null, 200, "OK", mapOf("Cache-Control" to "max-age=86400"), assets.open("xterm.css"))
                     }
                 }

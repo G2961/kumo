@@ -277,9 +277,9 @@ footer{position:relative;padding:var(--s-4) var(--s-12) var(--s-12);padding-bott
 .msg-actions button.on{color:var(--text)}
 .msg-actions svg{width:20px;height:20px}
 .hidden-chips{position:absolute;width:44px;height:44px;opacity:0;pointer-events:none;z-index:-1}
-#dim{position:absolute;inset:0;background:var(--dim);opacity:0;pointer-events:none;transition:opacity 250ms;z-index:5}
+#dim{position:absolute;inset:0;background:var(--dim);opacity:0;pointer-events:none;transition:opacity 250ms;z-index:55}
 #dim.on{opacity:1;pointer-events:auto}
-#drawer{position:absolute;top:0;bottom:0;left:0;width:84%;max-width:340px;background:var(--surface-1);border-right:1px solid var(--border);box-shadow:none;z-index:6;transform:translateX(-102%);transition:transform 250ms cubic-bezier(0.32,0.72,0,1);display:flex;flex-direction:column;padding:max(var(--s-12),var(--sat,0px),env(safe-area-inset-top,0px)) var(--s-8) var(--s-12);box-sizing:border-box}
+#drawer{position:absolute;top:0;bottom:0;left:0;width:84%;max-width:340px;background:var(--surface-1);border-right:1px solid var(--border);box-shadow:none;z-index:57;transform:translateX(-102%);transition:transform 250ms cubic-bezier(0.32,0.72,0,1);display:flex;flex-direction:column;padding:max(var(--s-12),var(--sat,0px),env(safe-area-inset-top,0px)) var(--s-8) var(--s-12);box-sizing:border-box}
 #drawer.on{transform:none;box-shadow:var(--shadow-drawer)}
 .drawer-header{flex:none}
 .drawer-top-bar{display:flex;align-items:center;gap:var(--s-8);padding:0 0 var(--s-4)}
@@ -369,7 +369,7 @@ span.ib-right-col{font-size:var(--fs-12);color:var(--text-2)}
 .sk-line{height:11px;background:var(--border);border-radius:6px;width:75%;animation:sk-pulse 1.2s ease-in-out infinite}
 .sk-line.short{width:45%}
 @keyframes sk-pulse{0%,100%{opacity:.35}50%{opacity:.8}}
-#sheet{position:absolute;left:0;right:0;bottom:0;background:var(--sheet-bg);border-radius:var(--r-20) var(--r-20) 0 0;z-index:7;transform:translateY(105%);transition:transform 250ms cubic-bezier(0.32,0.72,0,1);padding:var(--s-8) var(--s-16) max(var(--s-16),var(--sab,0px),env(safe-area-inset-bottom,0px));max-height:82dvh;overflow-y:auto;overscroll-behavior:contain;-webkit-overflow-scrolling:touch;box-shadow:0 -8px 32px rgba(0,0,0,.3)}
+#sheet{position:absolute;left:0;right:0;bottom:0;background:var(--sheet-bg);border-radius:var(--r-20) var(--r-20) 0 0;z-index:60;transform:translateY(105%);transition:transform 250ms cubic-bezier(0.32,0.72,0,1);padding:var(--s-8) var(--s-16) max(var(--s-16),var(--sab,0px),env(safe-area-inset-bottom,0px));max-height:82dvh;overflow-y:auto;overscroll-behavior:contain;-webkit-overflow-scrolling:touch;box-shadow:0 -8px 32px rgba(0,0,0,.3)}
 #sheet.on{transform:none}
 #sheet .grab{width:100%;height:22px;margin:0 0 var(--s-8);cursor:grab;touch-action:none;display:grid;place-items:center;background:none;border:none}
 #sheet .grab::before{content:'';width:38px;height:4px;border-radius:2px;background:var(--border)}
@@ -470,6 +470,21 @@ span.ib-right-col{font-size:var(--fs-12);color:var(--text-2)}
 .fm-row svg{width:18px;height:18px;color:var(--text-2)}
 .fm-row .n{flex:1;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
 .fm-row .s{flex:none;font-size:11px;color:var(--text-2)}
+.ctx-ring{width:44px;height:44px;min-width:44px;min-height:44px;display:grid;place-items:center;background:none;border:none;cursor:pointer;flex:none;color:var(--text-2);margin-left:auto;padding:0}
+.ctx-ring svg{width:22px;height:22px;transform:rotate(-90deg)}
+.ctx-ring circle{fill:none;stroke-width:2.5}
+.ctx-ring .bg{stroke:var(--border)}
+.ctx-ring .fg{stroke:var(--text-2);stroke-linecap:round;transition:stroke-dasharray .3s}
+.ctx-ring.warn .fg{stroke:var(--err)}
+.ctx-ring[hidden]{display:none}
+#ctxPop{position:absolute;bottom:calc(100% + 10px);right:10px;z-index:9;min-width:240px;max-width:300px;background:var(--sheet-bg);border:1px solid var(--border);border-radius:var(--r-16);box-shadow:0 8px 32px rgba(0,0,0,.25);padding:12px 14px;animation:ctxPopIn .16s ease-out}
+#ctxPop[hidden]{display:none!important}
+@keyframes ctxPopIn{from{opacity:0;transform:translateY(6px)}to{opacity:1;transform:none}}
+#ctxPop h4{margin:0 0 6px;font-size:var(--fs-12);font-weight:600;color:var(--text-2);text-transform:uppercase;letter-spacing:.04em}
+.ctx-row{display:flex;justify-content:space-between;align-items:center;gap:12px;font-size:var(--fs-13);padding:3px 0;color:var(--text-2)}
+.ctx-row b{color:var(--text);font-weight:500;font-family:ui-monospace,Menlo,monospace;font-size:var(--fs-12)}
+#ctxPop .btns{display:flex;gap:8px;margin-top:10px}
+#ctxPop .btn{flex:1;padding:8px 12px}
 #fmView{position:absolute;inset:0;background:var(--base);display:flex;flex-direction:column;z-index:2}
 #fmView[hidden]{display:none!important}
 #fmViewHead{display:flex;align-items:center;gap:8px;padding:10px 14px;border-bottom:1px solid var(--border);flex:none}
@@ -629,6 +644,7 @@ details.activity[data-disclosure-hold]:not([open])>summary{border-bottom-color:v
         <button class="chip" id="cModel"><span>Default model</span><svg viewBox="0 0 24 24"><path d="m6 9 6 6 6-6"/></svg></button>
         <button class="chip comp-eff" id="cEff" hidden><span>Default</span><svg viewBox="0 0 24 24"><path d="m6 9 6 6 6-6"/></svg></button>
         <button class="ib" id="mic" aria-label="Voice input" title="Voice input" hidden><svg viewBox="0 0 24 24"><rect x="9" y="3" width="6" height="11" rx="3"/><path d="M5 11a7 7 0 0 0 14 0"/><path d="M12 18v3"/></svg></button>
+        <button class="ctx-ring" id="ctxRing" hidden aria-label="Context usage"><svg viewBox="0 0 20 20"><circle class="bg" cx="10" cy="10" r="8"/><circle class="fg" cx="10" cy="10" r="8"/></svg></button>
 
         <button class="send" id="send" aria-label="Send message"><svg viewBox="0 0 24 24"><path d="M12 19V5M5 12l7-7 7 7"/></svg></button>
       </div>
@@ -639,6 +655,7 @@ details.activity[data-disclosure-hold]:not([open])>summary{border-bottom-color:v
       <button class="comp-info-btn" id="cPerm"><span>Default permissions</span><svg viewBox="0 0 24 24"><path d="m6 9 6 6 6-6"/></svg></button>
       <button class="comp-info-btn" id="cSearch" hidden></button>
     </div>
+    <div id="ctxPop" hidden></div>
   </footer>
   <template id="kwTpl"><div class="kw-kumo" id="kwKumo"><div class="kw-float"><svg id="kw-sv" viewBox="30 40 460 380" role="img" aria-label="Kumo">
     <g id="kw-back"><g data-e="hello"><path d="M 90 129 L 98 148 L 117 156 L 98 164 L 90 183 L 82 164 L 63 156 L 82 148 Z" fill="#168BFA"/><path d="M 424 182 L 430 196 L 444 202 L 430 208 L 424 222 L 418 208 L 404 202 L 418 196 Z" fill="#DCEBFF"/></g><g data-e="excited" style="display:none"><path d="M 90 175 L 100 197 L 122 207 L 100 217 L 90 239 L 80 217 L 58 207 L 80 197 Z" fill="#168BFA"/><path d="M 420 130 L 428 148 L 446 156 L 428 164 L 420 182 L 412 164 L 394 156 L 412 148 Z" fill="#168BFA"/></g><g data-e="curious" style="display:none"><text x="407" y="166" font-family="Arial, sans-serif" font-size="72" font-weight="700" fill="#168BFA">?</text></g><g data-e="thinking" style="display:none"><circle cx="395" cy="167" r="7" fill="#168BFA"/><circle cx="418" cy="154" r="7" fill="#168BFA"/><circle cx="441" cy="141" r="7" fill="#168BFA"/></g><g data-e="sleepy" style="display:none"><text x="400" y="160" font-family="Arial, sans-serif" font-size="35" font-weight="700" fill="#168BFA">z</text><text x="435" y="125" font-family="Arial, sans-serif" font-size="48" font-weight="700" fill="#168BFA">z</text></g><g data-e="surprised" style="display:none"><path d="M 88 124 L 100 169" stroke="#168BFA" stroke-width="11"/><circle cx="105" cy="188" r="7" fill="#168BFA"/><path d="M 420 124 L 432 169" stroke="#168BFA" stroke-width="11"/><circle cx="437" cy="188" r="7" fill="#168BFA"/></g><g data-e="sad" style="display:none"><path d="M 175 258 C 160 277 164 289 176 292 C 189 289 190 277 175 258 Z" fill="#168BFA"/></g><g data-e="angry" style="display:none"><path d="M 404 180 Q 424 161 410 143 Q 398 127 417 111" stroke="#168BFA" stroke-width="9" fill="none"/><path d="M 436 184 Q 456 165 442 147 Q 430 131 449 115" stroke="#168BFA" stroke-width="9" fill="none"/></g><g data-e="shy" style="display:none"><path d="M 426 151 C 405 129 379 157 426 194 C 473 157 447 129 426 151 Z" fill="#168BFA"/></g><g data-e="love" style="display:none"><path d="M 426 151 C 405 129 379 157 426 194 C 473 157 447 129 426 151 Z" fill="#168BFA"/></g><g data-e="focused" style="display:none"><path d="M 91 220 L 70 240 L 91 260 M 111 220 L 132 240 L 111 260" fill="none" stroke="#168BFA" stroke-width="9"/></g></g>
@@ -657,19 +674,19 @@ details.activity[data-disclosure-hold]:not([open])>summary{border-bottom-color:v
   <div id="kwPill" role="button" aria-label="К последнему сообщению"><div class="kw-mini" id="kwMini"></div><span id="kwPt"></span><span>↓</span></div>
   <div id="pv" hidden><button id="pvx" aria-label="Закрыть">✕</button><div id="pvTrack"></div><div id="pvCap"></div></div>
   <div id="termScreen" hidden>
-   <header><button class="ib back-round" id="termBack" aria-label="Back"><svg viewBox="0 0 24 24"><path d="M19 12H5M12 19l-7-7 7-7"/></svg></button><h1>Терминал</h1><span class="m" id="termCwdLbl"></span></header>
+   <header><button class="ib back-round" id="termBack" aria-label="Back"><svg viewBox="0 0 24 24"><path d="M19 12H5M12 19l-7-7 7-7"/></svg></button><h1>Terminal</h1><span class="m" id="termCwdLbl"></span></header>
    <div id="termBox"></div>
-   <div class="term-row"><input id="termInput" placeholder="команда…" autocapitalize="none" autocomplete="off" spellcheck="false"><button class="send" id="termRun" aria-label="Выполнить"><svg viewBox="0 0 24 24"><path d="M12 19V5M5 12l7-7 7 7"/></svg></button></div>
+   <div class="term-row"><input id="termInput" placeholder="command…" autocapitalize="none" autocomplete="off" spellcheck="false"><button class="send" id="termRun" aria-label="Выполнить"><svg viewBox="0 0 24 24"><path d="M12 19V5M5 12l7-7 7 7"/></svg></button></div>
   </div>
   <div id="fmScreen" hidden>
-   <header><button class="ib back-round" id="fmBack" aria-label="Back"><svg viewBox="0 0 24 24"><path d="M19 12H5M12 19l-7-7 7-7"/></svg></button><h1 id="fmTitle">Файлы</h1><button class="ib" id="fmNew" aria-label="Новая папка"><svg viewBox="0 0 24 24"><path d="M12 5v14M5 12h14"/></svg></button></header>
+   <header><button class="ib back-round" id="fmBack" aria-label="Back"><svg viewBox="0 0 24 24"><path d="M19 12H5M12 19l-7-7 7-7"/></svg></button><h1 id="fmTitle">Files</h1><button class="ib" id="fmNew" aria-label="New folder"><svg viewBox="0 0 24 24"><path d="M12 5v14M5 12h14"/></svg></button></header>
    <div id="fmCrumb"></div>
    <div id="fmList"></div>
-   <div id="fmView" hidden><div id="fmViewHead"><span id="fmViewName"></span><button class="ib" id="fmEdit" aria-label="Редактировать"><svg viewBox="0 0 24 24"><path d="M12 20h9M16.5 3.5a2.1 2.1 0 0 1 3 3L7 19l-4 1 1-4z"/></svg></button><button class="ib" id="fmDel" aria-label="Удалить"><svg viewBox="0 0 24 24"><path d="M4 7h16M9 7V5h6v2m-8 0 1 13h8l1-13"/></svg></button></div>
+   <div id="fmView" hidden><div id="fmViewHead"><span id="fmViewName"></span><button class="ib" id="fmEdit" aria-label="Edit"><svg viewBox="0 0 24 24"><path d="M12 20h9M16.5 3.5a2.1 2.1 0 0 1 3 3L7 19l-4 1 1-4z"/></svg></button><button class="ib" id="fmDel" aria-label="Delete"><svg viewBox="0 0 24 24"><path d="M4 7h16M9 7V5h6v2m-8 0 1 13h8l1-13"/></svg></button></div>
     <textarea id="fmText" spellcheck="false"></textarea></div>
   </div>
   <div id="apv" hidden>
-   <div id="apvHandle"><span class="grab-line"></span><span id="apvTitle"></span><button id="apvTunnel" aria-label="Публичная ссылка"><svg viewBox="0 0 24 24"><circle cx="12" cy="12" r="10"/><path d="M2 12h20"/><path d="M12 2a15.3 15.3 0 0 1 4 10 15.3 15.3 0 0 1-4 10 15.3 15.3 0 0 1-4-10 15.3 15.3 0 0 1 4-10z"/></svg></button><button id="apvShare" aria-label="Открыть доступ снаружи"><svg viewBox="0 0 24 24"><path d="M7 17 17 7M9 7h8v8"/></svg></button><button id="apvClose" aria-label="Закрыть">✕</button></div>
+   <div id="apvHandle"><span class="grab-line"></span><span id="apvTitle"></span><button id="apvTunnel" aria-label="Public link"><svg viewBox="0 0 24 24"><circle cx="12" cy="12" r="10"/><path d="M2 12h20"/><path d="M12 2a15.3 15.3 0 0 1 4 10 15.3 15.3 0 0 1-4 10 15.3 15.3 0 0 1-4-10 15.3 15.3 0 0 1 4-10z"/></svg></button><button id="apvShare" aria-label="Share on LAN"><svg viewBox="0 0 24 24"><path d="M7 17 17 7M9 7h8v8"/></svg></button><button id="apvClose" aria-label="Закрыть">✕</button></div>
    <iframe id="apvFrame" title="Preview" hidden></iframe>
    <div id="apvBlock" hidden><p class="note">Сайт запретил встраивание в рамку.</p><button class="btn p" id="apvExternal">Открыть в браузере</button></div>
   </div>
@@ -1117,7 +1134,7 @@ function renderDrawer(){
  const hasSkills=!!(specFind(/^\/skill$/,'get')||specFind(/^\/api\/skill$/,'get'));
  const conn=selectedConnection();
  const remoteSub=conn?conn.name:(S.connections.length?String(S.connections.length):'');
- let h=`<div class="drawer-header"><div class="drawer-top-bar"><span class="drawer-title">kumo</span><button class="ib" data-a="search" aria-label="Search threads">${I.search}</button></div><div class="drawer-search" id="drawerSearchBox"><input class="in" id="drawerSearchInput" placeholder="Search threads" autocomplete="off" autocapitalize="none" spellcheck="false"><button class="ib" data-a="searchclose" aria-label="Close search"><svg viewBox="0 0 24 24"><path d="M18 6 6 18M6 6l12 12"/></svg></button></div><div class="drawer-nav"><button class="nav-row" data-a="remote">${I.term}<span>Remote</span><span class="r"><span class="m">${esc(remoteSub)}</span></span></button>${hasMcp?`<button class="nav-row" data-a="plugins">${I.plug}<span>Plugins</span><span class="r"><span class="m" id="mcpBadge"></span></span></button>`:''}${hasSkills?`<button class="nav-row" data-a="skills">${I.book}<span>Skills</span></button>`:''}</div><div class="drawer-sep"></div></div><div id="drawerProjects" class="drawer-projects">`;
+ let h=`<div class="drawer-header"><div class="drawer-top-bar"><span class="drawer-title">kumo</span><button class="ib" data-a="search" aria-label="Search threads">${I.search}</button></div><div class="drawer-search" id="drawerSearchBox"><input class="in" id="drawerSearchInput" placeholder="Search threads" autocomplete="off" autocapitalize="none" spellcheck="false"><button class="ib" data-a="searchclose" aria-label="Close search"><svg viewBox="0 0 24 24"><path d="M18 6 6 18M6 6l12 12"/></svg></button></div><div class="drawer-nav"><button class="nav-row" data-a="term">${I.term}<span>Terminal</span></button><button class="nav-row" data-a="files">${I.file}<span>Project files</span></button><button class="nav-row" data-a="remote">${I.term}<span>Remote</span><span class="r"><span class="m">${esc(remoteSub)}</span></span></button>${hasMcp?`<button class="nav-row" data-a="plugins">${I.plug}<span>Plugins</span><span class="r"><span class="m" id="mcpBadge"></span></span></button>`:''}${hasSkills?`<button class="nav-row" data-a="skills">${I.book}<span>Skills</span></button>`:''}</div><div class="drawer-sep"></div></div><div id="drawerProjects" class="drawer-projects">`;
  // Both middle sections always exist in the DOM: the thread list and the search
  // overlay cross-fade in place, so toggling search never relayouts the drawer.
  h+=`<div class="drawer-threads" id="drawerThreads"><div class="drawer-th-head"><span class="drawer-th-title">Threads</span><button class="ib" data-a="add" aria-label="Add project"><svg viewBox="0 0 24 24"><path d="M4 20h16a2 2 0 0 0 2-2V8a2 2 0 0 0-2-2h-7.93a2 2 0 0 1-1.66-.9l-.82-1.2A2 2 0 0 0 7.93 3H4a2 2 0 0 0-2 2v13c0 1.1.9 2 2 2Z"/><path d="M12 10v6M9 13h6"/></svg></button></div>`;
@@ -1149,6 +1166,8 @@ $('#drawer').onclick=async e=>{
  if($('#sheet').classList.contains('on')){closeSheet();return}
  const b=e.target.closest('[data-a]');if(!b)return;const a=b.dataset.a;
  if(a==='new'){resetThread();drawer(false);render()}
+ else if(a==='term'){drawer(false);openTerm()}
+ else if(a==='files'){drawer(false);openFiles()}
  else if(a==='add'){projectSheet()}
  else if(a==='settings'){drawer(false);openSettings()}
  else if(a==='remote'){drawer(false);openRemote()}
@@ -1877,9 +1896,54 @@ function contextInfo(){
 }
 function fmtTok(n){return n>=1000?(n/1000).toFixed(n>=100000?0:1)+'k':String(n)}
 function updateCtxRing(){
- const value=$('[data-context-value]');if(!value)return;
- const info=contextInfo();value.textContent=info?Math.round(info.pct)+'%':'No data';
+ const value=$('[data-context-value]');
+ if(value){const info=contextInfo();value.textContent=info?Math.round(info.pct)+'%':'No data'}
+ const ring=$('#ctxRing');if(!ring)return;
+ const info=contextInfo();
+ ring.hidden=!info;
+ if(!info){const pop=$('#ctxPop');if(pop)pop.hidden=true;return}
+ const C=2*Math.PI*8,fg=ring.querySelector('.fg');
+ fg.style.strokeDasharray=(info.pct/100)*C+' '+C;
+ ring.classList.toggle('warn',info.pct>80);
+ const pop=$('#ctxPop');
+ if(pop&&!pop.hidden)renderCtxPop();
 }
+function renderCtxPop(){
+ const pop=$('#ctxPop'),info=contextInfo();
+ if(!info){pop.hidden=true;return}
+ const m=currentModel(),olim=m&&m.limit&&m.limit.output;
+ pop.innerHTML='<h4>Context</h4>'
+  +'<div class="ctx-row"><span>Used</span><b>'+fmtTok(info.used)+' / '+fmtTok(info.limit)+' · '+Math.round(info.pct)+'%</b></div>'
+  +'<div class="ctx-row"><span>Input</span><b>'+fmtTok(info.t.input||0)+'</b></div>'
+  +'<div class="ctx-row"><span>Output</span><b>'+fmtTok(info.t.output||0)+(olim?' / '+fmtTok(olim):'')+'</b></div>'
+  +'<div class="btns"><button class="btn" id="ctxMore">More</button></div>';
+ $('#ctxMore').onclick=ctxMoreSheet;
+}
+function ctxMoreSheet(){
+ const info=contextInfo();
+ if(!info){sheet('<h3>Context</h3><p class="note">No context usage yet.</p>');$('#sheet').onclick=null;return}
+ const m=currentModel();
+ const row=(l,v)=>rowHtml('',l,`<span class="m mono">${v}</span>`);
+ sheet(`<h3>Context</h3><p class="note">${m?esc(m.mn):''}</p><div class="set-card">`
+  +row('Used',`${fmtTok(info.used)} / ${fmtTok(info.limit)} · ${Math.round(info.pct)}%`)
+  +row('Input',fmtTok(info.t.input||0))
+  +row('Output',fmtTok(info.t.output||0))
+  +row('Reasoning',fmtTok(info.t.reasoning||0))
+  +row('Cache read',fmtTok((info.t.cache&&info.t.cache.read)||0))
+  +row('Cache write',fmtTok((info.t.cache&&info.t.cache.write)||0))
+  +'</div><p class="note">Estimated from the last model response. The context clears when the thread compacts.</p>');
+ $('#sheet').onclick=null;
+}
+$('#ctxRing').onclick=()=>{
+ const pop=$('#ctxPop');
+ if(!pop.hidden){pop.hidden=true;return}
+ renderCtxPop();
+ pop.hidden=!contextInfo();
+};
+document.addEventListener('click',e=>{
+ const pop=document.getElementById('ctxPop');
+ if(pop&&!pop.hidden&&!(e.target&&e.target.closest&&(e.target.closest('#ctxPop')||e.target.closest('#ctxRing'))))pop.hidden=true;
+},true);
 function contextSheet(){
  const info=contextInfo();if(!info){sheet('<h3>Context</h3><p class="note">No context usage yet.</p>');return}
  const m=currentModel();
@@ -2340,7 +2404,7 @@ function projectSheet(){
 function toggleSearch(){S.webSearch=!S.webSearch;lset('oc_web_search',S.webSearch);chips()}
 $('#cSearch').onclick=toggleSearch;
 $('#plus').onclick=()=>{
- sheet(`<h3>Add to message</h3><button class="opt" id="attachTerm">${I.term}Терминал</button><button class="opt" id="attachFiles2">${I.file}Файлы проекта</button><button class="opt" id="attachFiles">${I.file}Files</button><button class="opt" id="attachPhotos">${I.file}Photos</button><button class="opt" id="attachSearch">Web search<span class="m">${S.webSearch?'On':'Off'}</span></button><button class="opt" id="attachSsh">${I.term}SSH server<span class="m">${esc(selectedConnection()?.name||'Local')}</span></button>`);
+ sheet(`<h3>Add to message</h3><button class="opt" id="attachTerm">${I.term}Terminal</button><button class="opt" id="attachFiles2">${I.file}Project files</button><button class="opt" id="attachFiles">${I.file}Files</button><button class="opt" id="attachPhotos">${I.file}Photos</button><button class="opt" id="attachSearch">Web search<span class="m">${S.webSearch?'On':'Off'}</span></button><button class="opt" id="attachSsh">${I.term}SSH server<span class="m">${esc(selectedConnection()?.name||'Local')}</span></button>`);
  $('#sheet').onclick=e=>{const b=e.target.closest('button');if(!b)return;if(b.id==='attachTerm'){closeAll();openTerm();return}if(b.id==='attachFiles2'){closeAll();openFiles();return}if(b.id==='attachFiles'){closeAll();$('#filePicker').click()}if(b.id==='attachPhotos'){closeAll();nativeCall('pickPhotos').then(async r=>{const fs=(r&&r.files)||[];for(const f of fs){
   if(S.attachments.reduce((n,x)=>n+x.size,0)+(f.size||0)>24*1024*1024)break;
   let url=f.url||'';if(/^image\//.test(f.mime||''))url=await shrinkDataUrl(url);
@@ -2721,14 +2785,14 @@ async function toolFeedHistory(card){
 function readableError(value){const text=redact(value);return /chat\/completions[\s\S]*responses/i.test(text)?'This model needs the Responses API. Open Settings → Providers and change its API format to Responses.':text}
 function humanError(text){
  const t=String(text||'');
- if(/chat\/completions[\s\S]*responses|needs the responses api/i.test(t))return {diag:'Модель требует Responses API',hint:'Открой Settings → Providers и смени у провайдера API format на Responses.'};
- if(/401|unauthorized|invalid[ _-]api[ _-]key|incorrect api key/i.test(t))return {diag:'Ключ невалиден',hint:'Проверь API-ключ: Settings → Providers.'};
- if(/403|forbidden/i.test(t))return {diag:'Доступ запрещён',hint:'Этому ключу не хватает прав на эту модель.'};
- if(/429|rate limit|too many requests|quota/i.test(t))return {diag:'Лимит запросов',hint:'Провайдер просит подождать — попробуй через пару минут.'};
- if(/insufficient|balance|billing|credit/i.test(t))return {diag:'Закончился баланс',hint:'Пополни счёт у провайдера или переключись на другую модель.'};
- if(/context length|too long|maximum.*tokens|max_tokens/i.test(t))return {diag:'Промпт не влез в контекст',hint:'Тред слишком длинный — начни новый или убери тяжёлые вложения.'};
- if(/econnrefused|enotfound|econnreset|etimedout|fetch failed|unable to connect|network|socket hang up|dns/i.test(t))return {diag:'Сеть недоступна',hint:'Проверь интернет на телефоне или статус провайдера.'};
- if(/50[023]|bad gateway|service unavailable|internal server error|overloaded/i.test(t))return {diag:'Провайдер недоступен',hint:'Проблемы на стороне сервера — подожди или смени модель.'};
+ if(/chat\/completions[\s\S]*responses|needs the responses api/i.test(t))return {diag:'Model requires the Responses API',hint:'Open Settings → Providers and change the API format to Responses.'};
+ if(/401|unauthorized|invalid[ _-]api[ _-]key|incorrect api key/i.test(t))return {diag:'Invalid API key',hint:'Check your API key in Settings → Providers.'};
+ if(/403|forbidden/i.test(t))return {diag:'Access denied',hint:'This key lacks permission for this model.'};
+ if(/429|rate limit|too many requests|quota/i.test(t))return {diag:'Rate limited',hint:'The provider asks to wait — retry in a couple of minutes.'};
+ if(/insufficient|balance|billing|credit/i.test(t))return {diag:'Out of balance',hint:'Top up the provider account or switch models.'};
+ if(/context length|too long|maximum.*tokens|max_tokens/i.test(t))return {diag:'Prompt exceeds the context window',hint:'The thread is too long — start a new one or drop heavy attachments.'};
+ if(/econnrefused|enotfound|econnreset|etimedout|fetch failed|unable to connect|network|socket hang up|dns/i.test(t))return {diag:'Network unavailable',hint:'Check the phone connection or provider status.'};
+ if(/50[023]|bad gateway|service unavailable|internal server error|overloaded/i.test(t))return {diag:'Provider unavailable',hint:'Server-side trouble — wait or switch models.'};
  return null;
 }
 appearance();
@@ -3058,7 +3122,7 @@ function errorCardHTML(e,mid){
  const hu=meta.aborted?null:humanError(msg);
  const tail=retryIn&&!meta.aborted?`\nRetry after ${esc(retryIn)}s`:'';
  const body=hu
-  ?`<div class="er-diag">${esc(hu.diag)}</div><div class="er-hint">${esc(hu.hint)}</div><details class="er-raw"><summary>Детали</summary><pre class="er-body">${esc(msg)}${tail}</pre></details>`
+  ?`<div class="er-diag">${esc(hu.diag)}</div><div class="er-hint">${esc(hu.hint)}</div><details class="er-raw"><summary>Details</summary><pre class="er-body">${esc(msg)}${tail}</pre></details>`
   :`<pre class="er-body" style="${meta.aborted?'color:var(--text-2);background:var(--surface-1)':''}">${esc(msg)}${tail}</pre>`;
  return `<div class="card error-card" ${meta.aborted?'':`data-mid="${esc(mid)}"`}><div class="ch ${meta.aborted?'':'er'}">${meta.aborted?I.bot:'<img src="kumo_sad.png" alt="" class="er-sad">'}<span class="tool-action">${esc(modelName)}</span>${code&&!meta.aborted?`<span class="m er">${esc(code)}</span>`:''}<span class="m ${meta.aborted?'':'er'}">${meta.aborted?'Stopped':'Failed'}</span></div>${body}${meta.aborted?'':`<div class="btns"><button class="btn p" data-erract="retry">Retry</button><button class="btn" data-erract="model">Switch model</button></div>`}</div>`;
 }
@@ -3775,7 +3839,7 @@ function renderMsgs(force){
  }
  [...S.perms.values()].forEach(p=>{h+=permCard(p)});
  if(S.questions.size&&!S.qSheetOpen){const q0=[...S.questions.values()][0];const qs0=(q0.questions||[])[0]||{};h+=`<button class="q-pending" type="button" data-qopen="1"><span class="dot"></span><span class="qlbl">${esc(qs0.header||qs0.question||'Question')}</span></button>`}
- if(S.lastErr&&!hadMsgError){const le=String(readableError(S.lastErr));const hu=humanError(le);h+=`<div class="card error-card"><div class="ch er">Error<span class="m er">Failed</span></div>${hu?`<div class="er-diag">${esc(hu.diag)}</div><div class="er-hint">${esc(hu.hint)}</div><details class="er-raw"><summary>Детали</summary><pre class="er-body">${esc(le)}</pre></details>`:`<pre class="er-body">${esc(le)}</pre>`}</div>`}
+ if(S.lastErr&&!hadMsgError){const le=String(readableError(S.lastErr));const hu=humanError(le);h+=`<div class="card error-card"><div class="ch er">Error<span class="m er">Failed</span></div>${hu?`<div class="er-diag">${esc(hu.diag)}</div><div class="er-hint">${esc(hu.hint)}</div><details class="er-raw"><summary>Details</summary><pre class="er-body">${esc(le)}</pre></details>`:`<pre class="er-body">${esc(le)}</pre>`}</div>`}
  if(!LS('oc_lp_hint'))h+='<div class="lp-hint">Long-press a message for actions</div>';
  if(S.pendingUser)h+=`<div class="msg user">${esc(S.pendingUser)}</div>`;
  const kwPrev=document.getElementById('kwTail');
@@ -3954,9 +4018,9 @@ async function exportThread(){
  const name=title.replace(/[^A-Za-zА-Яа-я0-9._\- ]/g,'').trim().replace(/\s+/g,'_').slice(0,40)+`_${stamp.getFullYear()}${pad(stamp.getMonth()+1)}${pad(stamp.getDate())}-${pad(stamp.getHours())}${pad(stamp.getMinutes())}.md`;
  try{
   const r=await nativeCall('saveExport',{name,content:md});
-  sheet(`<h3>Экспорт треда</h3><p class="note">Сохранено: ${esc(r.path||'?')}${attCount?'\n'+attCount+' вложений учтены как ссылки на имена':''}</p><div class="btns"><button class="btn p" id="expShare">Поделиться</button><button class="btn" id="expDone">Готово</button></div>`);
+  sheet(`<h3>Export thread</h3><p class="note">Saved: ${esc(r.path||'?')}${attCount?'\n'+attCount+' attachments included as file links':''}</p><div class="btns"><button class="btn p" id="expShare">Share</button><button class="btn" id="expDone">Done</button></div>`);
   $('#sheet').onclick=e=>{if(e.target.id==='expShare'){closeAll();nativeCall('shareText',{text:md,title}).catch(()=>{})}else if(e.target.id==='expDone')closeAll()};
- }catch(x){sheet('<h3>Экспорт треда</h3><p class="note error-note">'+esc(x.message)+'</p>')}
+ }catch(x){sheet('<h3>Export thread</h3><p class="note error-note">'+esc(x.message)+'</p>')}
 }
 function contextMenu(title,items){
  let h='<h3>'+esc(title)+'</h3><div>';
@@ -4049,6 +4113,7 @@ window.__appBack=function(){
  if(!$('#pv').hidden){$('#pv').hidden=true;return true}
  if(document.querySelector('#workLogDialog[open]')){closeWorkSheet();return true}
  if($('#sheet').classList.contains('on')){closeSheet();return true}
+ if(!$('#ctxPop').hidden){$('#ctxPop').hidden=true;return true}
  if($('#drawer').classList.contains('on')){drawer(false);return true}
  if(!$('#settingsScreen').hidden){closeSettings();return true}
  if(!document.getElementById('fmScreen').hidden){
@@ -4119,13 +4184,13 @@ window.addEventListener('unhandledrejection',e=>err('promise: '+(e.reason&&e.rea
  window.fmOpen=async function(path){
   try{
    const r=await nativeCall('fsList',{path});
-   fmCwd=r.path;view.hidden=true;text.value='';title.textContent='Файлы';
+   fmCwd=r.path;view.hidden=true;text.value='';title.textContent='Files';
    crumbRender();
    let h='';
    (r.dirs||[]).forEach(d=>{h+=`<button class="fm-row" data-fm-dir="${esc(d)}"><svg viewBox="0 0 24 24"><path d="M3 7a2 2 0 0 1 2-2h4l2 2h8a2 2 0 0 1 2 2v8a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2z"/></svg><span class="n">${esc(d)}</span></button>`});
    (r.files||[]).forEach(f=>{h+=`<button class="fm-row" data-fm-file="${esc(f.name)}"><svg viewBox="0 0 24 24"><path d="M14 3H7a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h10a2 2 0 0 0 2-2V8z"/><path d="M14 3v5h5"/></svg><span class="n">${esc(f.name)}</span><span class="s">${fmtSize(f.size||0)}</span></button>`});
-   list.innerHTML=h||'<div class="note" style="padding:16px">Пусто</div>';
-  }catch(x){toastNative('Файлы: '+x.message)}
+   list.innerHTML=h||'<div class="note" style="padding:16px">Empty</div>';
+  }catch(x){toastNative('Files: '+x.message)}
  };
  window.fmOpenFile=async function(path){
   try{
@@ -4133,31 +4198,31 @@ window.addEventListener('unhandledrejection',e=>err('promise: '+(e.reason&&e.rea
    fmFile=path;fmEditing=false;
    view.hidden=false;viewName.textContent=baseName(path);title.textContent=baseName(path);
    text.value=r.content||'';text.readOnly=true;editBtn.style.color='';
-  }catch(x){toastNative('Чтение: '+x.message)}
+  }catch(x){toastNative('Read: '+x.message)}
  };
  editBtn.onclick=async()=>{
   if(!fmFile)return;
   if(!fmEditing){fmEditing=true;text.readOnly=false;text.focus();editBtn.style.color='var(--accent)';return}
-  try{await nativeCall('fsWrite',{path:fmFile,content:text.value});fmEditing=false;text.readOnly=true;editBtn.style.color='';toastNative('Сохранено')}
-  catch(x){toastNative('Запись: '+x.message)}
+  try{await nativeCall('fsWrite',{path:fmFile,content:text.value});fmEditing=false;text.readOnly=true;editBtn.style.color='';toastNative('Saved')}
+  catch(x){toastNative('Write: '+x.message)}
  };
  delBtn.onclick=()=>{
   if(!fmFile)return;
   const nm=baseName(fmFile);
-  sheet('<h3>Удалить '+esc(nm)+'?</h3><p class="note">Восстановить будет нельзя.</p><div class="btns"><button class="btn" id="fmDelNo">Отмена</button><button class="btn" style="color:var(--err)" id="fmDelYes">Удалить</button></div>');
+  sheet('<h3>Delete '+esc(nm)+'?</h3><p class="note">This cannot be undone.</p><div class="btns"><button class="btn" id="fmDelNo">Cancel</button><button class="btn" style="color:var(--err)" id="fmDelYes">Delete</button></div>');
   $('#sheet').onclick=e=>{
    if(e.target.id==='fmDelNo')closeSheet();
-   else if(e.target.id==='fmDelYes'){closeSheet();nativeCall('fsDelete',{path:fmFile}).then(()=>{view.hidden=true;fmFile=null;fmOpen(fmCwd)}).catch(x=>toastNative('Удаление: '+x.message))}
+   else if(e.target.id==='fmDelYes'){closeSheet();nativeCall('fsDelete',{path:fmFile}).then(()=>{view.hidden=true;fmFile=null;fmOpen(fmCwd)}).catch(x=>toastNative('Delete: '+x.message))}
   };
  };
  document.getElementById('fmNew').onclick=()=>{
-  sheet('<h3>Новая папка</h3><label class="fld" for="fmNewName">Имя папки</label><input class="in" id="fmNewName" placeholder="notes" autocapitalize="none" spellcheck="false"><div class="btns"><button class="btn" id="fmNewNo">Отмена</button><button class="btn p" id="fmNewOk">Создать</button></div>');
+  sheet('<h3>New folder</h3><label class="fld" for="fmNewName">Folder name</label><input class="in" id="fmNewName" placeholder="notes" autocapitalize="none" spellcheck="false"><div class="btns"><button class="btn" id="fmNewNo">Cancel</button><button class="btn p" id="fmNewOk">Create</button></div>');
   $('#sheet').onclick=e=>{
    if(e.target.id==='fmNewNo')closeSheet();
    else if(e.target.id==='fmNewOk'){
     const nm=($('#fmNewName').value||'').trim();if(!nm)return;
     closeSheet();
-    nativeCall('fsMkdir',{path:fmCwd+'/'+nm}).then(()=>fmOpen(fmCwd)).catch(x=>toastNative('Папка: '+x.message));
+    nativeCall('fsMkdir',{path:fmCwd+'/'+nm}).then(()=>fmOpen(fmCwd)).catch(x=>toastNative('Folder: '+x.message));
    }
   };
   const i=$('#fmNewName');if(i)setTimeout(()=>i.focus(),150);
@@ -4385,33 +4450,33 @@ $('#pv').onclick=e=>{if(e.target.id==='pv'||e.target.id==='pvTrack'||e.target.cl
  document.getElementById('apvClose').onclick=closeApv;
  const shareApv=()=>{
   const u=(frame.dataset.url||'');const m=/:(\d+)/.exec(u);const port=m?m[1]:0;
-  if(!port){toastJs('Не вижу порт в адресе');return}
+  if(!port){toastJs('No port found in the address');return}
   nativeCall('exposePort',{port}).then(v=>{
-   toastJs(v&&v.ip?('Открыто снаружи: http://'+v.ip+':'+v.port):'Не нашёл IP устройства — проверь Wi-Fi')
+   toastJs(v&&v.ip?('Opened on LAN: http://'+v.ip+':'+v.port):'No device IP found — check Wi-Fi')
   }).catch(()=>{});
  };
  document.getElementById('apvShare').onclick=shareApv;
  const tunnelApv=()=>{
   const u=(frame.dataset.url||'');const m=/:(\d+)/.exec(u);const port=m?m[1]:0;
-  if(!port){toastJs('Не вижу порт в адресе');return}
+  if(!port){toastJs('No port found in the address');return}
   const conns=S.connections||[];
   const open=conn=>{
-   sheet('<h3>Публичная ссылка</h3><p class="note">Поднимаю туннель через '+esc(conn.name)+'…</p>');
+   sheet('<h3>Public link</h3><p class="note">Opening tunnel via '+esc(conn.name)+'…</p>');
    nativeCall('tunnelOpen',{id:conn.id,local:port}).then(v=>{
     const url='http://'+v.host+':'+v.port;
-    const warn=v.public?'':'<p class="note error-note">Сервер не дал бинд на 0.0.0.0 — ссылка откроется только с самой VPS. Нужен GatewayPorts clientspecified в sshd_config.</p>';
-    sheet('<h3>Публичная ссылка</h3><p class="note" style="word-break:break-all;font-size:14px;color:var(--text)">'+esc(url)+'</p>'+warn+'<p class="note">Кто знает ссылку — тот получил доступ к этому серверу. Не нужен туннель — закрывай.</p><div class="btns"><button class="btn p" id="tnCopy">Скопировать</button><button class="btn" id="tnKill">Закрыть туннель</button><button class="btn" id="tnHide">Скрыть</button></div>');
+    const warn=v.public?'':'<p class="note error-note">The server refused a 0.0.0.0 bind — the link opens only from the VPS itself. Set GatewayPorts clientspecified in sshd_config.</p>';
+    sheet('<h3>Public link</h3><p class="note" style="word-break:break-all;font-size:14px;color:var(--text)">'+esc(url)+'</p>'+warn+'<p class="note">Anyone with the link gets full access to this server. Close the tunnel when you are done.</p><div class="btns"><button class="btn p" id="tnCopy">Copy</button><button class="btn" id="tnKill">Close tunnel</button><button class="btn" id="tnHide">Hide</button></div>');
     $('#sheet').onclick=e=>{
-     if(e.target.id==='tnCopy'){if(navigator.clipboard)navigator.clipboard.writeText(url).then(()=>toastJs('Скопировано')).catch(()=>{});return}
-     if(e.target.id==='tnKill'){nativeCall('tunnelClose').then(()=>toastJs('Туннель закрыт')).catch(()=>{});closeSheet();return}
+     if(e.target.id==='tnCopy'){if(navigator.clipboard)navigator.clipboard.writeText(url).then(()=>toastJs('Copied')).catch(()=>{});return}
+     if(e.target.id==='tnKill'){nativeCall('tunnelClose').then(()=>toastJs('Tunnel closed')).catch(()=>{});closeSheet();return}
      if(e.target.id==='tnHide')closeSheet();
     };
-   }).catch(x=>{sheet('<h3>Публичная ссылка</h3><p class="note error-note">'+esc(x.message||'Не вышло')+'</p><div class="btns"><button class="btn" id="tnOk2">Понял</button></div>');$('#sheet').onclick=e=>{if(e.target.id==='tnOk2')closeSheet()}});
+   }).catch(x=>{sheet('<h3>Public link</h3><p class="note error-note">'+esc(x.message||'Failed')+'</p><div class="btns"><button class="btn" id="tnOk2">Got it</button></div>');$('#sheet').onclick=e=>{if(e.target.id==='tnOk2')closeSheet()}});
   };
   const sel=S.connectionID?conns.find(c=>c.id===S.connectionID):null;
   if(sel){open(sel);return}
-  if(!conns.length){sheet('<h3>Публичная ссылка</h3><p class="note">Сначала добавь SSH-соединение: меню → Remote.</p><div class="btns"><button class="btn" id="tnOk3">Понял</button></div>');$('#sheet').onclick=e=>{if(e.target.id==='tnOk3')closeSheet()};return}
-  sheet('<h3>Публичная ссылка</h3><p class="note">Через какой SSH-сервер открыть туннель?</p>'+conns.map(c=>'<button class="opt" data-tnid="'+esc(c.id)+'">'+esc(c.name)+'<span class="m">'+esc(c.host)+'</span></button>').join('')+'<div class="btns"><button class="btn" id="tnCancel">Отмена</button></div>');
+  if(!conns.length){sheet('<h3>Public link</h3><p class="note">Add an SSH connection first: menu → Remote.</p><div class="btns"><button class="btn" id="tnOk3">Got it</button></div>');$('#sheet').onclick=e=>{if(e.target.id==='tnOk3')closeSheet()};return}
+  sheet('<h3>Public link</h3><p class="note">Which SSH server should the tunnel use?</p>'+conns.map(c=>'<button class="opt" data-tnid="'+esc(c.id)+'">'+esc(c.name)+'<span class="m">'+esc(c.host)+'</span></button>').join('')+'<div class="btns"><button class="btn" id="tnCancel">Cancel</button></div>');
   $('#sheet').onclick=e=>{
    const b=e.target.closest('[data-tnid]');
    if(b){open(conns.find(c=>c.id===b.dataset.tnid));return}
@@ -4458,16 +4523,36 @@ $('#pv').onclick=e=>{if(e.target.id==='pv'||e.target.id==='pvTrack'||e.target.cl
   return n.startsWith(proj)?('~/'+n.slice(proj.length).replace(/^\//,'')):n};
  const line=(cls,text)=>{const d=document.createElement('div');d.className=cls||'';d.textContent=text;box.appendChild(d);box.scrollTop=box.scrollHeight};
  const prompt=()=>{const d=document.createElement('div');d.className='t-dim';d.textContent='[ '+shortCwd(termCwd)+' ]';box.appendChild(d);box.scrollTop=box.scrollHeight};
+ let fit=null,fitRaf=0,snapRaf=0;
+ const termSnapScroll=t=>{
+  try{
+   const vp=t.element&&t.element.querySelector('.xterm-viewport');if(!vp)return;
+   vp.addEventListener('scroll',()=>{if(snapRaf)return;snapRaf=requestAnimationFrame(()=>{snapRaf=0;
+    const row=t.element.querySelector('.xterm-rows > div');if(!row)return;
+    const lh=row.getBoundingClientRect().height;if(!lh)return;
+    const snapped=Math.round(vp.scrollTop/lh)*lh;
+    if(Math.abs(snapped-vp.scrollTop)>.5)vp.scrollTop=snapped;
+   })},{passive:true});
+  }catch(e){}
+ };
+ const termBoot=useFit=>{
+  try{
+   const link=document.createElement('link');link.rel='stylesheet';link.href='/_ui/xterm.css';document.head.appendChild(link);
+   term=new window.Terminal({fontSize:12,fontFamily:'ui-monospace,Menlo,monospace',theme:{background:'#101418',foreground:'#d5dbe6',cursor:'#81b8ff'},disableStdin:true,convertEol:true});
+   term.open(box);
+   if(useFit&&window.FitAddon){fit=new window.FitAddon.FitAddon();term.loadAddon(fit);
+    requestAnimationFrame(()=>{try{fit.fit()}catch(e){}});
+    new ResizeObserver(()=>{if(fitRaf)return;fitRaf=requestAnimationFrame(()=>{fitRaf=0;try{if(term&&fit)fit.fit()}catch(e){}})}).observe(box);
+   }
+   termSnapScroll(term);
+  }catch(e){term=null;prompt()}
+ };
  window.openTerm=function(){
   screen.hidden=false;
   if(!term){
    box.innerHTML='';
    const s=document.createElement('script');s.src='/_ui/xterm.js';
-   s.onload=()=>{try{
-    const link=document.createElement('link');link.rel='stylesheet';link.href='/_ui/xterm.css';document.head.appendChild(link);
-    term=new window.Terminal({fontSize:12,fontFamily:'ui-monospace,Menlo,monospace',theme:{background:'transparent',foreground:'#d5dbe6',cursor:'#81b8ff'},disableStdin:true,convertEol:true});
-    term.open(box);
-   }catch(e){term=null;prompt()}};
+   s.onload=()=>{const s2=document.createElement('script');s2.src='/_ui/xterm-addon-fit.js';s2.onload=()=>termBoot(true);s2.onerror=()=>termBoot(false);document.head.appendChild(s2)};
    s.onerror=()=>{term=null;prompt()};
    document.head.appendChild(s);
    prompt();
