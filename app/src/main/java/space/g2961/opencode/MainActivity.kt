@@ -140,15 +140,15 @@ class MainActivity : ComponentActivity(), LocalRuntime.Listener {
     override fun onBackPressed() {
         if (trustedUi && webview.visibility == View.VISIBLE) {
             webview.evaluateJavascript(
-                "(() => { if (typeof isWorkSheetOpen === 'function' && isWorkSheetOpen()) { if (typeof requestCloseWorkSheet === 'function') requestCloseWorkSheet(); else closeWorkSheet(); return true; } return false; })()"
+                "(() => { if (window.__appBack) return window.__appBack(); if (typeof isWorkSheetOpen === 'function' && isWorkSheetOpen()) { if (typeof requestCloseWorkSheet === 'function') requestCloseWorkSheet(); else closeWorkSheet(); return true; } return false; })()"
             ) { handled ->
-                if (handled != "true") navigateBack()
+                if (handled != "true") closeTopmostOrMoveBack()
             }
         } else navigateBack()
     }
 
     private fun navigateBack() {
-        if (webview.visibility == View.VISIBLE && webview.canGoBack()) webview.goBack() else finish()
+        if (webview.visibility == View.VISIBLE && webview.canGoBack()) webview.goBack() else moveTaskToBack(true)
     }
 
     override fun onDestroy() {
@@ -286,11 +286,13 @@ class MainActivity : ComponentActivity(), LocalRuntime.Listener {
     private fun startSttRecording() {
         if (sttActive) return
         if (ContextCompat.checkSelfPermission(this, Manifest.permission.RECORD_AUDIO) != PackageManager.PERMISSION_GRANTED) {
+            android.util.Log.i("stt", "no mic permission, requesting")
             requestAudio.launch(Manifest.permission.RECORD_AUDIO); return
         }
         val sampleRate = 16000
         val minBuf = android.media.AudioRecord.getMinBufferSize(sampleRate, android.media.AudioFormat.CHANNEL_IN_MONO, android.media.AudioFormat.ENCODING_PCM_16BIT)
         if (minBuf <= 0) {
+            android.util.Log.i("stt", "getMinBufferSize failed: $minBuf")
             if (trustedUi) webview.evaluateJavascript("typeof window.__voiceError==='function'&&window.__voiceError('AudioRecord is unavailable on this device')", null)
             return
         }
@@ -298,6 +300,7 @@ class MainActivity : ComponentActivity(), LocalRuntime.Listener {
             android.media.AudioFormat.CHANNEL_IN_MONO, android.media.AudioFormat.ENCODING_PCM_16BIT, minBuf * 2)
         val pcm = java.io.ByteArrayOutputStream()
         sttActive = true
+        android.util.Log.i("stt", "recording started (state=${rec.state})")
         rec.startRecording()
         sttRecorder = rec
         sttThread = Thread {
@@ -316,14 +319,16 @@ class MainActivity : ComponentActivity(), LocalRuntime.Listener {
             try { rec.release() } catch (_: Throwable) {
             }
             sttRecorder = null
+            android.util.Log.i("stt", "recording stopped, pcm=${pcm.size()} bytes")
             // sttActive is false by now even on a normal stop (the JS tap cleared it),
             // so the check below must NOT depend on it — otherwise the POST never fires.
             val wav = pcmToWav(pcm.toByteArray(), sampleRate)
             if (wav.size >= sampleRate / 10) { // at least ~100ms of speech
                 val file = java.io.File(cacheDir, "stt.wav")
-                try { file.writeBytes(wav) } catch (_: Throwable) { return@Thread }
+                file.writeBytes(wav)
                 transcribeWav(file)
             } else {
+                android.util.Log.i("stt", "wav too small (${wav.size} bytes)")
                 runOnUiThread {
                     if (trustedUi) webview.evaluateJavascript("typeof window.__voiceError==='function'&&window.__voiceError('Did not catch anything')", null)
                 }
@@ -351,6 +356,7 @@ class MainActivity : ComponentActivity(), LocalRuntime.Listener {
         val key = prefs.getString("key", "") ?: ""
         val model = (prefs.getString("model", "") ?: "").ifEmpty { "whisper-large-v3-turbo" }
         Thread {
+            android.util.Log.i("stt", "transcribing via $mode (model=$model)")
             try {
                 val text = when (mode) {
                     "openrouter" -> openrouterTranscribe(file, key, model)
@@ -359,14 +365,17 @@ class MainActivity : ComponentActivity(), LocalRuntime.Listener {
                         val base = if (mode == "custom") (prefs.getString("base", "") ?: "").trim().trimEnd('/')
                         else "https://api.groq.com/openai/v1"
                         if (base.isEmpty()) throw java.io.IOException("Custom base URL is not set")
+                        android.util.Log.i("stt", "POST $base/audio/transcriptions (${file.length()} bytes)")
                         openAiTranscribe("$base/audio/transcriptions", key, model, file)
                     }
                 }
+                android.util.Log.i("stt", "transcribed ${text.length} chars")
                 runOnUiThread {
                     if (trustedUi) webview.evaluateJavascript("typeof window.__voiceResult==='function'&&window.__voiceResult(${JSONObject.quote(text)})", null)
                 }
             } catch (e: Throwable) {
                 // WebView methods are main-thread only; the crash log proved the hard way.
+                android.util.Log.i("stt", "transcribe failed: $e")
                 val msg = e.message ?: e.javaClass.simpleName
                 runOnUiThread {
                     if (trustedUi) webview.evaluateJavascript("typeof window.__voiceError==='function'&&window.__voiceError(${JSONObject.quote(msg)})", null)
@@ -395,6 +404,7 @@ class MainActivity : ComponentActivity(), LocalRuntime.Listener {
             os.write("\r\n--$boundary--\r\n".toByteArray())
         }
         val code = conn.responseCode
+        android.util.Log.i("stt", "transcribe response: $code")
         val body = (if (code in 200..299) conn.inputStream else conn.errorStream)?.readBytes()?.toString(Charsets.UTF_8) ?: ""
         if (code !in 200..299) throw java.io.IOException("STT $code: ${body.take(160)}")
         return JSONObject(body).optString("text")
@@ -571,6 +581,16 @@ class MainActivity : ComponentActivity(), LocalRuntime.Listener {
         }
     }
 
+    /** System back closes the topmost in-page layer first; only when nothing is open
+     *  the app is moved to background (kept alive) instead of being destroyed. */
+    private fun closeTopmostOrMoveBack() {
+        if (trustedUi) {
+            webview.evaluateJavascript("String(window.__appBack?window.__appBack():false)") { v ->
+                if (v != "\"true\"") moveTaskToBack(true)
+            }
+        } else moveTaskToBack(true)
+    }
+
     private fun appendRuntimeLog(line: String) {
         runtime.appendLogPublic(line)
     }
@@ -687,6 +707,11 @@ class MainActivity : ComponentActivity(), LocalRuntime.Listener {
                             val on = data.optBoolean("on", true)
                             if (on) startSttRecording() else stopSttRecording()
                             JSONObject().put("recording", on)
+                        }
+                        "toast" -> {
+                            val msg = data.optString("msg", "")
+                            runOnUiThread { android.widget.Toast.makeText(this@MainActivity, msg, android.widget.Toast.LENGTH_LONG).show() }
+                            JSONObject().put("shown", true)
                         }
                         "logs" -> JSONObject().put("log", runtime.logSnapshot(400))
                         else -> if (request.getString("action").startsWith("history")) runtime.changeHistory.action(request) else sshTools.action(request)
