@@ -100,7 +100,7 @@ class MainActivity : ComponentActivity(), LocalRuntime.Listener {
 
     private val requestAudio = registerForActivityResult(ActivityResultContracts.RequestPermission()) { granted ->
         appendRuntimeLog(if (granted) "voice: mic granted" else "voice: mic denied")
-        if (granted) startVoiceRecognition()
+        if (granted) startVoiceInput()
     }
 
     private val bridge = MobileBridge()
@@ -270,8 +270,154 @@ class MainActivity : ComponentActivity(), LocalRuntime.Listener {
 
     /** Voice input: Android speech recognition → window.__voiceResult(text) in the page. */
     fun startVoiceInput() {
+        val prefs = getSharedPreferences("stt", Context.MODE_PRIVATE)
+        val mode = prefs.getString("mode", "native") ?: "native"
+        val key = prefs.getString("key", "") ?: ""
+        if (mode != "native" && key.isNotEmpty()) { startSttRecording(); return }
         if (ContextCompat.checkSelfPermission(this, Manifest.permission.RECORD_AUDIO) == PackageManager.PERMISSION_GRANTED) startVoiceRecognition()
         else requestAudio.launch(Manifest.permission.RECORD_AUDIO)
+    }
+
+    private var sttRecorder: android.media.AudioRecord? = null
+    private var sttThread: Thread? = null
+    @Volatile private var sttActive = false
+
+    /** Whisper-style STT: record PCM from the mic, wrap it into a WAV, POST it to the chosen provider. */
+    private fun startSttRecording() {
+        if (sttActive) return
+        if (ContextCompat.checkSelfPermission(this, Manifest.permission.RECORD_AUDIO) != PackageManager.PERMISSION_GRANTED) {
+            requestAudio.launch(Manifest.permission.RECORD_AUDIO); return
+        }
+        val sampleRate = 16000
+        val minBuf = android.media.AudioRecord.getMinBufferSize(sampleRate, android.media.AudioFormat.CHANNEL_IN_MONO, android.media.AudioFormat.ENCODING_PCM_16BIT)
+        if (minBuf <= 0) {
+            if (trustedUi) webview.evaluateJavascript("typeof window.__voiceError==='function'&&window.__voiceError('AudioRecord is unavailable on this device')", null)
+            return
+        }
+        val rec = android.media.AudioRecord(android.media.MediaRecorder.AudioSource.MIC, sampleRate,
+            android.media.AudioFormat.CHANNEL_IN_MONO, android.media.AudioFormat.ENCODING_PCM_16BIT, minBuf * 2)
+        val pcm = java.io.ByteArrayOutputStream()
+        sttActive = true
+        rec.startRecording()
+        sttRecorder = rec
+        sttThread = Thread {
+            val startedAt = android.os.SystemClock.uptimeMillis()
+            val buf = ByteArray(3200) // ~100ms of 16kHz mono 16-bit
+            try {
+                while (sttActive) {
+                    val n = rec.read(buf, 0, buf.size)
+                    if (n > 0) pcm.write(buf, 0, n)
+                    if (android.os.SystemClock.uptimeMillis() - startedAt > 90_000) break // hard cap: 90s per utterance
+                }
+            } catch (_: Throwable) {
+            }
+            try { rec.stop() } catch (_: Throwable) {
+            }
+            try { rec.release() } catch (_: Throwable) {
+            }
+            sttRecorder = null
+            // sttActive is false by now even on a normal stop (the JS tap cleared it),
+            // so the check below must NOT depend on it — otherwise the POST never fires.
+            val wav = pcmToWav(pcm.toByteArray(), sampleRate)
+            if (wav.size >= sampleRate / 10) { // at least ~100ms of speech
+                val file = java.io.File(cacheDir, "stt.wav")
+                try { file.writeBytes(wav) } catch (_: Throwable) { return@Thread }
+                transcribeWav(file)
+            } else {
+                runOnUiThread {
+                    if (trustedUi) webview.evaluateJavascript("typeof window.__voiceError==='function'&&window.__voiceError('Did not catch anything')", null)
+                }
+            }
+        }.also { it.start() }
+    }
+
+    private fun stopSttRecording() {
+        sttActive = false
+    }
+
+    private fun pcmToWav(pcm: ByteArray, sampleRate: Int): ByteArray {
+        val out = java.io.ByteArrayOutputStream(pcm.size + 44)
+        val le = { v: Int, n: Int -> for (i in 0 until n) out.write((v shr (i * 8)) and 0xFF) }
+        out.write("RIFF".toByteArray()); le(36 + pcm.size, 4); out.write("WAVE".toByteArray())
+        out.write("fmt ".toByteArray()); le(16, 4); le(1, 2); le(1, 2) // PCM, mono
+        le(sampleRate, 4); le(sampleRate * 2, 4); le(2, 2); le(16, 2)
+        out.write("data".toByteArray()); le(pcm.size, 4); out.write(pcm)
+        return out.toByteArray()
+    }
+
+    private fun transcribeWav(file: java.io.File) {
+        val prefs = getSharedPreferences("stt", Context.MODE_PRIVATE)
+        val mode = prefs.getString("mode", "native") ?: "native"
+        val key = prefs.getString("key", "") ?: ""
+        val model = (prefs.getString("model", "") ?: "").ifEmpty { "whisper-large-v3-turbo" }
+        Thread {
+            try {
+                val text = when (mode) {
+                    "openrouter" -> openrouterTranscribe(file, key, model)
+                    else -> {
+                        // Groq and any custom OpenAI-compatible endpoint share /audio/transcriptions.
+                        val base = if (mode == "custom") (prefs.getString("base", "") ?: "").trim().trimEnd('/')
+                        else "https://api.groq.com/openai/v1"
+                        if (base.isEmpty()) throw java.io.IOException("Custom base URL is not set")
+                        openAiTranscribe("$base/audio/transcriptions", key, model, file)
+                    }
+                }
+                runOnUiThread {
+                    if (trustedUi) webview.evaluateJavascript("typeof window.__voiceResult==='function'&&window.__voiceResult(${JSONObject.quote(text)})", null)
+                }
+            } catch (e: Throwable) {
+                // WebView methods are main-thread only; the crash log proved the hard way.
+                val msg = e.message ?: e.javaClass.simpleName
+                runOnUiThread {
+                    if (trustedUi) webview.evaluateJavascript("typeof window.__voiceError==='function'&&window.__voiceError(${JSONObject.quote(msg)})", null)
+                }
+            } finally {
+                file.delete()
+            }
+        }.start()
+    }
+
+    private fun openAiTranscribe(url: String, key: String, model: String, file: java.io.File): String {
+        val boundary = "----kumo" + System.currentTimeMillis()
+        val conn = (java.net.URL(url).openConnection() as java.net.HttpURLConnection).apply {
+            requestMethod = "POST"; doOutput = true; connectTimeout = 10_000; readTimeout = 90_000
+            setRequestProperty("Authorization", "Bearer $key")
+            setRequestProperty("Content-Type", "multipart/form-data; boundary=$boundary")
+        }
+        conn.outputStream.use { os ->
+            fun field(name: String, value: String) {
+                os.write("--$boundary\r\nContent-Disposition: form-data; name=\"$name\"\r\n\r\n$value\r\n".toByteArray())
+            }
+            field("model", model)
+            field("response_format", "json")
+            os.write("--$boundary\r\nContent-Disposition: form-data; name=\"file\"; filename=\"stt.wav\"\r\nContent-Type: audio/wav\r\n\r\n".toByteArray())
+            os.write(file.readBytes())
+            os.write("\r\n--$boundary--\r\n".toByteArray())
+        }
+        val code = conn.responseCode
+        val body = (if (code in 200..299) conn.inputStream else conn.errorStream)?.readBytes()?.toString(Charsets.UTF_8) ?: ""
+        if (code !in 200..299) throw java.io.IOException("STT $code: ${body.take(160)}")
+        return JSONObject(body).optString("text")
+    }
+
+    private fun openrouterTranscribe(file: java.io.File, key: String, model: String): String {
+        val conn = (java.net.URL("https://openrouter.ai/api/v1/chat/completions").openConnection() as java.net.HttpURLConnection).apply {
+            requestMethod = "POST"; doOutput = true; connectTimeout = 10_000; readTimeout = 120_000
+            setRequestProperty("Authorization", "Bearer $key")
+            setRequestProperty("Content-Type", "application/json")
+        }
+        val b64 = android.util.Base64.encodeToString(file.readBytes(), android.util.Base64.NO_WRAP)
+        val body = JSONObject()
+            .put("model", model)
+            .put("messages", JSONArray().put(JSONObject().put("role", "user").put("content", JSONArray()
+                .put(JSONObject().put("type", "text").put("text", "Transcribe the audio verbatim. Output only the transcription text."))
+                .put(JSONObject().put("type", "input_audio").put("input_audio", JSONObject().put("data", b64).put("format", "wav"))))))
+        conn.outputStream.use { it.write(body.toString().toByteArray(Charsets.UTF_8)) }
+        val code = conn.responseCode
+        val resp = (if (code in 200..299) conn.inputStream else conn.errorStream)?.readBytes()?.toString(Charsets.UTF_8) ?: ""
+        if (code !in 200..299) throw java.io.IOException("STT $code: ${resp.take(160)}")
+        val choices = JSONObject(resp).optJSONArray("choices")
+        return choices?.optJSONObject(0)?.optJSONObject("message")?.optString("content") ?: ""
     }
 
     private fun startVoiceRecognition() {
@@ -516,6 +662,31 @@ class MainActivity : ComponentActivity(), LocalRuntime.Listener {
                             }
                             appendRuntimeLog("github: token ${if (token.isEmpty()) "cleared" else "saved"}")
                             JSONObject().put("saved", true)
+                        }
+                        "sttSave" -> {
+                            val prefs = getSharedPreferences("stt", Context.MODE_PRIVATE).edit()
+                            val mode = data.optString("mode", "native")
+                            prefs.putString("mode", mode)
+                            val key = data.optString("key").trim()
+                            if (key.isNotEmpty()) prefs.putString("key", key)
+                            val model = data.optString("model").trim()
+                            if (model.isNotEmpty()) prefs.putString("model", model)
+                            prefs.putString("base", data.optString("base").trim())
+                            prefs.apply()
+                            appendRuntimeLog("voice: stt mode=$mode")
+                            JSONObject().put("saved", true)
+                        }
+                        "sttGet" -> {
+                            val p = getSharedPreferences("stt", Context.MODE_PRIVATE)
+                            JSONObject().put("mode", p.getString("mode", "native") ?: "native")
+                                .put("model", p.getString("model", "") ?: "")
+                                .put("base", p.getString("base", "") ?: "")
+                                .put("hasKey", !(p.getString("key", "") ?: "").isEmpty())
+                        }
+                        "sttRecord" -> {
+                            val on = data.optBoolean("on", true)
+                            if (on) startSttRecording() else stopSttRecording()
+                            JSONObject().put("recording", on)
                         }
                         "logs" -> JSONObject().put("log", runtime.logSnapshot(400))
                         else -> if (request.getString("action").startsWith("history")) runtime.changeHistory.action(request) else sshTools.action(request)

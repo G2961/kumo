@@ -638,6 +638,7 @@ const I={
  plus:'<svg viewBox="0 0 24 24" style="width:16px;height:16px"><path d="M12 5v14M5 12h14"/></svg>',
  up:'<svg viewBox="0 0 24 24"><path d="M12 19V5M5 12l7-7 7 7"/></svg>',
  bot:'<svg viewBox="0 0 24 24"><path d="M12 3a4 4 0 0 1 4 3 4 4 0 0 1 3 6 4 4 0 0 1-3 6 4 4 0 0 1-8 0 4 4 0 0 1-3-6 4 4 0 0 1 3-6 4 4 0 0 1 4-3z"/><path d="m9 11 2 2-2 2M13 15h3"/></svg>',
+ voice:'<svg viewBox="0 0 24 24"><rect x="9" y="3" width="6" height="11" rx="3"/><path d="M5 11a7 7 0 0 0 14 0"/><path d="M12 18v3"/></svg>',
  search:'<svg viewBox="0 0 24 24"><circle cx="11" cy="11" r="7"/><path d="m20 20-3.5-3.5"/></svg>',
  ask:'<svg viewBox="0 0 24 24"><path d="M21 11.5a7.5 7.5 0 0 1-7.5 7.5H8l-4.5 3.5V11.5a7.5 7.5 0 0 1 7.5-7.5h2.5a7.5 7.5 0 0 1 7.5 7.5Z"/><path d="M9.8 9.6a2.2 2.2 0 1 1 3 2.1c-.6.2-.8.6-.8 1.2v.4"/><path d="M12 15.9h.01"/></svg>',
  thought:'<svg viewBox="0 0 24 24"><path d="M12 4c1.2 3 2 3.8 5 5-3 1.2-3.8 2-5 5-1.2-3-2-3.8-5-5 3-1.2 3.8-2 5-5Z"/><path d="M19 15c.4 1.1.8 1.5 1.9 1.9-1.1.4-1.5.8-1.9 1.9-.4-1.1-.8-1.5-1.9-1.9 1.1-.4 1.5-.8 1.9-1.9Z"/></svg>',
@@ -2031,6 +2032,34 @@ $('#diffPanel').onclick=async()=>{
 };
 /* ---------- settings screen ---------- */
 function settingsSheet(){closeSheet();openSettings()}
+function voiceLbl(){const st=S.stt||{};const m=st.mode||'native';
+ if(m==='native')return 'Device built-in';
+ const name=m==='groq'?'Groq':m==='openrouter'?'OpenRouter':'Custom';
+ if(!st.hasKey)return name+' · no key';
+ return name+(st.model?' · '+st.model:'')}
+function voiceSheet(){
+ const cur=S.stt||{mode:'native'};
+ const modes=[['native','Built-in (device)'],['groq','Groq'],['openrouter','OpenRouter'],['custom','Custom · OpenAI-compatible']];
+ sheet(`<h3>Voice input</h3><p class="note">Engine behind the mic button. Whisper-grade transcription via your own API key; the key is stored only on this device.</p>
+ ${modes.map(([v,l])=>`<button class="opt${(cur.mode||'native')===v?' sel':''}" data-stt="${v}">${l}<span class="r">${(cur.mode||'native')===v?OPT_CK:''}</span></button>`).join('')}
+ ${cur.mode!=='native'?`<label class="fld" for="sttKey">API key</label><input class="in" id="sttKey" type="password" placeholder="${cur.mode==='groq'?'gsk_…':cur.mode==='openrouter'?'sk-or-…':'sk-…'}" autocomplete="off" autocapitalize="none" spellcheck="false">${cur.hasKey?'<div class="note">Key is saved — leave empty to keep it.</div>':''}
+ <label class="fld" for="sttModel">Model</label><input class="in" id="sttModel" type="text" value="${esc(cur.model||'')}" placeholder="${cur.mode==='groq'?'whisper-large-v3-turbo':cur.mode==='openrouter'?'openai/gpt-4o-mini-transcribe':'whisper-large-v3-turbo'}" autocapitalize="none" spellcheck="false">
+ ${cur.mode==='custom'?`<label class="fld" for="sttBase">Base URL</label><input class="in" id="sttBase" type="text" value="${esc(cur.base||'')}" placeholder="https://api.openai.com/v1" autocapitalize="none" spellcheck="false">`:''}
+ <p class="note">${cur.mode==='groq'?'Groq serves whisper-large-v3-turbo and whisper-large-v3; the free tier is generous.':cur.mode==='openrouter'?'OpenRouter routes transcription models over chat/completions, e.g. openai/gpt-4o-transcribe or openai/gpt-4o-mini-transcribe.':'Any endpoint exposing OpenAI POST /audio/transcriptions works — OpenAI itself or a self-hosted whisper server.'}</p>`:''}
+ <div class="btns">${cur.mode!=='native'?'<button class="btn p" id="sttSave">Save</button>':''}<button class="btn" id="sttBack">Back</button></div>`);
+ $('#sheet').onclick=e=>{
+  const m=e.target.closest('[data-stt]');
+  if(m){S.stt={...(S.stt||{}),mode:m.dataset.stt};voiceSheet();return}
+  if(e.target.id==='sttBack'){settingsSheet();return}
+  if(e.target.id==='sttSave'){
+   const d=S.stt||{mode:'native'};
+   const key=$('#sttKey')?$('#sttKey').value.trim():'';
+   const model=$('#sttModel')?$('#sttModel').value.trim():'';
+   const base=$('#sttBase')?$('#sttBase').value.trim():'';
+   nativeCall('sttSave',{mode:d.mode,key,model,base}).then(()=>{S.stt={mode:d.mode,model:model||(S.stt&&S.stt.model)||'',base,hasKey:!!key||!!(S.stt&&S.stt.hasKey)};settingsSheet()}).catch(x=>err('voice: '+x.message));
+  }
+ };
+}
 function githubSheet(){
  sheet(`<h3>GitHub token</h3><p class="note">Paste a GitHub Personal Access Token (repo scope) to let the agent push, pull and open PRs from your repos. It is stored only on this device.</p><label class="fld" for="ghToken">Personal access token</label><input class="in" id="ghToken" type="password" placeholder="ghp_…" autocomplete="off" autocapitalize="none" spellcheck="false"><div class="btns"><button class="btn p" id="ghSave">Save</button><button class="btn" id="ghClear">Remove</button><button class="btn" id="ghBack">Back</button></div>`);
  $('#sheet').onclick=async e=>{
@@ -2083,6 +2112,10 @@ function renderSettings(){
   <div class="set-card">
    <button class="opt settings-row" data-sa="github"><span class="ic-wrap">${I.term}</span><span>GitHub token</span><span class="r"><span class="m">${LS('oc_github_token_set')?'Saved':'Not set'}</span>${I.chev}</span></button>
   </div>
+  <div class="set-sec">Voice input</div>
+  <div class="set-card">
+   <button class="opt settings-row" data-sa="voice"><span class="ic-wrap">${I.voice}</span><span>Speech-to-text</span><span class="r"><span class="m">${voiceLbl()}</span>${I.chev}</span></button>
+  </div>
   <div class="set-sec">Connections</div>
   <div class="set-card">
    <button class="opt settings-row" data-sa="providers"><span class="ic-wrap">${I.plug}</span><span>Providers</span><span class="r"><span class="m">${S.provs.length}</span>${I.chev}</span></button>
@@ -2113,6 +2146,7 @@ $('#settingsScreen').onclick=e=>{
  const a=b.dataset.sa;
  if(a==='back')closeSettings();
  else if(a==='github')githubSheet();
+ else if(a==='voice')voiceSheet();
  else if(a==='theme'){
   const pref=LS('oc_theme')||'system';
   const cur=pref==='system'?'System':pref==='dark'?'Dark':'Light';
@@ -3875,8 +3909,20 @@ window.__voiceError=function(message){const mic=$('#mic');if(mic)mic.classList.r
 {
  const mic=$('#mic');
  if(mic){
-  mic.hidden=!window.CodexNative||typeof CodexNative.voiceAvailable!=='function'||!CodexNative.voiceAvailable();
-  mic.onclick=()=>{if(mic.classList.contains('listening'))return;mic.classList.add('listening');setTimeout(()=>mic.classList.remove('listening'),20000);try{CodexNative.request(JSON.stringify({action:'voiceInput'}))}catch(e){mic.classList.remove('listening');err('voice: '+e.message)}};
+  mic.hidden=!window.CodexNative;
+  mic.onclick=()=>{
+   if(mic.classList.contains('listening')){ // second tap: stop recording, native side sends the result
+    mic.classList.remove('listening');
+    try{CodexNative.request(JSON.stringify({action:'sttRecord',data:{on:false}}))}catch(e){err('voice: '+e.message)}
+    return}
+   const st=S.stt||{};
+   if(st.mode&&st.mode!=='native'&&st.hasKey){ // Whisper-grade STT: record until second tap
+    mic.classList.add('listening');
+    try{CodexNative.request(JSON.stringify({action:'sttRecord',data:{on:true}}))}catch(e){mic.classList.remove('listening');err('voice: '+e.message)}
+   }else{ // built-in recognizer fallback
+    mic.classList.add('listening');setTimeout(()=>mic.classList.remove('listening'),20000);
+    try{CodexNative.request(JSON.stringify({action:'voiceInput'}))}catch(e){mic.classList.remove('listening');err('voice: '+e.message)}
+   }};
  }
 }
 window.addEventListener('error',e=>err('js: '+e.message));
@@ -4072,6 +4118,7 @@ $('#pvx').onclick=()=>{$('#pv').hidden=true};
 $('#pv').onclick=e=>{if(e.target.id==='pv'||e.target.id==='pvTrack'||e.target.classList.contains('pv-slide'))$('#pv').hidden=true};
 
 chips();setRun();renderAttachments();render();S.bootP=boot();
+if(window.CodexNative)nativeCall('sttGet').then(v=>{S.stt=v}).catch(()=>{});
 </script>
 </body>
 </html>
