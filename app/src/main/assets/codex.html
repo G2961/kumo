@@ -430,9 +430,9 @@ span.ib-right-col{font-size:var(--fs-12);color:var(--text-2)}
 #apvHandle{position:relative;flex:none;display:flex;align-items:center;gap:10px;height:64px;padding:0 10px 0 16px;cursor:grab;touch-action:none}
 #apvHandle .grab-line{position:absolute;top:8px;left:50%;transform:translateX(-50%);width:64px;height:5px;border-radius:3px;background:var(--border)}
 #apvTitle{flex:1;font:12px ui-monospace,Menlo,monospace;color:var(--text-2);overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
-#apvShare,#apvClose{width:40px;height:40px;min-width:40px;border-radius:var(--r-full);display:grid;place-items:center;color:var(--text-2);border:0;cursor:pointer;font-size:17px}
-#apvShare svg{width:17px;height:17px}
-#apvShare:active,#apvClose:active{background:var(--surface-2)}
+#apvShare,#apvTunnel,#apvClose{width:40px;height:40px;min-width:40px;border-radius:var(--r-full);display:grid;place-items:center;color:var(--text-2);border:0;cursor:pointer;font-size:17px}
+#apvShare svg,#apvTunnel svg{width:17px;height:17px}
+#apvShare:active,#apvTunnel:active,#apvClose:active{background:var(--surface-2)}
 #apvFrame{flex:1;width:100%;border:0;background:#fff}
 #apvBlock{flex:1;display:grid;place-items:center;text-align:center}
 /* ---------- terminal ---------- */
@@ -663,7 +663,7 @@ details.activity[data-disclosure-hold]:not([open])>summary{border-bottom-color:v
     <textarea id="fmText" spellcheck="false"></textarea></div>
   </div>
   <div id="apv" hidden>
-   <div id="apvHandle"><span class="grab-line"></span><span id="apvTitle"></span><button id="apvShare" aria-label="Открыть доступ снаружи"><svg viewBox="0 0 24 24"><path d="M7 17 17 7M9 7h8v8"/></svg></button><button id="apvClose" aria-label="Закрыть">✕</button></div>
+   <div id="apvHandle"><span class="grab-line"></span><span id="apvTitle"></span><button id="apvTunnel" aria-label="Публичная ссылка"><svg viewBox="0 0 24 24"><circle cx="12" cy="12" r="10"/><path d="M2 12h20"/><path d="M12 2a15.3 15.3 0 0 1 4 10 15.3 15.3 0 0 1-4 10 15.3 15.3 0 0 1-4-10 15.3 15.3 0 0 1 4-10z"/></svg></button><button id="apvShare" aria-label="Открыть доступ снаружи"><svg viewBox="0 0 24 24"><path d="M7 17 17 7M9 7h8v8"/></svg></button><button id="apvClose" aria-label="Закрыть">✕</button></div>
    <iframe id="apvFrame" title="Preview" hidden></iframe>
    <div id="apvBlock" hidden><p class="note">Сайт запретил встраивание в рамку.</p><button class="btn p" id="apvExternal">Открыть в браузере</button></div>
   </div>
@@ -4368,6 +4368,34 @@ $('#pv').onclick=e=>{if(e.target.id==='pv'||e.target.id==='pvTrack'||e.target.cl
   }).catch(()=>{});
  };
  document.getElementById('apvShare').onclick=shareApv;
+ const tunnelApv=()=>{
+  const u=(frame.dataset.url||'');const m=/:(\d+)/.exec(u);const port=m?m[1]:0;
+  if(!port){toastJs('Не вижу порт в адресе');return}
+  const conns=S.connections||[];
+  const open=conn=>{
+   sheet('<h3>Публичная ссылка</h3><p class="note">Поднимаю туннель через '+esc(conn.name)+'…</p>');
+   nativeCall('tunnelOpen',{id:conn.id,local:port}).then(v=>{
+    const url='http://'+v.host+':'+v.port;
+    const warn=v.public?'':'<p class="note error-note">Сервер не дал бинд на 0.0.0.0 — ссылка откроется только с самой VPS. Нужен GatewayPorts clientspecified в sshd_config.</p>';
+    sheet('<h3>Публичная ссылка</h3><p class="note" style="word-break:break-all;font-size:14px;color:var(--text)">'+esc(url)+'</p>'+warn+'<p class="note">Кто знает ссылку — тот получил доступ к этому серверу. Не нужен туннель — закрывай.</p><div class="btns"><button class="btn p" id="tnCopy">Скопировать</button><button class="btn" id="tnKill">Закрыть туннель</button><button class="btn" id="tnHide">Скрыть</button></div>');
+    $('#sheet').onclick=e=>{
+     if(e.target.id==='tnCopy'){if(navigator.clipboard)navigator.clipboard.writeText(url).then(()=>toastJs('Скопировано')).catch(()=>{});return}
+     if(e.target.id==='tnKill'){nativeCall('tunnelClose').then(()=>toastJs('Туннель закрыт')).catch(()=>{});closeSheet();return}
+     if(e.target.id==='tnHide')closeSheet();
+    };
+   }).catch(x=>{sheet('<h3>Публичная ссылка</h3><p class="note error-note">'+esc(x.message||'Не вышло')+'</p><div class="btns"><button class="btn" id="tnOk2">Понял</button></div>');$('#sheet').onclick=e=>{if(e.target.id==='tnOk2')closeSheet()}});
+  };
+  const sel=S.connectionID?conns.find(c=>c.id===S.connectionID):null;
+  if(sel){open(sel);return}
+  if(!conns.length){sheet('<h3>Публичная ссылка</h3><p class="note">Сначала добавь SSH-соединение: меню → Remote.</p><div class="btns"><button class="btn" id="tnOk3">Понял</button></div>');$('#sheet').onclick=e=>{if(e.target.id==='tnOk3')closeSheet()};return}
+  sheet('<h3>Публичная ссылка</h3><p class="note">Через какой SSH-сервер открыть туннель?</p>'+conns.map(c=>'<button class="opt" data-tnid="'+esc(c.id)+'">'+esc(c.name)+'<span class="m">'+esc(c.host)+'</span></button>').join('')+'<div class="btns"><button class="btn" id="tnCancel">Отмена</button></div>');
+  $('#sheet').onclick=e=>{
+   const b=e.target.closest('[data-tnid]');
+   if(b){open(conns.find(c=>c.id===b.dataset.tnid));return}
+   if(e.target.id==='tnCancel')closeSheet();
+  };
+ };
+ document.getElementById('apvTunnel').onclick=tunnelApv;
  function toastJs(msg){if(window.CodexNative)try{CodexNative.request(JSON.stringify({action:'toast',data:{msg}}))}catch(e){}}
  document.getElementById('apvExternal').onclick=()=>{try{location.assign(frame.dataset.url||'')}catch(e){}};
  // iframe blocked by the site? show the fallback after a load timeout

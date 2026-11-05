@@ -64,8 +64,36 @@ public final class RemoteSsh {
         catch(Exception e){s.disconnect();if(!observed[0].isEmpty()&&!observed[0].equals(c.fingerprint))throw new HostKeyRequired(observed[0]);throw e;}
     }
     public void test(Connection c) throws Exception { Session s=connect(c);s.disconnect(); }
+    private Session tunnel=null;
+    private String tunnelHost="";
+    private int tunnelRemote=0,tunnelLocal=0;
+    private static String execOut(Session s,String cmd) throws Exception {
+        ChannelExec ch=(ChannelExec)s.openChannel("exec");
+        ByteArrayOutputStream out=new ByteArrayOutputStream();
+        ch.setCommand(cmd);ch.setOutputStream(out);ch.setErrStream(out);
+        try{ch.connect(10000);long stop=System.currentTimeMillis()+8000;while(!ch.isClosed()&&out.size()<16384&&System.currentTimeMillis()<stop)Thread.sleep(120);}
+        finally{try{ch.disconnect();}catch(Exception ignored){}}
+        return out.toString(StandardCharsets.UTF_8.name());
+    }
+    /** Reverse-forwards a phone-local port to the SSH host. Verifies the actual remote bind via ss/netstat — sshd silently downgrades a 0.0.0.0 request to loopback when GatewayPorts is off. */
+    public synchronized JSONObject tunnelOpen(Connection c,int lport) throws Exception {
+        if(lport<1||lport>65535)throw new IllegalArgumentException("Invalid local port");
+        closeTunnel();
+        Session s=connect(c);
+        int rport;boolean pub=true;String warn="";
+        try{rport=s.setPortForwardingR("0.0.0.0:0:127.0.0.1:"+lport);}
+        catch(Exception e){pub=false;rport=s.setPortForwardingR("127.0.0.1:0:127.0.0.1:"+lport);}
+        try{
+            String bound=execOut(s,"ss -tln 2>/dev/null | grep -w "+rport+" || netstat -tln 2>/dev/null | grep -w "+rport);
+            if(!bound.isEmpty()&&bound.contains("127.0.0.1:"+rport)&&!bound.contains("0.0.0.0:"+rport))pub=false;
+        }catch(Exception ignored){}
+        tunnel=s;tunnelHost=c.host;tunnelRemote=rport;tunnelLocal=lport;
+        return obj("host",c.host,"port",rport,"local",lport,"public",pub);
+    }
+    public synchronized void closeTunnel(){if(tunnel!=null){try{tunnel.disconnect();}catch(Exception ignored){}tunnel=null;}tunnelHost="";tunnelRemote=0;tunnelLocal=0;}
+    public synchronized JSONObject tunnelStatus(){return obj("active",tunnel!=null&&tunnel.isConnected(),"host",tunnelHost,"port",tunnelRemote,"local",tunnelLocal);}
     public void cancelSession(String sid) { sessions.forEach((run,id)->{if(id.equals(sid)){Session s=active.get(run);if(s!=null)s.disconnect();}}); }
-    public void close() { active.values().forEach(Session::disconnect); }
+    public void close() { closeTunnel();active.values().forEach(Session::disconnect); }
     public static String safeError(Throwable e) {
         String m=String.valueOf(e.getMessage()).toLowerCase(Locale.ROOT);
         if(m.contains("auth fail"))return "SSH authentication failed. Check your username and credentials.";

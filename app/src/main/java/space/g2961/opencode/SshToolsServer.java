@@ -76,6 +76,14 @@ public final class SshToolsServer {
                 return RemoteSsh.obj("connection",c.publicInfo(),"connections",store.list());
             }
             case "cancelRemote":ssh.cancelSession(data.getString("sessionID"));return RemoteSsh.obj("cancelled",true);
+            case "tunnelOpen":{
+                JSONObject raw=store.get(data.getString("id"));
+                if(raw==null)throw new IllegalArgumentException("SSH connection not found");
+                RemoteSsh.Connection c=new RemoteSsh.Connection(raw);
+                return ssh.tunnelOpen(c,data.getInt("local"));
+            }
+            case "tunnelClose":ssh.closeTunnel();return RemoteSsh.obj("closed",true);
+            case "tunnelStatus":return ssh.tunnelStatus();
             case "remoteHistory":{
                 JSONArray list=new JSONArray();synchronized(history){for(JSONObject e:history)if(e.optString("sessionID").equals(data.optString("sessionID")))list.put(e);}
                 return RemoteSsh.obj("events",list);
