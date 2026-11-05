@@ -811,6 +811,12 @@ class MainActivity : ComponentActivity(), LocalRuntime.Listener {
                             JSONObject().put("ip", ip).put("port", port + 10_000)
                         }
                         "logs" -> JSONObject().put("log", runtime.logSnapshot(400))
+                            .put("serverPort", runtime.port).put("authPort", runtime.authPort).put("proxyPort", runtime.proxy.port)
+                        "restartServer" -> {
+                            JSONObject().put("restarting", true).also {
+                                runOnUiThread { restartServer() }
+                            }
+                        }
                         else -> if (request.getString("action").startsWith("history")) runtime.changeHistory.action(request) else sshTools.action(request)
                     }
                     nativeResult(id, result)

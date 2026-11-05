@@ -27,7 +27,14 @@ class ConnectProxy(private val log: (String) -> Unit = {}) {
 
     fun start() {
         val ss = ServerSocket()
-        ss.bind(InetSocketAddress("127.0.0.1", 0))
+        // Stable port: the server process carries HTTP_PROXY=<this port> in its env for
+        // its whole life; a re-bound port after restarts would strand every provider
+        // request with ECONNREFUSED. Pin the port, fall back to ephemeral only if busy.
+        for (p in 14150 until 14170) {
+            try { ss.bind(InetSocketAddress("127.0.0.1", p)); break } catch (_: Throwable) {
+            }
+        }
+        if (!ss.isBound) ss.bind(InetSocketAddress("127.0.0.1", 0))
         server = ss
         port = ss.localPort
         pool.execute {
