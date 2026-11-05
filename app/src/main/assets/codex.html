@@ -538,13 +538,13 @@ details.activity[data-disclosure-hold]:not([open])>summary{border-bottom-color:v
 .kw-kumo.kw-wait{--w:112px}
 .kw-kumo.kw-done{--w:72px}
 .kw-kumo.kw-work{--w:78px}
-.kw-float{position:absolute;inset:0;animation:kw-fl 3.7s ease-in-out infinite}
+.kw-float{position:absolute;inset:0;animation:kw-fl 3.7s ease-in-out infinite;will-change:transform}
 .kw-float svg{position:absolute;inset:0;width:100%;height:100%;overflow:visible}
 @keyframes kw-fl{0%,100%{transform:translateY(1%) rotate(-1.2deg)}50%{transform:translateY(-3%) rotate(1.2deg)}}
-.kw-breath{transform-origin:256px 366px;animation:kw-br 2.4s ease-in-out infinite}
-.kw-tails{transform-origin:392px 326px;animation:kw-wag 3.1s ease-in-out infinite}
-.kw-curl{transform-origin:340px 150px;animation:kw-jel 2.7s ease-in-out -.9s infinite}
-.kw-hands{animation:kw-hb 2.1s ease-in-out -.4s infinite}
+.kw-breath{transform-origin:256px 366px;animation:kw-br 2.4s ease-in-out infinite;will-change:transform}
+.kw-tails{transform-origin:392px 326px;animation:kw-wag 3.1s ease-in-out infinite;will-change:transform}
+.kw-curl{transform-origin:340px 150px;animation:kw-jel 2.7s ease-in-out -.9s infinite;will-change:transform}
+.kw-hands{animation:kw-hb 2.1s ease-in-out -.4s infinite;will-change:transform}
 @keyframes kw-br{0%,100%{transform:scale(1.025,.96)}50%{transform:scale(.98,1.03)}}
 @keyframes kw-wag{0%,100%{transform:rotate(-5deg)}50%{transform:rotate(8deg)}}
 @keyframes kw-jel{0%,100%{transform:rotate(-3deg) scale(1,1)}50%{transform:rotate(4deg) scale(1.03,.97)}}
