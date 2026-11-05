@@ -37,7 +37,7 @@ class LocalRuntime(private val context: Context, private val sshTools: SshToolsS
         private set
 
     private var process: java.lang.Process? = null
-    private val proxy = ConnectProxy { line -> appendLog("[net] $line") }
+    internal val proxy = ConnectProxy { line -> appendLog("[net] $line") }
     private var authProxy: AuthProxy? = null
     @Volatile private var stopping = false
     @Volatile private lateinit var binPaths: Map<String, String>
