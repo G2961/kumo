@@ -4191,15 +4191,19 @@ $('#pv').onclick=e=>{if(e.target.id==='pv'||e.target.id==='pvTrack'||e.target.cl
  // Pointer events double as touch on mobile and as mouse in tests.
  const hand=document.getElementById('apvHandle');
  let startY=0,startH=0,drag=false;
- const down=e=>{drag=true;startY=e.clientY;startH=panel.getBoundingClientRect().height;panel.classList.add('dragging')};
- const move=e=>{if(!drag)return;const dy=startY-e.clientY;let h=startH+dy;const max=window.innerHeight*.92;h=Math.max(90,Math.min(max,h));panel.style.height=h+'px';if(h<130)closeApv()};
- const up=()=>{if(!drag)return;drag=false;panel.classList.remove('dragging');const h=panel.getBoundingClientRect().height,inner=window.innerHeight;if(h<inner*.38)panel.style.height='55%';else panel.style.height='92%'};
- hand.addEventListener('touchstart',down,{passive:true});
- hand.addEventListener('touchmove',e=>{if(!drag)return;move(e)},{passive:true});
- hand.addEventListener('touchend',up,{passive:true});
+ const down=e=>{drag=true;startY=e.clientY;lastY=e.clientY;startH=panel.getBoundingClientRect().height;panel.classList.add('dragging')};
+ const move=e=>{if(!drag)return;lastY=e.clientY;const dy=startY-lastY;let h=startH+dy;const max=window.innerHeight*.92;h=Math.max(90,Math.min(max,h));panel.style.height=h+'px';if(h<130)closeApv()};
+ const up=()=>{if(!drag)return;drag=false;panel.classList.remove('dragging');
+  const dyTotal=startY-lastY; // judge by finger travel: up=expand, long down=close, else half
+  if(dyTotal>60)panel.style.height='92%';
+  else if(dyTotal<-260)closeApv();
+  else panel.style.height='55%'};
  hand.addEventListener('pointerdown',down);
  hand.addEventListener('pointermove',move);
  hand.addEventListener('pointerup',up);
+ hand.addEventListener('pointercancel',up);
+ // No touch listeners here on purpose: a TouchEvent has no clientY, so move() got
+ // NaN height and the drag silently did nothing — real fingers arrive as pointers.
  $('#main').addEventListener('click',e=>{
   const a=e.target.closest('a[href]');if(!a)return;
   const u=a.getAttribute('href')||'';
