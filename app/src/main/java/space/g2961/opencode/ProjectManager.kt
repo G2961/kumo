@@ -55,6 +55,22 @@ object ProjectManager {
 
     fun createNew(context: Context, name: String): File {
         val safe = name.trim().replace(Regex("[^A-Za-z0-9._\\- ]"), "").ifEmpty { "project" }
+        // New projects live in external Documents/Kumo/<name> so the files are readable
+        // from file managers, USB MTP and PC tools. Fall back to internal storage when
+        // the external location is not writable (permissions revoked, weird builds).
+        val externalRoot = java.io.File(
+            android.os.Environment.getExternalStoragePublicDirectory(android.os.Environment.DIRECTORY_DOCUMENTS),
+            "Kumo"
+        )
+        if ((externalRoot.isDirectory || externalRoot.mkdirs()) && canWrite(externalRoot)) {
+            var candidate = java.io.File(externalRoot, safe)
+            var i = 1
+            while (candidate.exists()) candidate = java.io.File(externalRoot, "${safe}-${i++}")
+            if (candidate.mkdirs() && canWrite(candidate)) {
+                setCurrent(context, candidate)
+                return candidate
+            }
+        }
         val root = homeDir(context)
         var target = File(root, safe)
         var i = 1
