@@ -3663,6 +3663,8 @@ function renderMsgs(force){
  for(let i=list.length-1;i>=0;i--){const x=list[i];if(x.info.role==='assistant'&&textsOf(x).length){lastTextMsg=x.info.id;start=i;break}}
  if(lastTextMsg){const acc=[];for(let i=start;i>=0;i--){const x=list[i];if(x.info.role!=='assistant')break;acc.push(textsOf(x).join('\n\n'))}turnRaw=acc.reverse().join('\n\n')}
  let h='',hadMsgError=false;
+ let lastTextItem=null;
+ transcript.items.forEach(it=>{if(it.type==='text')lastTextItem=it});
  transcript.items.forEach(item=>{
   const x=item.message;
   if(item.type==='work')h+=workSummaryHtml(item.block);
@@ -3671,7 +3673,14 @@ function renderMsgs(force){
    const att=files.length?'<div class="attachments">'+attachmentHtml(files,false)+'</div>':'';
    if(t)h+=att+`<div class="msg user" data-mid="${esc(x.info.id)}" data-utext="${esc(t)}">${esc(t)}</div>`;
    else if(files.length)h+=att;
-  }else if(item.type==='text')h+=`<div class="msg ai" data-mid="${esc(x.info.id)}" data-raw="${esc(item.segment.text)}">${renderMarkdown(item.segment.text)}</div>`;
+  }else if(item.type==='text'){
+   // Action bar under EVERY finished answer, not only the latest one. The segment
+   // that is streaming right now stays bare until it completes.
+   const streaming=S.running&&lastTextItem===item;
+   h+=`<div class="msg ai" data-mid="${esc(x.info.id)}" data-raw="${esc(item.segment.text)}">${renderMarkdown(item.segment.text)}</div>`;
+   if(!streaming){const reaction=S.reactions[x.info.id];
+    h+=`<div class="msg-actions" data-amid="${esc(x.info.id)}" data-araw="${esc(item.segment.text)}"><button data-ma="copy" aria-label="Copy">${I.copy}</button><button data-ma="like" class="${reaction==='like'?'on':''}" aria-label="Good response">${I.like}</button><button data-ma="dislike" class="${reaction==='dislike'?'on':''}" aria-label="Bad response">${I.dislike}</button><button data-ma="retry" aria-label="Regenerate">${I.redo}</button><button data-ma="more" aria-label="More">${I.dots}</button></div>`}
+  }
   else if(item.type==='file')h+='<div class="attachments">'+attachmentHtml([item.part],false)+'</div>';
   else if(item.type==='error'){h+=errorCardHTML(x.info.error,x.info.id);hadMsgError=true}
  });
@@ -3684,8 +3693,6 @@ function renderMsgs(force){
    for(const f of b.changed||[])if(!seenFiles.has(f.key)){seenFiles.add(f.key);turnFiles.push(f)}
   }
   if(turnFiles.length)h+=`<div class="turn-files">${turnFiles.map(f=>`<button type="button" class="file-chip" data-work-open="${esc(f.blockID)}" aria-label="${esc(f.name)} — открыть Work log">${I.file}<span>${esc(f.name)}</span></button>`).join('')}</div>`;
-  const reaction=S.reactions[lastTextMsg];
-  h+=`<div class="msg-actions" data-amid="${esc(lastTextMsg)}" data-araw="${esc(turnRaw)}"><button data-ma="copy" aria-label="Copy">${I.copy}</button><button data-ma="like" class="${reaction==='like'?'on':''}" aria-label="Good response">${I.like}</button><button data-ma="dislike" class="${reaction==='dislike'?'on':''}" aria-label="Bad response">${I.dislike}</button><button data-ma="retry" aria-label="Regenerate">${I.redo}</button><button data-ma="more" aria-label="More">${I.dots}</button></div>`;
  }
  [...S.perms.values()].forEach(p=>{h+=permCard(p)});
  if(S.questions.size&&!S.qSheetOpen){const q0=[...S.questions.values()][0];const qs0=(q0.questions||[])[0]||{};h+=`<button class="q-pending" type="button" data-qopen="1"><span class="dot"></span><span class="qlbl">${esc(qs0.header||qs0.question||'Question')}</span></button>`}
@@ -4024,10 +4031,18 @@ function kwParticle(k,d){if(kwReduce||!kwFx)return;const w=kwKumo.offsetWidth||7
 function kwStopPulse(){if(kwPulseTmo){clearInterval(kwPulseTmo);kwPulseTmo=0}}
 function kwPulse(k){kwStopPulse();if(kwReduce)return;kwParticle(k,900);kwPulseTmo=setInterval(()=>{if(kwState!=='run'||kwPhase!=='work'){clearInterval(kwPulseTmo);kwPulseTmo=0;return}kwParticle(k,900)},1400)}
 function kwNextStatus(){if(!kwBag.length)kwBag=kwST.map((s,i)=>i).sort(()=>Math.random()-.5).filter(i=>kwST[i][0]!==$('#kwSt').textContent);const s=kwST[kwBag.pop()];$('#kwSt').textContent=s[0];emo(s[1])}
+let pillStableSince=0;
 function kwUpdPill(){const pill=document.getElementById('kwPill');if(!pill)return;
- if(!kwTail||kwState!=='run'){pill.classList.remove('kw-on');return}
+ if(!kwTail||kwState!=='run'){pill.classList.remove('kw-on');pillStableSince=0;return}
  const r=kwTail.getBoundingClientRect(),c=document.getElementById('main').getBoundingClientRect();
  const hid=r.bottom>c.bottom+2||r.top<c.top-2;
+ // Debounce: the pill's opacity transition makes even a one-frame flash visible for
+ // ~0.5s (fade-in + fade-out), e.g. on keyboard resizes mid-submit. Require the tail
+ // to stay hidden for 200ms before lighting the pill up.
+ if(hid&&!pill.classList.contains('kw-on')){
+  if(!pillStableSince)pillStableSince=performance.now();
+  if(performance.now()-pillStableSince<200)return}
+ else if(!hid)pillStableSince=0;
  pill.classList.toggle('kw-on',hid);
  document.getElementById('kwPt').textContent=$('#kwSt').textContent+' · '+$('#kwTm').textContent}
 function kwTick(){if(kwState!=='run')return;const now=performance.now(),dt=(now-kwLast)/1000;kwLast=now;kwUpdPill();
