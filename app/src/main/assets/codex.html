@@ -3930,6 +3930,18 @@ window.addEventListener('unhandledrejection',e=>err('promise: '+(e.reason&&e.rea
 
 window.addEventListener('unhandledrejection',e=>err('promise: '+(e.reason&&e.reason.message||e.reason)));
 
+/* Swipe right in the feed opens the drawer: horizontal move wins over vertical scroll. */
+{
+ let swX=0,swY=0,swTrack=false;
+ const busy=()=>S.qSheetOpen||$('#sheet').classList.contains('on')||$('#drawer').classList.contains('on')||!document.getElementById('pv').hidden||!!document.querySelector('#workLogDialog[open]');
+ $('#main').addEventListener('touchstart',e=>{const t=e.touches[0];swX=t.clientX;swY=t.clientY;swTrack=!busy()},{passive:true});
+ $('#main').addEventListener('touchmove',e=>{if(!swTrack)return;const t=e.touches[0];const dx=t.clientX-swX,dy=t.clientY-swY;
+  if(Math.abs(dy)>Math.abs(dx)){swTrack=false;return}
+  if(dx>70){swTrack=false;renderDrawer();drawer(true)}},{passive:true});
+ $('#main').addEventListener('touchend',()=>{swTrack=false},{passive:true});
+ $('#main').addEventListener('touchcancel',()=>{swTrack=false},{passive:true});
+}
+
 /* ---------- kumo wait mascot (demo v9, wired to real events) ---------- */
 const kwTpl=document.getElementById('kwTpl');
 let kwKumo=null,kwSv=null,kwOrbit=null,kwFx=null,kwParts=[],kwMiniParts=[],kwCur=null;
