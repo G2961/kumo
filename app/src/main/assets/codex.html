@@ -4537,20 +4537,46 @@ $('#pv').onclick=e=>{if(e.target.id==='pv'||e.target.id==='pvTrack'||e.target.cl
  const line=(cls,text)=>{const d=document.createElement('div');d.className=cls||'';d.textContent=text;box.appendChild(d);box.scrollTop=box.scrollHeight};
  const prompt=()=>{const d=document.createElement('div');d.className='t-dim';d.textContent='[ '+shortCwd(termCwd)+' ]';box.appendChild(d);box.scrollTop=box.scrollHeight};
  let fit=null,fitRaf=0;
- const termSnapScroll=t=>{
-  try{
-   const vp=t.element&&t.element.querySelector('.xterm-viewport');if(!vp)return;
-   let snapTmo=0;
-   vp.addEventListener('scroll',()=>{
-    if(snapTmo)clearTimeout(snapTmo);
-    snapTmo=setTimeout(()=>{snapTmo=0;
-     const row=t.element.querySelector('.xterm-rows > div');if(!row)return;
-     const lh=row.getBoundingClientRect().height;if(!lh)return;
-     const snapped=Math.round(vp.scrollTop/lh)*lh;
-     if(Math.abs(snapped-vp.scrollTop)>.5)vp.scrollTop=snapped;
-    },140);
-   },{passive:true});
-  }catch(e){}
+ // xterm keeps its rows OUTSIDE .xterm-viewport, so native touch scrolling over the
+ // text never finds a scroller — xterm fakes it with its own sluggish JS handler.
+ // Replace it: track the finger 1:1 and run our own fling, Termux-style.
+ const termTouchScroll=box=>{
+  const screen=box.closest('#termScreen')||box;
+  let lastY=0,lastT=0,vel=0,fling=0;
+  const vp=()=>screen.querySelector('.xterm-viewport');
+  // The listener lives on the whole screen (header included): swipes started on the
+  // header used to hit nothing — the header is a sibling of the scroller — and felt
+  // like the terminal "locked up" for a few flicks. Buttons stay clickable.
+  screen.addEventListener('touchstart',e=>{
+   if(e.target.closest&&e.target.closest('button,input,textarea,a'))return;
+   e.preventDefault();e.stopPropagation();
+   if(e.touches.length!==1)return;
+   if(fling){cancelAnimationFrame(fling);fling=0}
+   lastY=e.touches[0].clientY;lastT=e.timeStamp;vel=0;
+  },{capture:true,passive:false});
+  screen.addEventListener('touchmove',e=>{
+   if(e.target.closest&&e.target.closest('button,input,textarea,a'))return;
+   if(e.touches.length!==1)return;
+   const v=vp();if(!v)return;
+   const y=e.touches[0].clientY,dt=Math.max(1,e.timeStamp-lastT);
+   const dy=y-lastY;lastY=y;lastT=e.timeStamp;
+   v.scrollTop-=dy;
+   vel=vel*0.8+(dy/dt)*0.2;
+   e.preventDefault();e.stopPropagation();
+  },{capture:true,passive:false});
+  screen.addEventListener('touchend',()=>{
+   if(Math.abs(vel)<0.03)return;
+   let prev=performance.now();
+   const loop=()=>{
+    const now=performance.now(),dt=Math.max(1,now-prev);prev=now;
+    const v=vp();if(!v){fling=0;return}
+    v.scrollTop-=vel*dt;
+    vel*=Math.pow(0.995,dt);
+    if(Math.abs(vel)<0.02){fling=0;return}
+    fling=requestAnimationFrame(loop);
+   };
+   fling=requestAnimationFrame(loop);
+  },{capture:true,passive:true});
  };
  const termBoot=useFit=>{
   try{
@@ -4561,7 +4587,7 @@ $('#pv').onclick=e=>{if(e.target.id==='pv'||e.target.id==='pvTrack'||e.target.cl
     requestAnimationFrame(()=>{try{fit.fit()}catch(e){}});
     new ResizeObserver(()=>{if(fitRaf)return;fitRaf=requestAnimationFrame(()=>{fitRaf=0;try{if(term&&fit)fit.fit()}catch(e){}})}).observe(box);
    }
-   termSnapScroll(term);
+   termTouchScroll(box);
   }catch(e){term=null;box.classList.add('term-plain');prompt()}
  };
  window.openTerm=function(){
