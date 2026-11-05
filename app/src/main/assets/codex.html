@@ -4588,9 +4588,9 @@ $('#pv').onclick=e=>{if(e.target.id==='pv'||e.target.id==='pvTrack'||e.target.cl
   const lbl=code===0?'ok':code===-1?'stopped':'code '+code;
   if(term)term.write('\x1b[33m['+lbl+']\x1b[0m\r\n');else line('t-dim','['+lbl+']');
   if(cwd&&cwd!==termCwd){termCwd=cwd;cwdLbl.textContent=shortCwd(termCwd)}
-  prompt();
  };
  const run=async()=>{
+  input.focus();
   const cmd=input.value.trim();if(!cmd)return;
   termHist.push(cmd);histIdx=-1;input.value='';
   if(term)term.write('\x1b[36m$ '+escHtml(cmd)+'\x1b[0m\r\n');else line('t-cmd','$ '+cmd);
@@ -4602,6 +4602,9 @@ $('#pv').onclick=e=>{if(e.target.id==='pv'||e.target.id==='pvTrack'||e.target.cl
   }catch(x){const m='Error: '+((x&&x.message)||x);if(term)term.write('\x1b[31m'+escHtml(m)+'\x1b[0m\r\n');else line('t-err',m);prompt()}
  };
  document.getElementById('termStop').onclick=()=>{nativeCall('termStop',{run:''}).catch(()=>{})};
+ // preventDefault keeps the tap from stealing focus from the input (keyboard flicker)
+ document.getElementById('termRun').addEventListener('pointerdown',e=>e.preventDefault());
+ document.getElementById('termStop').addEventListener('pointerdown',e=>e.preventDefault());
  document.getElementById('termRun').onclick=run;
  input.addEventListener('keydown',e=>{
   if(e.key==='Enter'){run()}
