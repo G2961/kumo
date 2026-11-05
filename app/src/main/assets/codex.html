@@ -447,7 +447,8 @@ span.ib-right-col{font-size:var(--fs-12);color:var(--text-2)}
 #termScreen header{display:flex;align-items:center;gap:var(--s-8);padding:var(--s-4) var(--s-12);padding-top:calc(max(var(--sat,0px),env(safe-area-inset-top,0px)) + var(--s-4));border-bottom:1px solid var(--border);flex:none}
 #termScreen header h1{font-size:var(--fs-16);font-weight:600;margin:0;flex:1}
 #termCwdLbl{font:11px ui-monospace,Menlo,monospace;color:var(--text-2);max-width:40%;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
-#termBox{flex:1;min-height:0;overflow-y:auto;overscroll-behavior:contain;-webkit-overflow-scrolling:touch;padding:10px 12px;font:12.5px/1.5 ui-monospace,Menlo,monospace;color:var(--text);background:#101418;white-space:pre-wrap;overflow-wrap:anywhere}
+#termBox{flex:1;min-height:0;overflow:hidden;overscroll-behavior:contain;padding:10px 12px;font:12.5px/1.5 ui-monospace,Menlo,monospace;color:var(--text);background:#101418;white-space:pre-wrap;overflow-wrap:anywhere}
+#termBox.term-plain{overflow-y:auto;-webkit-overflow-scrolling:touch}
 #termBox .t-cmd{color:#81b8ff}
 #termBox .t-err{color:#ff6b6b}
 #termBox .t-dim{color:#5a6478}
@@ -4561,7 +4562,7 @@ $('#pv').onclick=e=>{if(e.target.id==='pv'||e.target.id==='pvTrack'||e.target.cl
     new ResizeObserver(()=>{if(fitRaf)return;fitRaf=requestAnimationFrame(()=>{fitRaf=0;try{if(term&&fit)fit.fit()}catch(e){}})}).observe(box);
    }
    termSnapScroll(term);
-  }catch(e){term=null;prompt()}
+  }catch(e){term=null;box.classList.add('term-plain');prompt()}
  };
  window.openTerm=function(){
   screen.hidden=false;
@@ -4569,7 +4570,7 @@ $('#pv').onclick=e=>{if(e.target.id==='pv'||e.target.id==='pvTrack'||e.target.cl
    box.innerHTML='';
    const s=document.createElement('script');s.src='/_ui/xterm.js';
    s.onload=()=>{const s2=document.createElement('script');s2.src='/_ui/xterm-addon-fit.js';s2.onload=()=>termBoot(true);s2.onerror=()=>termBoot(false);document.head.appendChild(s2)};
-   s.onerror=()=>{term=null;prompt()};
+   s.onerror=()=>{term=null;box.classList.add('term-plain');prompt()};
    document.head.appendChild(s);
    prompt();
   }
@@ -4581,8 +4582,7 @@ $('#pv').onclick=e=>{if(e.target.id==='pv'||e.target.id==='pvTrack'||e.target.cl
  window.__termData=function(run,b64){
   try{
    const d=new TextDecoder().decode(Uint8Array.from(atob(b64),c=>c.charCodeAt(0)));
-   if(term)term.write(d);else line('',d.replace(/\n$/,''));
-   box.scrollTop=box.scrollHeight;
+   if(term)term.write(d);else{line('',d.replace(/\n$/,''));box.scrollTop=box.scrollHeight}
   }catch(e){}
  };
  window.__termEnd=function(run,code,cwdB64){
