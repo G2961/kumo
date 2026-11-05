@@ -1160,7 +1160,9 @@ function renderDrawer(){
  });
  if(hasMcp&&!S.mcpStatus)api('/mcp').then(r=>{S.mcpStatus=r||{};const m=$('#mcpBadge');if(m)m.textContent=Object.keys(S.mcpStatus).length||''}).catch(()=>{});
 }
-function drawer(on){$('#drawer').classList.toggle('on',on);$('#dim').classList.toggle('on',on||$('#sheet').classList.contains('on'));if(!on){S.drawerSearch=false}}
+function drawer(on){const sh=$('#drawer');sh.style.transition='';sh.style.transform='';
+ if(on&&!sh.firstElementChild){try{renderDrawer()}catch(e){err('drawer render: '+((e&&e.message)||e))}}
+ sh.classList.toggle('on',on);$('#dim').classList.toggle('on',on||$('#sheet').classList.contains('on'));if(!on){S.drawerSearch=false}}
 $('#menu').onclick=()=>{renderDrawer();drawer(true)};
 $('#drawer').onclick=async e=>{
  if($('#sheet').classList.contains('on')){closeSheet();return}
@@ -1202,19 +1204,25 @@ $('#drawer').onclick=async e=>{
  }
 };
 let drawerTouchX=null,drawerTouchY=null,drawerDragged=false;
+const drawerReset=()=>{const sh=$('#drawer');sh.style.transition='';sh.style.transform='';drawerTouchX=null};
 $('#drawer').addEventListener('touchstart',e=>{if(e.touches.length===1){drawerTouchX=e.touches[0].clientX;drawerTouchY=e.touches[0].clientY;drawerDragged=false}},{passive:true});
 $('#drawer').addEventListener('touchmove',e=>{
  if(drawerTouchX===null)return;
+ if(e.touches.length!==1){drawerReset();return}
  const dx=e.touches[0].clientX-drawerTouchX,dy=e.touches[0].clientY-drawerTouchY;
  if(dx<-8&&Math.abs(dx)>Math.abs(dy)){drawerDragged=true;const sh=$('#drawer');sh.style.transition='none';sh.style.transform=`translateX(${dx}px)`}
  else if(Math.abs(dy)>8)drawerTouchX=null;
 },{passive:true});
 $('#drawer').addEventListener('touchend',e=>{
- if(drawerTouchX===null)return;
- const sh=$('#drawer');sh.style.transition='';sh.style.transform='';
- const dx=e.changedTouches[0].clientX-drawerTouchX;drawerTouchX=null;
+ if(drawerTouchX===null){drawerReset();return}
+ const startX=drawerTouchX;
+ drawerReset();
+ const dx=e.changedTouches[0].clientX-startX;
  if(drawerDragged&&dx<-80)drawer(false);
 },{passive:true});
+// The system can steal the gesture mid-drag (edge swipes, notifications): without
+// this the inline transform freezes the drawer half-open and beats the .on class.
+$('#drawer').addEventListener('touchcancel',drawerReset,{passive:true});
 $('#drawer').addEventListener('touchcancel',()=>{drawerTouchX=null;const sh=$('#drawer');sh.style.transition='';sh.style.transform=''},{passive:true});
 let searchTimer=null;
 function drawerSearchBind(){
