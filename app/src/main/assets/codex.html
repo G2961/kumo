@@ -3707,6 +3707,9 @@ function renderMsgs(force){
  if(S.sid){
   kwTailSync(kwFrom);
   m.scrollTop=near?m.scrollHeight:scrollTop;
+  // Repaint the pill in the same frame as the scroll: otherwise it flashes «думаю…»
+  // for one tick between «tail hidden» and «tail scrolled into view».
+  kwUpdPill();
   // follow(): FLIP the tail when the growing feed moved it — smooth, like the demo.
   if(kwTailFrom&&!kwReduce){const b=kwTail.getBoundingClientRect(),dy=kwTailFrom.top-b.top;
    if(Math.abs(dy)>1)kwTail.animate([{transform:`translateY(${dy}px)`},{transform:'none'}],{duration:280,easing:'cubic-bezier(.3,1,.4,1)'})}
@@ -4152,6 +4155,7 @@ function kwMountHero(){const slot=document.getElementById('kwHeroSlot');if(!slot
  // Keyboard opens/closes: #main shrinks/grows, the tail would stay half-buried under
  // the composer. If the user was pinned to the bottom, stay pinned through resizes.
  new ResizeObserver(()=>{if(kwNearBottom){const m=document.getElementById('main');m.scrollTop=m.scrollHeight;kwUpdPill()}}).observe(document.getElementById('main'));
+ document.getElementById('main').addEventListener('scroll',()=>{if(kwTail)kwUpdPill()},{passive:true});
 })( );
 (function kwBl(){if(kwKumo&&kwCur){kwKumo.querySelectorAll('#kw-front [data-e="'+kwCur+'"] .kw-eye').forEach(e=>e.classList.add('kw-bl'));
  setTimeout(()=>{if(kwKumo)kwKumo.querySelectorAll('.kw-eye.kw-bl').forEach(e=>e.classList.remove('kw-bl'))},150)}
