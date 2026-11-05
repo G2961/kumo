@@ -281,6 +281,7 @@ class MainActivity : ComponentActivity(), LocalRuntime.Listener {
     private var sttRecorder: android.media.AudioRecord? = null
     private var sttThread: Thread? = null
     @Volatile private var sttActive = false
+    private val exposeSockets = java.util.concurrent.CopyOnWriteArrayList<java.net.ServerSocket>()
 
     /** Whisper-style STT: record PCM from the mic, wrap it into a WAV, POST it to the chosen provider. */
     private fun startSttRecording() {
@@ -718,6 +719,45 @@ class MainActivity : ComponentActivity(), LocalRuntime.Listener {
                             val msg = data.optString("msg", "")
                             runOnUiThread { android.widget.Toast.makeText(this@MainActivity, msg, android.widget.Toast.LENGTH_LONG).show() }
                             JSONObject().put("shown", true)
+                        }
+                        "exposePort" -> {
+                            val port = data.optInt("port", 0)
+                            if (port > 0 && exposeSockets.none { it.localPort == port }) Thread {
+                                try {
+                                    val ss = java.net.ServerSocket()
+                                    ss.reuseAddress = true
+                                    ss.bind(java.net.InetSocketAddress("0.0.0.0", port))
+                                    exposeSockets.add(ss)
+                                    while (true) {
+                                        val client = ss.accept()
+                                        Thread {
+                                            try {
+                                                client.tcpNoDelay = true
+                                                val upstream = java.net.Socket("127.0.0.1", port)
+                                                Thread {
+                                                    try { upstream.getInputStream().copyTo(client.getOutputStream()) } catch (_: Throwable) {
+                                                    }
+                                                    try { client.close(); upstream.close() } catch (_: Throwable) {
+                                                    }
+                                                }.start()
+                                                try { client.getInputStream().copyTo(upstream.getOutputStream()) } catch (_: Throwable) {
+                                                }
+                                                try { client.close(); upstream.close() } catch (_: Throwable) {
+                                                }
+                                            } catch (_: Throwable) {
+                                                try { client.close() } catch (_: Throwable) {
+                                                }
+                                            }
+                                        }.start()
+                                    }
+                                } catch (_: Throwable) {
+                                }
+                            }.start()
+                            val ip = java.net.NetworkInterface.getNetworkInterfaces().asSequence()
+                                .flatMap { nif -> nif.inetAddresses.asSequence() }
+                                .firstOrNull { !it.isLoopbackAddress && it is java.net.Inet4Address && it.hostAddress?.contains(':') == false }
+                                ?.hostAddress ?: ""
+                            JSONObject().put("ip", ip).put("port", port)
                         }
                         "logs" -> JSONObject().put("log", runtime.logSnapshot(400))
                         else -> if (request.getString("action").startsWith("history")) runtime.changeHistory.action(request) else sshTools.action(request)

@@ -422,11 +422,12 @@ span.ib-right-col{font-size:var(--fs-12);color:var(--text-2)}
 #apv{position:fixed;left:0;right:0;bottom:0;z-index:45;height:85%;background:var(--sheet-bg);border-top:1px solid var(--border);border-radius:var(--r-28) var(--r-28) 0 0;display:flex;flex-direction:column;overflow:hidden;transition:height .3s cubic-bezier(.2,0,0,1);box-shadow:0 -8px 32px rgba(0,0,0,.35)}
 #apv[hidden]{display:none!important}
 #apv.dragging{transition:none}
-#apvHandle{position:relative;flex:none;display:flex;align-items:center;gap:10px;height:54px;padding:0 12px 0 16px;cursor:grab;touch-action:none}
-#apvHandle .grab-line{position:absolute;top:7px;left:50%;transform:translateX(-50%);width:38px;height:4px;border-radius:2px;background:var(--border)}
+#apvHandle{position:relative;flex:none;display:flex;align-items:center;gap:10px;height:64px;padding:0 10px 0 16px;cursor:grab;touch-action:none}
+#apvHandle .grab-line{position:absolute;top:8px;left:50%;transform:translateX(-50%);width:64px;height:5px;border-radius:3px;background:var(--border)}
 #apvTitle{flex:1;font:12px ui-monospace,Menlo,monospace;color:var(--text-2);overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
-#apvClose{width:36px;height:36px;min-width:36px;border-radius:var(--r-full);display:grid;place-items:center;color:var(--text-2);border:0;cursor:pointer;font-size:17px}
-#apvClose:active{background:var(--surface-2)}
+#apvShare,#apvClose{width:40px;height:40px;min-width:40px;border-radius:var(--r-full);display:grid;place-items:center;color:var(--text-2);border:0;cursor:pointer;font-size:17px}
+#apvShare svg{width:17px;height:17px}
+#apvShare:active,#apvClose:active{background:var(--surface-2)}
 #apvFrame{flex:1;width:100%;border:0;background:#fff}
 #apvBlock{flex:1;display:grid;place-items:center;text-align:center}
 .edit-banner{display:flex;align-items:center;gap:var(--s-8);padding:var(--s-4) var(--s-12);color:var(--text-2);font-size:var(--fs-12)}
@@ -610,7 +611,7 @@ details.activity[data-disclosure-hold]:not([open])>summary{border-bottom-color:v
   <div id="kwPill" role="button" aria-label="К последнему сообщению"><div class="kw-mini" id="kwMini"></div><span id="kwPt"></span><span>↓</span></div>
   <div id="pv" hidden><button id="pvx" aria-label="Закрыть">✕</button><div id="pvTrack"></div><div id="pvCap"></div></div>
   <div id="apv" hidden>
-   <div id="apvHandle"><span class="grab-line"></span><span id="apvTitle"></span><button id="apvClose" aria-label="Закрыть">✕</button></div>
+   <div id="apvHandle"><span class="grab-line"></span><span id="apvTitle"></span><button id="apvShare" aria-label="Открыть доступ снаружи"><svg viewBox="0 0 24 24"><path d="M7 17 17 7M9 7h8v8"/></svg></button><button id="apvClose" aria-label="Закрыть">✕</button></div>
    <iframe id="apvFrame" title="Preview" hidden></iframe>
    <div id="apvBlock" hidden><p class="note">Сайт запретил встраивание в рамку.</p><button class="btn p" id="apvExternal">Открыть в браузере</button></div>
   </div>
@@ -3894,7 +3895,7 @@ async function submit(){
    await ensureModelVariants(S.model?.p||currentModel()?.p,S.model?.m||currentModel()?.m);
    body.variant=eff;
   }
-  body.system=`The selected local project is the primary workspace. Local project directory: ${JSON.stringify(dir||'(current local workspace)')}. Use local file, search and shell tools for this project, subject to the current permissions and agent mode. This applies even if earlier messages used SSH-only instructions. The local sandbox provides bun (a Node.js-compatible runtime) plus npm and npx: 'node' runs through bun, 'npm' runs the real npm CLI under bun, and 'bun install'/'bun run' are good alternatives if npm misbehaves. npx installs packages via npm exec, but running downloaded package bins may fail with 'sh: ... No such file or directory' — the shebang points to /usr/bin/env which does not exist on Android. When that happens, run the tool directly: 'bun <path-to-package-js>' (find the entry under ~/.npm/_npx/*/node_modules/<pkg>/), or 'bun add <pkg>' into the project and import it from code. Avoid 'bun x' — its re-exec is broken on this loader. It also provides git 2.49 and curl for HTTP(S) requests, both with a working CA bundle — TLS verification works, do not use 'curl -k'. GitHub auth is local: if the user saved a token in Settings, git push/pull just works, and the raw token can be read from files/home/.github-token (run 'cat ~/.github-token') for GitHub API calls via curl — prefer that over asking the user again. /tmp is read-only: write scratch files to $TMPDIR instead (it is already set and writable). The device has internet access: outbound traffic from the sandbox goes through the app's local proxy, which resolves DNS itself, so there is no /etc/resolv.conf and none is needed.`;
+  body.system=`The selected local project is the primary workspace. Local project directory: ${JSON.stringify(dir||'(current local workspace)')}. Use local file, search and shell tools for this project, subject to the current permissions and agent mode. This applies even if earlier messages used SSH-only instructions. The local sandbox provides bun (a Node.js-compatible runtime) plus npm and npx: 'node' runs through bun, 'npm' runs the real npm CLI under bun, and 'bun install'/'bun run' are good alternatives if npm misbehaves. npx installs packages via npm exec, but running downloaded package bins may fail with 'sh: ... No such file or directory' — the shebang points to /usr/bin/env which does not exist on Android. When that happens, run the tool directly: 'bun <path-to-package-js>' (find the entry under ~/.npm/_npx/*/node_modules/<pkg>/), or 'bun add <pkg>' into the project and import it from code. Avoid 'bun x' — its re-exec is broken on this loader. It also provides git 2.49 and curl for HTTP(S) requests, both with a working CA bundle — TLS verification works, do not use 'curl -k'. The sandbox shares the device network: loopback (127.0.0.1) is visible to the app's built-in preview. Do NOT try to determine the device's external IP from the sandbox — ifconfig, ip and /proc/net/* are blocked there and it wastes turns; just give localhost links, the user has a share button in the preview panel for external access. GitHub auth is local: if the user saved a token in Settings, git push/pull just works, and the raw token can be read from files/home/.github-token (run 'cat ~/.github-token') for GitHub API calls via curl — prefer that over asking the user again. /tmp is read-only: write scratch files to $TMPDIR instead (it is already set and writable). The device has internet access: outbound traffic from the sandbox goes through the app's local proxy, which resolves DNS itself, so there is no /etc/resolv.conf and none is needed.`;
   for(const tool of ['ssh_connections','ssh_exec','ssh_read_file','ssh_write_file'])body.tools['mobile_ssh_'+tool]=!!connection;
   if(connection){
    await nativeCall('sessionContext',{sessionID:sid,connectionID:connection.id});if(view!==S.view||dir!==S.dir)return;
@@ -4167,11 +4168,21 @@ $('#pv').onclick=e=>{if(e.target.id==='pv'||e.target.id==='pvTrack'||e.target.cl
 {
  const panel=document.getElementById('apv'),frame=document.getElementById('apvFrame'),blk=document.getElementById('apvBlock'),title=document.getElementById('apvTitle');
  window.openApv=function(url){
-  title.textContent=url.replace(/^https?:\/\//,'');frame.hidden=false;blk.hidden=true;frame.src=url;
-  panel.hidden=false;panel.style.height='85%';
+  title.textContent=url.replace(/^https?:\/\//,'');frame.dataset.url=url;frame.hidden=false;blk.hidden=true;frame.src=url;
+  panel.hidden=true;panel.style.height='0%';panel.hidden=false;
+  requestAnimationFrame(()=>requestAnimationFrame(()=>{panel.style.height='85%'}));
  };
  const closeApv=()=>{panel.hidden=true;frame.removeAttribute('src')};
  document.getElementById('apvClose').onclick=closeApv;
+ const shareApv=()=>{
+  const u=(frame.dataset.url||'');const m=/:(\d+)/.exec(u);const port=m?m[1]:0;
+  if(!port){toastJs('Не вижу порт в адресе');return}
+  nativeCall('exposePort',{port}).then(v=>{
+   toastJs(v&&v.ip?('Открыто снаружи: http://'+v.ip+':'+port):'Не нашёл IP устройства — проверь Wi-Fi')
+  }).catch(()=>{});
+ };
+ document.getElementById('apvShare').onclick=shareApv;
+ function toastJs(msg){if(window.CodexNative)try{CodexNative.request(JSON.stringify({action:'toast',data:{msg}}))}catch(e){}}
  document.getElementById('apvExternal').onclick=()=>{try{location.assign(frame.dataset.url||'')}catch(e){}};
  // iframe blocked by the site? show the fallback after a load timeout
  window.addEventListener('message',e=>{if(e.data==='apv-blocked')blk.hidden=false;frame.hidden=true});
