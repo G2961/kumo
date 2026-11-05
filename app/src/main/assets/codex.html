@@ -3899,13 +3899,22 @@ $('#inp').addEventListener('keydown',e=>{if(e.key==='Enter'&&!e.shiftKey&&matchM
 function autosize(){const i=$('#inp');i.style.height='auto';i.style.height=Math.min(i.scrollHeight,140)+'px'}
 $('#inp').addEventListener('input',autosize);
 /* Voice input: Android SpeechRecognizer fills the field; button hidden when unavailable. */
+window.__appBack=function(){
+ if(!$('#pv').hidden){$('#pv').hidden=true;return true}
+ if(document.querySelector('#workLogDialog[open]')){closeWorkSheet();return true}
+ if($('#sheet').classList.contains('on')){closeSheet();return true}
+ if($('#drawer').classList.contains('on')){drawer(false);return true}
+ if(!$('#settingsScreen').hidden){closeSettings();return true}
+ return false;
+};
 window.__voiceResult=function(text){
  const mic=$('#mic');if(mic)mic.classList.remove('listening');
  const i=$('#inp'),t=String(text||'').trim();if(!i||!t)return;
  i.value=i.value?i.value.replace(/\s+$/,'')+' '+t:t;
  autosize();i.focus();
 };
-window.__voiceError=function(message){const mic=$('#mic');if(mic)mic.classList.remove('listening');if(typeof err==='function')err('voice: '+message)};
+window.__voiceError=function(message){const mic=$('#mic');if(mic)mic.classList.remove('listening');if(typeof err==='function')err('voice: '+message);
+ if(window.CodexNative)try{CodexNative.request(JSON.stringify({action:'toast',data:{msg:'Голос: '+message}}))}catch(e){}};
 {
  const mic=$('#mic');
  if(mic){
