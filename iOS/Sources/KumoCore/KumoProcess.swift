@@ -38,8 +38,9 @@ public final class KumoProcess {
         if let dir = currentDirectoryURL?.path {
             env["KUMO_CWD"] = dir
             env["KUMO_BIN"] = originalPath
+            // Stock iOS has no /bin/sh; on a jailbreak the shell lives in /var/jb.
+            execPath = FileManager.default.fileExists(atPath: "/bin/sh") ? "/bin/sh" : "/var/jb/usr/bin/sh"
             args = ["-c", "cd \"$KUMO_CWD\" && exec \"$KUMO_BIN\" \"$@\"", originalPath] + args
-            execPath = "/bin/sh"
         }
 
         // stdout/stderr pipes: child gets the write ends, we keep the read ends.

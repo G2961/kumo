@@ -11,7 +11,7 @@ public final class LocalShell {
 
     private var tasks: [String: KumoProcess] = [:]
     private let lock = NSLock()
-    private static let shellPath = "/bin/sh"
+    private static let shellPath = FileManager.default.fileExists(atPath: "/bin/sh") ? "/bin/sh" : "/var/jb/usr/bin/sh"
 
     public init() {}
 
