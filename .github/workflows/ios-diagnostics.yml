@@ -1,0 +1,25 @@
+name: iOS Provider Diagnostic
+
+on:
+  workflow_dispatch:
+
+jobs:
+  build:
+    runs-on: macos-15
+    steps:
+      - uses: actions/checkout@v4
+      - name: Build standalone device diagnostic
+        run: |
+          mkdir -p iOS/.build/Diagnostics
+          xcrun --sdk iphoneos swiftc -O \
+            -target arm64-apple-ios16.0 \
+            -parse-as-library \
+            iOS/Sources/KumoCore/NativeModelClient.swift \
+            iOS/Diagnostics/ProviderDiagnostic.swift \
+            -o iOS/.build/Diagnostics/KumoProviderDiagnostic
+          codesign -s - -f --identifier space.g2961.kumo.diagnostic iOS/.build/Diagnostics/KumoProviderDiagnostic
+      - uses: actions/upload-artifact@v4
+        with:
+          name: KumoProviderDiagnostic
+          path: iOS/.build/Diagnostics/KumoProviderDiagnostic
+          if-no-files-found: error
