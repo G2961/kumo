@@ -34,12 +34,18 @@ public final class AppModel: ObservableObject {
         let bridge = JSBridge(runtime: runtime, sshStore: sshStore)
         bridge.uiMediator = DefaultMediator()
         self.bridge = bridge
-        runtime.start()
+        // start() runs a blocking boot loop (spawn + awaitReady with sleeps); on the main
+        // thread it froze the UI and the watchdog killed the app (crash bug_type 509).
+        DispatchQueue.global(qos: .userInitiated).async { [runtime] in
+            runtime.start()
+        }
     }
 
     public func restart() {
         phase = .loading
-        runtime.restart()
+        DispatchQueue.global(qos: .userInitiated).async { [runtime] in
+            runtime.restart()
+        }
     }
 
     public var isReady: Bool { phase == .ready }
