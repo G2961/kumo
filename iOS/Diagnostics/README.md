@@ -83,6 +83,36 @@ when the gateway provides one.
 - The iPad was locked during final app launch, so the post-install UI and a live
   file-editing turn in the app are not yet physically verified.
 
+## Conversation continuation / HTTP 400
+
+A saved file-agent conversation succeeded on its first user turn but later
+continuations received HTTP 400. The gateway returned a JSON error with a
+non-JSON content type and described the replay item as created by a different
+route. Valid OpenAI Responses output fields alone were not the problem.
+
+Read-only device A/B using the same saved conversation and credential:
+
+- Original first continuation: 400; tool call/output pairs were complete.
+- Without empty assistant placeholders: still 400.
+- Without reasoning items but retaining provider item IDs: still 400.
+- Portable text and call/result history without provider item IDs: 200, complete
+  stream and a tool call. No tool was executed by the diagnostic.
+
+The AgentRouter-only request boundary now projects saved replay into portable
+text messages (preserving commentary/final phases), function calls and their
+outputs. Gateway-bound item IDs and encrypted reasoning are not sent back to
+AgentRouter. Original replay, displayed reasoning, transcript and patch history
+remain saved unchanged. Other provider hosts retain normal Responses replay.
+Empty assistant placeholders without content, calls or replay are omitted from
+both request formats; failed attempts remain visible in the stored conversation.
+
+The actual fixed request builder was then tested on the physical iPad against
+both the first continuation and full conversation with repeated failed attempts:
+each returned HTTP 200, finished and produced one tool call. The fixed app IPA
+was installed with nine existing sessions and both providers preserved. This is
+proof of request/stream recovery, not a diagnostic applying the user's next edit.
+The read-only replay helper and its Keychain entitlement were removed afterward.
+
 ## Diagnostic helper
 
 `ProviderDiagnostic.swift` is **not bundled in Kumo**. Its explicit
