@@ -20,6 +20,9 @@ public final class AppModel: ObservableObject {
     private let runtime: LocalRuntime
     private var uiServer: UIServer?
     private var started = false
+    private var openingUI = false
+    private let runtimeQueue = DispatchQueue(label: "kumo.runtime", qos: .userInitiated)
+    private let uiQueue = DispatchQueue(label: "kumo.ui-startup", qos: .userInitiated)
 
     public init(runtime: LocalRuntime) {
         self.runtime = runtime
@@ -36,14 +39,16 @@ public final class AppModel: ObservableObject {
         self.bridge = bridge
         // start() runs a blocking boot loop (spawn + awaitReady with sleeps); on the main
         // thread it froze the UI and the watchdog killed the app (crash bug_type 509).
-        DispatchQueue.global(qos: .userInitiated).async { [runtime] in
+        runtimeQueue.async { [runtime] in
             runtime.start()
         }
     }
 
     public func restart() {
+        guard !isLoading else { return }
         phase = .loading
-        DispatchQueue.global(qos: .userInitiated).async { [runtime] in
+        statusMessage = "Restarting server…"
+        runtimeQueue.async { [runtime] in
             runtime.restart()
         }
     }
@@ -52,18 +57,45 @@ public final class AppModel: ObservableObject {
     /// remote SSH servers, so the app is still usable on devices where the local runtime
     /// cannot spawn (AMFI-restricted).
     public func forceUI() {
-        if uiServer == nil {
-            let ui = UIServer(targetPort: 1, user: runtime.authUser, password: runtime.password)
-            do { try ui.start() } catch { statusMessage = "UI server failed: \(error.localizedDescription)"; return }
-            uiServer = ui
+        guard !openingUI, currentURL == nil else { return }
+        openUI(targetPort: 1)
+    }
+
+    private func openUI(targetPort: UInt16) {
+        openingUI = true
+        if currentURL == nil {
+            phase = .loading
+            statusMessage = "Opening interface…"
         }
-        let dir = ProjectManager.currentDir().path
-        let data = Data(dir.utf8).base64EncodedString()
-            .replacingOccurrences(of: "+", with: "-")
-            .replacingOccurrences(of: "/", with: "_")
-            .replacingOccurrences(of: "=", with: "")
-        currentURL = URL(string: "http://127.0.0.1:\(uiServer!.port)/_ui/index.html#d=\(data)")
-        phase = .ready
+        // Listener readiness is asynchronous. Wait off the main thread, and serialize
+        // replacements so Retry and fallback cannot leave competing UI listeners behind.
+        uiQueue.async { [self] in
+            let existing = uiServer
+            let ui = UIServer(targetPort: targetPort, user: runtime.authUser,
+                              password: runtime.password, log: runtime.log)
+            do {
+                try ui.start()
+                uiServer = ui
+                existing?.stop()
+                let dir = ProjectManager.currentDir().path
+                let data = Data(dir.utf8).base64EncodedString()
+                    .replacingOccurrences(of: "+", with: "-")
+                    .replacingOccurrences(of: "/", with: "_")
+                    .replacingOccurrences(of: "=", with: "")
+                let url = URL(string: "http://127.0.0.1:\(ui.port)/_ui/index.html#d=\(data)")
+                DispatchQueue.main.async {
+                    self.currentURL = url
+                    self.openingUI = false
+                    self.phase = .ready
+                }
+            } catch {
+                DispatchQueue.main.async {
+                    self.openingUI = false
+                    self.statusMessage = "UI server failed: \(error.localizedDescription)"
+                    if self.currentURL == nil { self.phase = .failed }
+                }
+            }
+        }
     }
 
     public var isReady: Bool { phase == .ready }
@@ -73,7 +105,10 @@ public final class AppModel: ObservableObject {
 extension AppModel: RuntimeDelegate {
     public func runtime(_ runtime: LocalRuntime, didChange state: RuntimeState, message: String) {
         DispatchQueue.main.async {
-            self.phase = state.phaseMapping
+            // A runtime retry may still report failures after fallback opened the UI.
+            // Keep the interface mounted; runtime readiness alone is not UI readiness.
+            guard self.currentURL == nil, !self.openingUI else { return }
+            if state != .ready { self.phase = state.phaseMapping }
             self.statusMessage = state == .failed ? "Failed: \(message)" : message
         }
     }
@@ -84,29 +119,7 @@ extension AppModel: RuntimeDelegate {
 
     public func runtime(_ runtime: LocalRuntime, didBecomeReady port: Int) {
         DispatchQueue.main.async {
-            // Front-end: serve the bundled Kumo UI and proxy the API on one origin
-            // (mirrors Android's /_ui/index.html substitution).
-            do {
-                let ui = UIServer(targetPort: UInt16(port),
-                                  user: runtime.authUser,
-                                  password: runtime.password)
-                if let existing = self.uiServer {
-                    existing.stop()
-                }
-                try ui.start()
-                self.uiServer = ui
-                let dir = ProjectManager.currentDir().path
-                let data = Data(dir.utf8).base64EncodedString()
-                    .replacingOccurrences(of: "+", with: "-")
-                    .replacingOccurrences(of: "/", with: "_")
-                    .replacingOccurrences(of: "=", with: "")
-                self.currentURL = URL(string: "http://127.0.0.1:\(ui.port)/_ui/index.html#d=\(data)")
-            } catch {
-                self.statusMessage = "UI server failed: \(error.localizedDescription)"
-                self.phase = .failed
-                return
-            }
-            self.phase = .ready
+            self.openUI(targetPort: UInt16(port))
         }
     }
 }

@@ -141,6 +141,36 @@ jobs:
             CODE_SIGNING_REQUIRED=NO \
             build 2>&1 | xcpretty; test ${PIPESTATUS[0]} -eq 0
 
+      - name: Run UIServer integration tests (host)
+        run: |
+          python3 - <<'PY'
+          import pathlib
+          import shutil
+          import subprocess
+          import tempfile
+
+          # Test the actual listener in isolation: KumoApp requires UIKit, which the
+          # host Swift package test runner cannot import.
+          with tempfile.TemporaryDirectory(prefix='kumo-ui-tests-') as directory:
+              root = pathlib.Path(directory)
+              (root / 'Sources/KumoCore').mkdir(parents=True)
+              (root / 'Tests/KumoCoreTests').mkdir(parents=True)
+              shutil.copy('iOS/Sources/KumoCore/UIServer.swift', root / 'Sources/KumoCore')
+              shutil.copy('iOS/Tests/KumoCoreTests/UIServerTests.swift', root / 'Tests/KumoCoreTests')
+              (root / 'Package.swift').write_text('''// swift-tools-version:5.9
+          import PackageDescription
+          let package = Package(
+              name: "UIServerIntegration",
+              platforms: [.macOS(.v13)],
+              targets: [
+                  .target(name: "KumoCore"),
+                  .testTarget(name: "KumoCoreTests", dependencies: ["KumoCore"])
+              ]
+          )
+          ''')
+              subprocess.run(['swift', 'test', '--package-path', str(root)], check=True, timeout=120)
+          PY
+
       - name: Run KumoCore unit tests (host)
         working-directory: ${{ github.workspace }}/iOS
         run: swift test --filter KumoCoreTests || echo "Unit tests failed — check logs"

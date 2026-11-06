@@ -13,11 +13,38 @@ public final class UIServer: NSObject, URLSessionDataDelegate {
     private let basicAuth: String
     private let log: (String) -> Void
     private var listener: NWListener?
-    private let queue = DispatchQueue(label: "kumo.ui-server", attributes: .concurrent)
+    private let queue = DispatchQueue(label: "kumo.ui-server")
     private var running = false
     private lazy var session: URLSession = URLSession(configuration: .ephemeral, delegate: self, delegateQueue: nil)
 
     private struct Head { let line: String; var headers: [String: String] = [:] }
+
+    /// One synchronized outcome per attempt; late callbacks cannot replace a timeout.
+    private final class ListenerStartup {
+        private let condition = NSCondition()
+        private var result: Result<UInt16, Error>?
+
+        func resolve(_ result: Result<UInt16, Error>) {
+            condition.lock()
+            defer { condition.unlock() }
+            guard self.result == nil else { return }
+            self.result = result
+            condition.signal()
+        }
+
+        func wait(until deadline: Date, timeoutError: Error) -> Result<UInt16, Error> {
+            condition.lock()
+            defer { condition.unlock() }
+            while true {
+                if let result { return result }
+                if !condition.wait(until: deadline) {
+                    let completed = result ?? .failure(timeoutError)
+                    result = completed
+                    return completed
+                }
+            }
+        }
+    }
 
     private let lock = NSLock()
     private var conns: [ObjectIdentifier: NWConnection] = [:]
@@ -37,36 +64,56 @@ public final class UIServer: NSObject, URLSessionDataDelegate {
         // may hold the preferred one.
         var lastError: Error?
         for candidate in [preferredPort, preferredPort + 1, preferredPort + 2, preferredPort + 3, preferredPort + 4] {
-            guard let nl = try? NWListener(using: .tcp, on: NWEndpoint.Port(rawValue: candidate) ?? .any) else {
-                lastError = NSError(domain: "UIServer", code: 1); continue
+            do {
+                let nl = try NWListener(using: .tcp, on: NWEndpoint.Port(rawValue: candidate) ?? .any)
+                let startup = ListenerStartup()
+                nl.newConnectionHandler = { [weak self] conn in self?.handle(conn) }
+                nl.stateUpdateHandler = { [weak nl] state in
+                    switch state {
+                    case .ready:
+                        guard let actualPort = nl?.port?.rawValue, actualPort != 0 else {
+                            startup.resolve(.failure(NSError(domain: "UIServer", code: 2,
+                                userInfo: [NSLocalizedDescriptionKey: "ready listener has no port on \(candidate)"])))
+                            return
+                        }
+                        startup.resolve(.success(actualPort))
+                    case .failed(let error), .waiting(let error):
+                        // A waiting listener is not usable yet; let the port sweep try another.
+                        startup.resolve(.failure(error))
+                    case .cancelled:
+                        startup.resolve(.failure(NSError(domain: "UIServer", code: 2,
+                            userInfo: [NSLocalizedDescriptionKey: "listener cancelled on \(candidate)"])))
+                    default:
+                        break
+                    }
+                }
+                nl.start(queue: queue)
+                let outcome = startup.wait(until: Date().addingTimeInterval(2),
+                    timeoutError: NSError(domain: "UIServer", code: 2,
+                        userInfo: [NSLocalizedDescriptionKey: "listener did not start on \(candidate)"]))
+                switch outcome {
+                case .success(let actualPort):
+                    listener = nl
+                    port = actualPort
+                    running = true
+                    log("[ui] Ready on 127.0.0.1:\(actualPort)")
+                    return
+                case .failure(let error):
+                    lastError = error
+                    log("[ui] Listener on \(candidate) failed: \(error)")
+                    nl.cancel()
+                }
+            } catch {
+                // Keep creation errors too (e.g. EACCES), not just asynchronous NWErrors.
+                lastError = error
             }
-            listener = nl
-            port = nl.port?.rawValue ?? 0
-            running = true
-            nl.newConnectionHandler = { [weak self] conn in self?.handle(conn) }
-            var nwError: Error?
-            nl.stateUpdateHandler = { st in
-                if case .failed(let e) = st { nwError = e }
-            }
-            nl.start(queue: queue)
-            // NWListener.start is async: the port is assigned after the listener becomes ready.
-            // Without this poll the caller reads port=0 and the WebView gets a broken URL.
-            let deadline = Date().addingTimeInterval(2)
-            while (port == 0 || nl.state == .setup) && Date() < deadline {
-                Thread.sleep(forTimeInterval: 0.02)
-            }
-            if port != 0 { return }
-            // Surface the real NWError (EACCES vs port-busy vs something else) instead of a
-            // generic "did not start" — it is shown on the failure screen.
-            lastError = nwError ?? NSError(domain: "UIServer", code: 2,
-                userInfo: [NSLocalizedDescriptionKey: "listener did not start on \(candidate)"])
-            nl.cancel(); self.listener = nil; running = false; port = 0
         }
         throw lastError ?? NSError(domain: "UIServer", code: 1)
     }
 
     public func stop() {
         running = false
+        port = 0
         listener?.cancel()
         listener = nil
         lock.lock()
