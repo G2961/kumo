@@ -834,9 +834,9 @@ final class NativeModelClientTests: XCTestCase {
             (Data("{".utf8), 100, true, false)
         ]
         for (data, length, finish, classified) in cases {
-            let stopped = expectation(description: "Bounded error body request was cancelled")
+            let stopped = finish ? nil : expectation(description: "Bounded error body request was cancelled")
             let fixture = NativeModelURLFixture(status: 401, body: data, finish: finish,
-                                                stopped: finish ? nil : stopped,
+                                                stopped: stopped,
                                                 contentType: "application/json", expectedLength: length)
             let (client, modelRequest, host) = stubbed(fixture)
             defer { NativeModelTestURLProtocol.unregister(host: host) }
@@ -852,7 +852,7 @@ final class NativeModelClientTests: XCTestCase {
                 }
             }
             XCTAssertEqual(fixture.requestCount, 1)
-            if !finish { await fulfillment(of: [stopped], timeout: 3) }
+            if let stopped { await fulfillment(of: [stopped], timeout: 3) }
         }
     }
 

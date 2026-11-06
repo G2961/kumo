@@ -837,7 +837,7 @@ final class NativeAgentBackendTests: XCTestCase {
         let cases: [(NativeModelClientError, String)] = [
             (.http(401), "Model provider returned HTTP 401; response details withheld."),
             (.http(400), "Model provider returned HTTP 400; response details withheld."),
-            (.transport(-1003), "Model provider transport failed (code -1003); details withheld."),
+            (.transport(-1003), "Model provider transport failed (code -1003); provider hostname could not be resolved; check DNS and connectivity."),
             (.truncatedStream, "Model event stream ended without its successful terminal event."),
             (.malformedStream("event is not a JSON object"), "Invalid model event stream: event is not a JSON object.")
         ]
