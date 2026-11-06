@@ -236,8 +236,14 @@ struct FileAgentAcceptance {
             self.config = ["provider": [providerID: provider], "model": providerID + "/" + modelID]
         }
 
+        func validateRootPath(_ path: String) throws {
+            // Compare credential bytes literally, without Foundation substring matching.
+            try FileAgentAcceptance.rootCheck(!acceptanceContainsSecret(path, secret: key),
+                "root_contains_no_secret", failure: .rootContainsSecret)
+        }
+
         func backend(root: URL, client: LiveClient) throws -> NativeAgentBackend {
-            guard !root.path.contains(key) else { throw AcceptanceFailure.unsafeRoot }
+            try validateRootPath(root.path)
             let id = providerID, secret = key
             return try NativeAgentBackend(root: root, modelClient: client,
                 credentialRead: { requested in requested == id ? secret : nil },
@@ -285,30 +291,45 @@ struct FileAgentAcceptance {
     }
 
     private static func prepareRoot(_ path: String, source: Source, recovering: Bool) throws -> URL {
-        guard path.hasPrefix("/"), !path.contains(where: { "\0\n\r*?".contains($0) }) else { throw AcceptanceFailure.unsafeRoot }
+        // Print only fixed guard names and outcomes, never a path or credential-derived value.
+        try source.validateRootPath(path)
+        try rootCheck(path.hasPrefix("/"), "root_absolute", failure: .rootNotAbsolute)
+        try rootCheck(!acceptanceInvalidRootScalars(path), "root_input_characters", failure: .rootInvalidCharacters)
         let root = URL(fileURLWithPath: path, isDirectory: true).standardizedFileURL
-        let canonical = try acceptanceCanonical(root.path)
-        let user = try acceptanceCanonical(source.userRoot.path)
-        guard canonical != "/", !canonical.contains(where: { "\0\n\r*?".contains($0) }),
-              !acceptanceContains(canonical, in: user), !acceptanceContains(user, in: canonical) else {
-            throw AcceptanceFailure.unsafeRoot
-        }
+        try source.validateRootPath(root.path)
+        let canonical: String
+        do { canonical = try acceptanceCanonical(root.path) }
+        catch { throw AcceptanceFailure.rootCanonicalResolution }
+        try source.validateRootPath(canonical)
+        try rootCheck(!acceptanceInvalidRootScalars(canonical), "root_canonical_characters", failure: .rootCanonicalInvalidCharacters)
+        let user: String
+        do { user = try acceptanceCanonical(source.userRoot.path) }
+        catch { throw AcceptanceFailure.userRootCanonicalResolution }
+        try rootCheck(canonical != "/", "root_not_filesystem_root", failure: .rootFilesystemRoot)
+        try rootCheck(!acceptanceContains(canonical, in: user), "root_not_inside_user_state", failure: .rootInsideUserState)
+        try rootCheck(!acceptanceContains(user, in: canonical), "root_not_ancestor_of_user_state", failure: .rootAncestorOfUserState)
         if FileManager.default.fileExists(atPath: root.path) {
-            let children = try FileManager.default.contentsOfDirectory(atPath: root.path)
+            let children: [String]
+            do { children = try FileManager.default.contentsOfDirectory(atPath: root.path) }
+            catch { throw AcceptanceFailure.rootDirectoryInspection }
             if !recovering && !children.isEmpty { throw AcceptanceFailure.rootNotEmpty }
             if recovering && !children.contains("acceptance-results.json") { throw AcceptanceFailure.recovery }
             if recovering {
                 for name in ["acceptance-results.json", "native-agent", "native-agent/state.json", "patches.json"] {
                     let child = root.appendingPathComponent(name)
-                    guard try acceptanceCanonical(child.path) == canonical + "/" + name else {
-                        throw AcceptanceFailure.unsafeRoot
-                    }
+                    let resolved: String
+                    do { resolved = try acceptanceCanonical(child.path) }
+                    catch { throw AcceptanceFailure.rootRecoveryResolution }
+                    try rootCheck(resolved == canonical + "/" + name,
+                                  "root_recovery_storage_confined", failure: .rootRecoveryEscape)
                 }
             }
         } else {
             guard !recovering else { throw AcceptanceFailure.recovery }
-            try FileManager.default.createDirectory(at: root, withIntermediateDirectories: true)
+            do { try FileManager.default.createDirectory(at: root, withIntermediateDirectories: true) }
+            catch { throw AcceptanceFailure.rootDirectoryCreation }
         }
+        print("CHECK root_ready PASS")
         return root
     }
 
@@ -317,9 +338,14 @@ struct FileAgentAcceptance {
               name.range(of: "^acceptance-(allow|crashPrepare)-[a-f0-9-]{36}$", options: .regularExpression) != nil,
               record["success"] as? Bool == true else { throw AcceptanceFailure.recovery }
         let project = root.appendingPathComponent(name, isDirectory: true)
-        guard try acceptanceCanonical(project.path) == acceptanceCanonical(root.path) + "/" + name else {
-            throw AcceptanceFailure.unsafeRoot
-        }
+        let resolved: String
+        let rootCanonical: String
+        do {
+            resolved = try acceptanceCanonical(project.path)
+            rootCanonical = try acceptanceCanonical(root.path)
+        } catch { throw AcceptanceFailure.rootRecoveryResolution }
+        try rootCheck(resolved == rootCanonical + "/" + name,
+                      "root_recovery_project_confined", failure: .rootRecoveryEscape)
         return project
     }
 
@@ -327,7 +353,10 @@ struct FileAgentAcceptance {
         let paths = Set([project.path, try acceptanceCanonical(project.path)])
         var rules = [["permission": "*", "pattern": "*", "action": "deny"]]
         for name in ["write", "edit"] { rules.append(["permission": name, "pattern": "*", "action": "ask"]) }
-        for name in ["read", "glob", "grep", "list"] {
+        for path in paths.sorted() {
+            rules.append(["permission": "read", "pattern": path + "/seed.txt", "action": "allow"])
+        }
+        for name in ["glob", "grep", "list"] {
             for path in paths.sorted() {
                 for pattern in [path, path + "/*"] {
                     rules.append(["permission": name, "pattern": pattern, "action": "allow"])
@@ -669,6 +698,11 @@ struct FileAgentAcceptance {
         return lines.contains("-before-value") && lines.contains("+after-value")
     }
 
+    private static func rootCheck(_ condition: Bool, _ name: String, failure: AcceptanceFailure) throws {
+        print("CHECK " + name + (condition ? " PASS" : " FAIL"))
+        if !condition { throw failure }
+    }
+
     private static func check(_ condition: Bool, _ name: String) throws {
         print("CHECK " + name + (condition ? " PASS" : " FAIL"))
         if !condition { throw AcceptanceFailure.assertion }
@@ -705,7 +739,19 @@ private enum AcceptanceFailure: String, Error {
     case context = "saved_model_limit_invalid"
     case keychain = "keychain_unavailable_unlock_device_and_check_entitlement"
     case credentialWrite = "unexpected_credential_write"
-    case unsafeRoot = "unsafe_test_root"
+    case rootNotAbsolute = "test_root_not_absolute"
+    case rootInvalidCharacters = "test_root_input_invalid_characters"
+    case rootCanonicalInvalidCharacters = "test_root_canonical_invalid_characters"
+    case rootCanonicalResolution = "test_root_canonical_resolution_failed"
+    case userRootCanonicalResolution = "user_state_root_canonical_resolution_failed"
+    case rootFilesystemRoot = "test_root_is_filesystem_root"
+    case rootInsideUserState = "test_root_inside_user_state_root"
+    case rootAncestorOfUserState = "test_root_ancestor_of_user_state_root"
+    case rootContainsSecret = "test_root_contains_secret"
+    case rootDirectoryInspection = "test_root_directory_inspection_failed"
+    case rootDirectoryCreation = "test_root_directory_creation_failed"
+    case rootRecoveryResolution = "test_root_recovery_storage_resolution_failed"
+    case rootRecoveryEscape = "test_root_recovery_storage_escape"
     case rootNotEmpty = "test_root_must_be_empty_use_a_new_directory"
     case externalPath = "external_or_unexpected_tool_path_rejected"
     case generationLimit = "live_generation_limit_exceeded"
@@ -716,12 +762,31 @@ private enum AcceptanceFailure: String, Error {
     case storage = "diagnostic_storage_limit_exceeded"
 }
 
+// Validate scalar values directly: NUL, LF, CR and permission wildcard syntax.
+private func acceptanceInvalidRootScalars(_ path: String) -> Bool {
+    path.unicodeScalars.contains { scalar in
+        switch scalar.value {
+        case 0, 10, 13, 42, 63: return true
+        default: return false
+        }
+    }
+}
+
+private func acceptanceContainsSecret(_ path: String, secret: String) -> Bool {
+    let bytes = Array(path.utf8), secretBytes = Array(secret.utf8)
+    guard !secretBytes.isEmpty else { return true }
+    guard bytes.count >= secretBytes.count else { return false }
+    return (0...(bytes.count - secretBytes.count)).contains { offset in
+        bytes[offset..<(offset + secretBytes.count)].elementsEqual(secretBytes)
+    }
+}
+
 private func acceptanceContains(_ path: String, in root: String) -> Bool {
     path == root || path.hasPrefix(root.hasSuffix("/") ? root : root + "/")
 }
 
 private func acceptanceCanonical(_ path: String) throws -> String {
-    guard path.hasPrefix("/"), !path.contains("\0") else { throw AcceptanceFailure.externalPath }
+    guard path.hasPrefix("/"), !path.unicodeScalars.contains(where: { $0.value == 0 }) else { throw AcceptanceFailure.externalPath }
     if let resolved = realpath(path, nil) {
         defer { free(resolved) }
         return String(cString: resolved)
