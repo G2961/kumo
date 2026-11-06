@@ -1,5 +1,10 @@
 import Foundation
 import Security
+#if canImport(Darwin)
+import Darwin
+#elseif canImport(Glibc)
+import Glibc
+#endif
 
 /// A bridge-facing, in-process backend. The actor is the sole snapshot and ledger writer.
 public actor NativeAgentBackend {
@@ -499,9 +504,11 @@ public actor NativeAgentBackend {
             guard decision(sid, permission: permission, patterns: prepared.patterns, modifies: prepared.modifies, agent: agent) != "deny" else {
                 throw Self.failure("Tool rejected by updated session permission rules.")
             }
-            let canonicalDirectory = URL(fileURLWithPath: directory).resolvingSymlinksInPath().standardizedFileURL.path
+            let canonicalDirectory = try Self.canonicalWorkspacePath(directory)
             let external = prepared.patterns.filter { path in
-                ![directory, canonicalDirectory].contains(where: { path == $0 || path.hasPrefix($0 + "/") })
+                ![directory, canonicalDirectory].contains(where: {
+                    path == $0 || path.hasPrefix($0.hasSuffix("/") ? $0 : $0 + "/")
+                })
             }
             if !external.isEmpty {
                 let access = decision(sid, permission: "external_directory", patterns: external, modifies: false, agent: agent)
@@ -795,6 +802,16 @@ public actor NativeAgentBackend {
             throw Self.failure("Project directory must be an existing absolute local directory.")
         }
         return url.standardizedFileURL.path
+    }
+
+    private static func canonicalWorkspacePath(_ directory: String) throws -> String {
+        guard directory.hasPrefix("/"), !directory.contains("\0"),
+              let resolved = realpath(directory, nil) else {
+            throw failure("Could not resolve the project directory for external access checks. No file operation was executed.")
+        }
+        defer { free(resolved) }
+        // Keep POSIX spelling: Foundation standardization can undo /private/var resolution.
+        return String(cString: resolved)
     }
 
     private func select(_ body: [String: Any]) throws -> Selection {

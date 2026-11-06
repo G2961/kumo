@@ -1,5 +1,10 @@
 import Foundation
 import XCTest
+#if canImport(Darwin)
+import Darwin
+#elseif canImport(Glibc)
+import Glibc
+#endif
 @testable import KumoCore
 
 final class NativeAgentBackendTests: XCTestCase {
@@ -64,9 +69,19 @@ final class NativeAgentBackendTests: XCTestCase {
         return root
     }
 
+    private func canonicalPath(_ path: String) throws -> String {
+        guard let resolved = realpath(path, nil) else {
+            throw NSError(domain: NSPOSIXErrorDomain, code: Int(errno))
+        }
+        defer { free(resolved) }
+        return String(cString: resolved)
+    }
+
     private func backend(_ root: URL, _ model: ScriptedModel, _ credentials: Credentials = Credentials()) throws -> NativeAgentBackend {
-        try NativeAgentBackend(root: root, modelClient: model,
-                               credentialRead: credentials.read, credentialWrite: credentials.write)
+        let backend = try NativeAgentBackend(root: root, modelClient: model,
+                                             credentialRead: credentials.read, credentialWrite: credentials.write)
+        addTeardownBlock { await backend.shutdown() }
+        return backend
     }
 
     @discardableResult
@@ -105,7 +120,8 @@ final class NativeAgentBackendTests: XCTestCase {
             if try await condition() { return }
             try await Task.sleep(nanoseconds: 10_000_000)
         }
-        XCTFail("Timed out waiting for backend state", file: file, line: line)
+        throw NSError(domain: "NativeAgentBackendTests.WaitTimeout", code: 1,
+                      userInfo: [NSLocalizedDescriptionKey: "\(file):\(line): Timed out waiting for backend state"])
     }
 
     private func waitIdle(_ backend: NativeAgentBackend, _ id: String) async throws {
@@ -122,6 +138,104 @@ final class NativeAgentBackendTests: XCTestCase {
     private func call(_ id: String, _ name: String, _ args: [String: Any]) throws -> NativeModelEvent {
         let json = try JSONSerialization.data(withJSONObject: args, options: .sortedKeys)
         return .toolCall(NativeToolCall(id: id, name: name, arguments: String(decoding: json, as: UTF8.self)))
+    }
+
+    func testWaitTimeoutThrowsInsteadOfContinuingWithInvalidState() async throws {
+        do {
+            try await waitUntil({ false }, file: "timeout-regression", line: 123)
+            XCTFail("Timeout must stop the caller before it indexes missing state")
+        } catch {
+            XCTAssertEqual((error as NSError).domain, "NativeAgentBackendTests.WaitTimeout")
+            XCTAssertTrue(error.localizedDescription.contains("timeout-regression:123"))
+        }
+    }
+
+    func testSymlinkWorkspaceLocalPathsNeedOnlyWriteApprovalAndOutsideStillAsks() async throws {
+        let root = try temporaryRoot()
+        let project = root.appendingPathComponent("project", isDirectory: true)
+        let alias = root.appendingPathComponent("project-alias", isDirectory: true)
+        let sibling = root.appendingPathComponent("project-other", isDirectory: true)
+        try FileManager.default.createDirectory(at: project, withIntermediateDirectories: true)
+        try FileManager.default.createDirectory(at: sibling, withIntermediateDirectories: true)
+        try FileManager.default.createSymbolicLink(at: alias, withDestinationURL: project)
+        let local = project.appendingPathComponent(".env.example")
+        let outside = sibling.appendingPathComponent(".env.example")
+        let written = project.appendingPathComponent("created.txt")
+        try "local example".write(to: local, atomically: true, encoding: .utf8)
+        try "outside example".write(to: outside, atomically: true, encoding: .utf8)
+        let canonicalProject = try canonicalPath(project.path)
+        let canonicalLocal = try canonicalPath(local.path)
+        let model = ScriptedModel([
+            [try call("local-read", "read", ["filePath": canonicalLocal]),
+             try call("local-write", "write", ["filePath": "created.txt", "content": "approved local write"]),
+             try call("outside-read", "read", ["filePath": outside.path]), .finished],
+            [.text("External boundary respected."), .finished]
+        ])
+        let backend = try backend(root, model)
+        let events = Events()
+        await backend.setEventHandler(events.receive)
+        try await configure(backend)
+        let sid = try await session(backend, alias)
+        let sessionInfo = try await request(backend, "GET", "/session/\(sid)") as! [String: Any]
+        let storedDirectory = try XCTUnwrap(sessionInfo["directory"] as? String)
+        XCTAssertEqual(try canonicalPath(storedDirectory), canonicalProject)
+        // Preserve the native tools' requested/resolved spellings, including macOS /var aliases.
+        let prepared = try NativeFileTools(history: NativePatchLedger(root: root)).prepare(
+            name: "read", arguments: ["filePath": canonicalLocal], directory: storedDirectory, sessionID: sid, turnID: "probe")
+        XCTAssertTrue(prepared.patterns.contains(canonicalLocal))
+
+        try await prompt(backend, sid)
+        try await waitUntil { !(try await self.request(backend, "GET", "/permission") as! [[String: Any]]).isEmpty }
+        let permissions = try await request(backend, "GET", "/permission") as! [[String: Any]]
+        let write = try XCTUnwrap(permissions.first)
+        XCTAssertEqual(write["permission"] as? String, "write", "Local canonical read must not ask for external access")
+        XCTAssertEqual((write["tool"] as? [String: Any])?["callID"] as? String, "local-write")
+        XCTAssertFalse(FileManager.default.fileExists(atPath: written.path))
+        let writeID = try XCTUnwrap(write["id"] as? String)
+        _ = try await request(backend, "POST", "/permission/\(writeID)/reply", body: ["reply": "once"])
+        try await waitUntil { !(try await self.request(backend, "GET", "/permission") as! [[String: Any]]).isEmpty }
+        let pending = try await request(backend, "GET", "/permission") as! [[String: Any]]
+        let external = try XCTUnwrap(pending.first)
+        XCTAssertEqual(external["permission"] as? String, "external_directory")
+        XCTAssertEqual((external["tool"] as? [String: Any])?["callID"] as? String, "outside-read", "A sibling sharing the project prefix is still external")
+        XCTAssertEqual(try String(contentsOf: written), "approved local write")
+        let externalID = try XCTUnwrap(external["id"] as? String)
+        _ = try await request(backend, "POST", "/permission/\(externalID)/reply", body: ["reply": "reject"])
+        try await waitIdle(backend, sid)
+        XCTAssertEqual(model.requests.count, 2)
+        XCTAssertTrue(model.requests[1].messages.contains { $0.toolCallID == "local-read" && $0.content.contains("local example") })
+        XCTAssertFalse(model.requests[1].messages.contains { $0.content.contains("outside example") })
+        XCTAssertEqual(events.values.filter { $0["type"] as? String == "permission.asked" }.compactMap {
+            ($0["properties"] as? [String: Any])?["permission"] as? String
+        }, ["write", "external_directory"])
+    }
+
+    func testSymlinkInsideWorkspaceToOutsideStillRequiresExternalApproval() async throws {
+        let root = try temporaryRoot()
+        let project = root.appendingPathComponent("project", isDirectory: true)
+        let outside = root.appendingPathComponent("outside", isDirectory: true)
+        try FileManager.default.createDirectory(at: project, withIntermediateDirectories: true)
+        try FileManager.default.createDirectory(at: outside, withIntermediateDirectories: true)
+        let target = outside.appendingPathComponent("example.txt")
+        let alias = project.appendingPathComponent("local-looking.txt")
+        try "external evidence".write(to: target, atomically: true, encoding: .utf8)
+        try FileManager.default.createSymbolicLink(at: alias, withDestinationURL: target)
+        let model = ScriptedModel([[try call("escape-read", "read", ["filePath": "local-looking.txt"]), .finished],
+                                   [.text("Denied outside read."), .finished]])
+        let backend = try backend(root, model)
+        try await configure(backend)
+        let sid = try await session(backend, project)
+        try await prompt(backend, sid)
+        try await waitUntil { !(try await self.request(backend, "GET", "/permission") as! [[String: Any]]).isEmpty }
+        let pending = try await request(backend, "GET", "/permission") as! [[String: Any]]
+        let permission = try XCTUnwrap(pending.first)
+        XCTAssertEqual(permission["permission"] as? String, "external_directory")
+        XCTAssertTrue((permission["patterns"] as? [String] ?? []).contains(try canonicalPath(target.path)), "The resolved target must not be ignored because the requested path is local")
+        let permissionID = try XCTUnwrap(permission["id"] as? String)
+        _ = try await request(backend, "POST", "/permission/\(permissionID)/reply", body: ["reply": "reject"])
+        try await waitIdle(backend, sid)
+        XCTAssertEqual(model.requests.count, 2)
+        XCTAssertFalse(model.requests[1].messages.contains { $0.content.contains("external evidence") })
     }
 
     func testGlobalSessionSearchCrossesBridgeDirectoryAndFiltersLiteralTitles() async throws {
