@@ -171,6 +171,7 @@ public actor NativeAgentBackend {
             request.cachePolicy = .reloadIgnoringLocalCacheData
             request.setValue("Bearer " + key, forHTTPHeaderField: "Authorization")
             request.setValue("application/json", forHTTPHeaderField: "Accept")
+            NativeProviderCompatibility.apply(to: &request)
             return request
         } catch {
             throw safeError(error, fallback: "Could not prepare the native model catalog request. Check provider configuration and stored credentials.")

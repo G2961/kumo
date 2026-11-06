@@ -235,6 +235,7 @@ public final class JSBridge: NSObject, WKScriptMessageHandler {
             request.setValue("Bearer \(key)", forHTTPHeaderField: "Authorization")
         }
 
+        NativeProviderCompatibility.apply(to: &request)
         let configuration = URLSessionConfiguration.ephemeral
         configuration.timeoutIntervalForRequest = 30
         configuration.timeoutIntervalForResource = 30

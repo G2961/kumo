@@ -284,6 +284,7 @@ enum NativeModelRequestBuilder {
         result.setValue("Bearer " + request.apiKey, forHTTPHeaderField: "Authorization")
         result.setValue("application/json", forHTTPHeaderField: "Content-Type")
         result.setValue("text/event-stream", forHTTPHeaderField: "Accept")
+        NativeProviderCompatibility.apply(to: &result)
         return result
     }
 

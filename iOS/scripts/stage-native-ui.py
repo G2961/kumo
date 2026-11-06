@@ -134,7 +134,7 @@ PROVIDER_FETCH_NEW = r"""   let fetched=null,modelFetchError=null;
    try{fetched=await fetchProviderModels(url.href,key)}catch(e){modelFetchError=nativeErrorMessage(e)}
    const manual=$('#pm')&&$('#pmManual')&&!$('#pmManual').hidden?$('#pm').value.split(/[,\n]/).map(v=>v.trim()).filter(Boolean):[];
    if(!fetched){
-    if(window.KumoNativeBackend)$('#pmStatus').textContent='Model list unavailable: '+(modelFetchError||'Provider did not return models')+'. Manual IDs can still be used.';
+    if(window.KumoNativeBackend)$('#pmStatus').textContent='Model list unavailable: '+(modelFetchError||'Provider did not return models').replace(/^Model list unavailable:\s*/,'')+'. Manual IDs can still be used.';
     const known=list.find(p=>p.id===id);
     const configured=known?Object.keys(known.models||{}):[];
     fetched=(window.KumoNativeBackend?[...new Set([...Object.keys(savedModels),...configured])]:configured).map(mid=>({id:mid}));
@@ -147,6 +147,17 @@ PROVIDER_FETCH_NEW = r"""   let fetched=null,modelFetchError=null;
      $('#pmStatus').textContent='Using manually entered model IDs.';
     }else{$('#pmStatus').textContent='Found '+fetched.length+' models.'}
    }"""
+NATIVE_PROVIDER_NOTE_INIT = r""" if(window.KumoNativeBackend){
+  const updateCompatibilityNote=()=>{
+   let enabled=false;
+   try{enabled=new URL($('#pu').value.trim()).hostname==='agentrouter.org'}catch(e){}
+   $('#pCompatibility').hidden=!enabled;
+  };
+  $('#pu').oninput=updateCompatibilityNote;
+  $('#providerPreset').addEventListener('change',updateCompatibilityNote);
+  updateCompatibilityNote();
+ }
+"""
 NATIVE_LIMITS = r""" function nativeProviderLimits(modelID,saved,fetched,fallback){
   const limit={...(saved||{})};
   if(limit.context==null&&fetched?.context!=null)limit.context=fetched.context;
@@ -204,6 +215,10 @@ def patch_html(html):
         ("    if(fetchedEntry&&fetchedEntry.context){\n     model.limit={...(model.limit||{}),context:fetchedEntry.context};\n    }",
          "    if(window.KumoNativeBackend){\n     const saved=savedModels[modelID]?.limit||list.find(p=>p.id===id)?.models?.[modelID]?.limit;\n     try{model.limit=nativeProviderLimits(modelID,saved,fetchedEntry,$('#pContext').value)}\n     catch(e){$('#pmManual').hidden=false;$('#pmManual').open=true;$('#pContext').focus();throw e}\n    }else if(fetchedEntry&&fetchedEntry.context){\n     model.limit={...(model.limit||{}),context:fetchedEntry.context};\n    }", "native model limit validation"),
         ('<details id="pmManual" hidden>', '<details id="pmManual" ${window.KumoNativeBackend?\'\':\'hidden\'}>', "manual model access"),
+        (' <p class="note">Keys stay in opencode.',
+         ' ${window.KumoNativeBackend?`<p class="note" id="pCompatibility" hidden>AgentRouter compatibility profile is enabled for this host. Responses is verified for GPT models; desktop gateway translates Chat Completions to Responses. Other providers are unchanged.</p>`:\'\'}\n <p class="note">Keys stay in opencode.', "native AgentRouter note"),
+        (" $('#sheet').onclick=async e=>{\n  if(e.target.id==='pc'){providerSheet();return}if(e.target.id!=='ps')return;",
+         NATIVE_PROVIDER_NOTE_INIT + " $('#sheet').onclick=async e=>{\n  if(e.target.id==='pc'){providerSheet();return}if(e.target.id!=='ps')return;", "native AgentRouter note updates"),
         ("Keys stay in opencode.", "Keys stay in Keychain.", "key storage wording"),
         ("if(!['https:','http:'].includes(url.protocol)||url.username||url.password||url.search||url.hash)throw new Error('Enter an API URL without credentials.');",
          "if(!(window.KumoNativeBackend?url.protocol==='https:':['https:','http:'].includes(url.protocol))||url.username||url.password||url.search||url.hash)throw new Error(window.KumoNativeBackend?'Enter an HTTPS API URL without credentials.':'Enter an API URL without credentials.');", "native provider HTTPS"),

@@ -68,7 +68,7 @@ class StageTests(unittest.TestCase):
     def test_provider_api_format_is_untouched(self):
         for start, end in (
             ('<label class="fld" for="pf">', '</select>'),
-            (" $('#providerPreset').onchange=", " $('#sheet').onclick="),
+            (" $('#providerPreset').onchange=", "\n"),
         ):
             self.assertEqual(section(self.html, start, end), section(self.source, start, end))
 
@@ -141,6 +141,16 @@ class StageTests(unittest.TestCase):
             self.assertEqual(output.read_bytes(), b"keep on patch failure")
 
     @unittest.skipUnless(shutil.which("node"), "Node is not installed; Python patch checks still run")
+    def test_agentrouter_compatibility_note_behavior(self):
+        providers = "let providerCatalog=" + section(self.html, "let providerCatalog=", "/* ---------- SSH")
+        with tempfile.TemporaryDirectory() as tmp:
+            harness = Path(tmp) / "test-provider-note.cjs"
+            harness.write_text(NODE_PROVIDER_NOTE_HARNESS, encoding="utf-8")
+            result = subprocess.run(["node", str(harness)], input=providers, text=True, capture_output=True, timeout=10)
+        self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
+        self.assertIn("provider compatibility note passed", result.stdout)
+
+    @unittest.skipUnless(shutil.which("node"), "Node is not installed; Python patch checks still run")
     def test_javascript_behavior(self):
         # Delimit whole declarations, including their actual bridge and lifecycle code.
         pieces = {
@@ -165,6 +175,60 @@ class StageTests(unittest.TestCase):
         self.assertIn("native UI behavior passed", result.stdout)
 
 
+NODE_PROVIDER_NOTE_HARNESS = r"""
+const assert=require('node:assert/strict'),vm=require('node:vm');
+const providers=require('node:fs').readFileSync(0,'utf8');
+const elements=new Map(),window={KumoNativeBackend:true},S={dir:'/workspace'};
+function element(id){if(!elements.has(id))elements.set(id,{value:'',hidden:false,addEventListener:(name,fn)=>{element(id)['on'+name+'Listener']=fn}});return elements.get(id)}
+const context=vm.createContext({window,S,URL,I:{},$:element,esc:s=>String(s??''),api:async()=>({all:[]}),sheet:html=>{
+ elements.clear();element('#sheet').innerHTML=html;
+ for(const id of ['pu','pi'])element('#'+id).value=html.match(new RegExp('id="'+id+'" value="([^"]*)"'))[1];
+ element('#pf').value=html.includes('value="@ai-sdk/openai-compatible" selected')?'@ai-sdk/openai-compatible':'@ai-sdk/openai';
+ const note=html.match(/<p class="note" id="pCompatibility"([^>]*)>([^<]*)<\/p>/);
+ if(note){element('#pCompatibility').hidden=/\bhidden\b/.test(note[1]);element('#pCompatibility').textContent=note[2]}
+}});
+vm.runInContext(providers,context);
+const run=code=>vm.runInContext(code,context);
+const text='AgentRouter compatibility profile is enabled for this host. Responses is verified for GPT models; desktop gateway translates Chat Completions to Responses. Other providers are unchanged.';
+function assertNote(visible){
+ assert.equal(element('#pCompatibility').hidden,!visible);
+ assert.equal(element('#pCompatibility').textContent,text);
+ assert.equal(element('#pf').value,'@ai-sdk/openai-compatible');
+}
+(async()=>{
+ // The URL host, not the provider ID/preset or a substring, controls the note.
+ for(const [url,visible] of [
+  ['https://agentrouter.org/v1',true],['https://AGENTROUTER.ORG/v1',true],
+  ['https://api.agentrouter.org/v1',false],['https://www.agentrouter.org/v1',false],
+  ['https://agentrouter.org.example/v1',false],['https://example.org/agentrouter.org',false],
+  ['https://api.openai.com/v1',false],['',false],['not a URL',false]
+ ]){
+  run('providerMeta={custom:{baseURL:'+JSON.stringify(url)+',npm:"@ai-sdk/openai-compatible",models:[]}}');
+  await run('providerForm("custom")');assertNote(visible);
+ }
+ run('providerMeta={agentrouter:{baseURL:"https://example.org/v1",npm:"@ai-sdk/openai-compatible",models:[]}}');
+ await run('providerForm("agentrouter")');assertNote(false);
+ element('#pu').value='https://agentrouter.org/v1';element('#pu').oninput();assertNote(true);
+ element('#pu').value='https://api.openai.com/v1';element('#pu').oninput();assertNote(false);
+ element('#pu').value='invalid';element('#pu').oninput();assertNote(false);
+ // Preset changes update visibility after the existing URL/format handler runs.
+ for(const [preset,visible] of [['agentrouter',true],['openai',false],['agentrouter',true],['custom',true]]){
+  await element('#providerPreset').onchange({target:{value:preset}});
+  element('#providerPreset').onchangeListener();
+  assert.equal(element('#pCompatibility').hidden,!visible);
+  assert.equal(element('#pf').value,'@ai-sdk/openai');
+ }
+ window.KumoNativeBackend=false;await run('providerForm("agentrouter")');
+ assert.doesNotMatch(element('#sheet').innerHTML,/pCompatibility|AgentRouter compatibility profile/);
+ assert.equal(element('#pu').oninput,undefined);
+ assert.equal(element('#providerPreset').onchangeListener,undefined);
+ window.KumoNativeBackend=true;await run('providerForm()');
+ assert.equal(element('#pu').value,'https://agentrouter.org/v1');assert.equal(element('#pCompatibility').hidden,false);
+ console.log('provider compatibility note passed');
+})().catch(e=>{console.error(e);process.exitCode=1});
+"""
+
+
 NODE_HARNESS = r"""
 const assert=require('node:assert/strict'),vm=require('node:vm');
 const input=JSON.parse(require('node:fs').readFileSync(0,'utf8'));
@@ -180,7 +244,7 @@ const window=new Events(),document=new Events(),elements=new Map(),calls=[],seen
 window.KumoNativeBackend=true;document.hidden=false;
 const S={dir:'/workspace',sid:'session',live:false,view:0,provs:[],sessions:[],projects:[],errors:[],efforts:{},agent:'build',webSearch:false};
 let reply=()=>null,syncs=0,renders=0,interval,browserFetches=0,eventSources=0;
-function element(id){if(!elements.has(id))elements.set(id,{value:'',textContent:'',hidden:false,open:false,disabled:false,focus:()=>{},classList:{contains:()=>false},querySelector:()=>null});return elements.get(id)}
+function element(id){if(!elements.has(id))elements.set(id,{value:'',textContent:'',hidden:false,open:false,disabled:false,focus:()=>{},addEventListener:(name,fn)=>{element(id)['on'+name+'Listener']=fn},classList:{contains:()=>false},querySelector:()=>null});return elements.get(id)}
 window.webkit={messageHandlers:{codexNative:{postMessage:r=>{
  calls.push(JSON.parse(JSON.stringify(r)));
  if(r.action==='backendSubscribe'){pending.push(calls.at(-1));return}
@@ -347,14 +411,17 @@ function settle(index,value){window.codexNativeResult(pending[index].id,value)}
  const providerErrors=[
   'HTTP 401: The API key was rejected by the provider.',
   {message:'HTTP 404: Model discovery endpoint /v1/models was not found.'},
-  {data:{message:'NSURLErrorDomain (-1003): A server with the specified hostname could not be found.'}}
+  {data:{message:'NSURLErrorDomain (-1003): A server with the specified hostname could not be found.'}},
+  'Model list unavailable: HTTP 400: Bad Request',
+  {message:'Model list unavailable: HTTP 401: The API key was rejected by the provider.'},
+  {data:{message:'Model list unavailable: HTTP 404: Model discovery endpoint /v1/models was not found.'}}
  ];
  function fillProvider(manual=''){
   element('#pi').value='agentrouter';element('#pnn').value='AgentRouter';element('#pu').value='https://agentrouter.org/v1';
   element('#pf').value=format;element('#pk').value=enteredKey;element('#pm').value=manual;element('#pContext').value='32768';
  }
  function assertNoKeyShown(){
-  for(const text of [element('#pe').textContent,element('#pmStatus').textContent,...S.errors,...logs])assert.ok(!text.includes('sk-test-secret'),text);
+  for(const text of [element('#pe').textContent,element('#pmStatus').textContent,element('#pCompatibility').textContent,element('#sheet').innerHTML,...S.errors,...logs])assert.ok(!text.includes('sk-test-secret'),text);
  }
  for(const nativeError of providerErrors){
   const message=typeof nativeError==='string'?nativeError:nativeError.data?.message||nativeError.message;
@@ -362,7 +429,8 @@ function settle(index,value){window.codexNativeResult(pending[index].id,value)}
   run('providerCatalog=null;providerMeta={}');await run('providerForm()');fillProvider();
   const before=writes();await element('#sheet').onclick({target:{id:'ps'}});
   assert.equal(writes(),before);assert.equal(element('#pe').textContent,message);
-  assert.equal(element('#pmStatus').textContent,'Model list unavailable: '+message+'. Manual IDs can still be used.');
+  assert.equal(element('#pmStatus').textContent,'Model list unavailable: '+message.replace(/^Model list unavailable:\s*/,'')+'. Manual IDs can still be used.');
+  assert.doesNotMatch(element('#pmStatus').textContent,/Model list unavailable: Model list unavailable/);
   assert.equal(element('#pk').value,enteredKey);assert.equal(element('#ps').disabled,false);assert.equal(element('#pf').value,format);assertNoKeyShown();
   element('#pm').value='manual-only';await element('#sheet').onclick({target:{id:'ps'}});
   assert.equal(writes(),before+2);
@@ -371,7 +439,7 @@ function settle(index,value){window.codexNativeResult(pending[index].id,value)}
   assert.equal(element('#pk').value,'');assert.match(element('#pmStatus').textContent,/Manual IDs can still be used/);assertNoKeyShown();
   settle(pending.length-1,{subscribed:true});await tick();
  }
- for(const result of [null,{data:[]},{error:{message:'HTTP 401: Authorization: Bearer sk-test-secret rejected'}}]){
+ for(const result of [null,{data:[]},{error:{message:'HTTP 401: Authorization: Bearer sk-test-secret rejected'}},{error:{message:'Model list unavailable: HTTP 401: Authorization: Bearer sk-test-secret rejected'}}]){
   reply=r=>r.action==='providerModels'?result:r.data.path==='/provider'?{all:[],connected:[],default:{}}:{};
   run('providerCatalog=null');await run('providerForm()');fillProvider();
   const before=writes();await element('#sheet').onclick({target:{id:'ps'}});

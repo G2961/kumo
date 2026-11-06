@@ -21,33 +21,53 @@ isolated URLProtocol HTTP fixture, not a mock `NativeModelClient`:
 
 These fixtures prove transport/agent integration, **not a live model answer**.
 
-## Physical iPad result
+## Physical iPad result and resolved cause
 
-On iPad6,11 / iOS 16.7.12, a temporary native diagnostic executable read the
-configured AgentRouter credential through Kumo's Keychain access group. The key
-was never returned to JavaScript, stdout, a file, SSH or logs. The helper used the
-same `NativeModelClient.swift` as the app, no provider-specific header spoofing,
-no redirects and no automatic retry. No application transcript was sent; the
-single generation request asked only for a connection-test confirmation.
+The first native requests used ordinary Bearer authorization and were rejected
+with HTTP 401 / `unauthorized_client_error` for model discovery and both generation
+protocols. That result was initially treated as an external blocker; it was not
+sufficient to explain why the user's desktop connection worked.
 
-Observed separately:
+A later inspection of the **working desktop configuration** found that its apparent
+Chat Completions provider points to a local gateway at `127.0.0.1:9123`. That gateway
+actually translates the request to `/v1/responses` and sets a Codex-compatible
+client header profile. The localhost gateway is not required by the iOS app.
+
+On the same iPad6,11 / iOS 16.7.12, with the same Keychain credential and unchanged
+model, an explicit A/B diagnostic reproduced the difference:
+
+| Request | Ordinary native headers | Desktop-compatible headers |
+| --- | --- | --- |
+| `/v1/models` | HTTP 401 | HTTP 200, 3 models |
+| `/v1/responses` | HTTP 401 | Successful complete stream, `OK` (2 UTF-8 bytes) |
+| `/v1/chat/completions` | HTTP 401 | HTTP 400 for the tested request/model |
+
+The key was never returned to JavaScript, stdout, files, SSH or logs. Only connection
+diagnoses and counts were printed. No request used automatic retry or followed a
+redirect. This proves a live Responses answer and header-profile dependency, **not**
+full Chat Completions compatibility or a live file-agent turn.
+
+`NativeProviderCompatibility.apply(to:)` centralizes the tested profile for HTTPS
+on the **exact** `agentrouter.org` host (default port/443) only:
 
 ```text
-/models:          HTTP 401, unauthorized_client_error
-Chat Completions: HTTP 401, unauthorized_client_error
-Responses:        HTTP 401, unauthorized_client_error
+User-Agent: codex_cli_rs/0.46.0 (Ubuntu 22.4.0; x86_64) xterm-256color
+originator: codex_cli_rs
+version: 0.46.0
+session_id: one generated UUID per app process
 ```
 
-The credential was found, TLS connected, and the gateway explicitly rejected the
-client. This does **not** establish whether the account/key itself is valid or
-what internal gateway policy caused the rejection. No live answer or file edit
-from AgentRouter has been claimed. Do not try to cure this by changing model IDs,
-repeated retry, or pretending Kumo is another client.
+This explicitly advertises a Codex-compatible client identity to this gateway;
+it is not the actual Kumo/platform identity. It mirrors the owner's already
+working adapter and is documented rather than silently applied to every provider.
+Authorization, request body, and the selected protocol are not overwritten.
+Free Inference, subdomains, different ports and all other providers are unchanged.
+The provider settings explain that Responses is verified for the tested GPT model;
+Chat is not automatically switched by the request builder.
 
-Provider support needs to confirm that ordinary Bearer requests from Kumo are
-allowed for this account. If a different provider is configured by the user, it
-can be tested without changing the agent core. Do not invent model/context limits
-or migrate credentials to an unrelated endpoint.
+The rejection's internal policy and minimal required subset of headers remain
+unknown. A future officially supported Kumo profile should replace this workaround
+when the gateway provides one.
 
 ## Diagnostic helper
 

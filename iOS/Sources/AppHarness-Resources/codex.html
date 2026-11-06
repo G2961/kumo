@@ -2501,6 +2501,7 @@ async function providerForm(existing){
  ${window.KumoNativeBackend?`<label class="fld" for="pContext">Context window for models without metadata</label><input class="in" id="pContext" type="text" inputmode="numeric" autocomplete="off" spellcheck="false" aria-describedby="pContextNote"><p class="note" id="pContextNote">Enter the actual context window in tokens from your provider documentation. This explicit value applies only to models missing saved or fetched context metadata; existing per-model limits are preserved. No default is assumed. Use this shared value only when those models have the same context window; configure different limits separately for heterogeneous models.</p>`:''}
  <details id="pmManual" ${window.KumoNativeBackend?'':'hidden'}><summary class="opt">Enter model IDs manually</summary><label class="fld" for="pm">Model IDs</label><input class="in" id="pm" value="${esc(modelIDs.join(', '))}" placeholder="Models available in your account" autocomplete="off" spellcheck="false"></details>
  <details><summary class="opt">Advanced settings</summary><label class="fld" for="pi">Provider ID</label><input class="in" id="pi" value="${esc(existing||'agentrouter')}" autocomplete="off" spellcheck="false"><label class="fld" for="pu">API base URL</label><input class="in" id="pu" value="${esc(meta.baseURL||(router?'https://agentrouter.org/v1':''))}" type="url" autocomplete="off" spellcheck="false"><label class="fld" for="pf">API format</label><select class="in" id="pf"><option value="@ai-sdk/openai" ${meta.npm!=='@ai-sdk/openai-compatible'?'selected':''}>Responses</option><option value="@ai-sdk/openai-compatible" ${meta.npm==='@ai-sdk/openai-compatible'?'selected':''}>Chat Completions</option></select></details>
+ ${window.KumoNativeBackend?`<p class="note" id="pCompatibility" hidden>AgentRouter compatibility profile is enabled for this host. Responses is verified for GPT models; desktop gateway translates Chat Completions to Responses. Other providers are unchanged.</p>`:''}
  <p class="note">Keys stay in Keychain. Provider settings apply to all projects.</p><p class="note error-note" id="pe" role="status"></p><div class="btns"><button class="btn p" id="ps">Save provider</button><button class="btn" id="pc">Back</button></div>`);
  function nativeProviderLimits(modelID,saved,fetched,fallback){
   const limit={...(saved||{})};
@@ -2530,6 +2531,16 @@ async function providerForm(existing){
   }catch(e){if(window.KumoNativeBackend)throw e;return null}
  }
  $('#providerPreset').onchange=async e=>{const v=e.target.value;if(v==='custom'){$('#sheet details').open=true;return}$('#pi').value=v;$('#pnn').value=v==='agentrouter'?'AgentRouter':v==='openai'?'OpenAI':'';$('#pu').value=v==='agentrouter'?'https://agentrouter.org/v1':'https://api.openai.com/v1';$('#pf').value='@ai-sdk/openai';$('#pmManual').hidden=false};
+ if(window.KumoNativeBackend){
+  const updateCompatibilityNote=()=>{
+   let enabled=false;
+   try{enabled=new URL($('#pu').value.trim()).hostname==='agentrouter.org'}catch(e){}
+   $('#pCompatibility').hidden=!enabled;
+  };
+  $('#pu').oninput=updateCompatibilityNote;
+  $('#providerPreset').addEventListener('change',updateCompatibilityNote);
+  updateCompatibilityNote();
+ }
  $('#sheet').onclick=async e=>{
   if(e.target.id==='pc'){providerSheet();return}if(e.target.id!=='ps')return;
   const save=$('#ps'),error=$('#pe');save.disabled=true;let key='';
@@ -2546,7 +2557,7 @@ async function providerForm(existing){
    try{fetched=await fetchProviderModels(url.href,key)}catch(e){modelFetchError=nativeErrorMessage(e)}
    const manual=$('#pm')&&$('#pmManual')&&!$('#pmManual').hidden?$('#pm').value.split(/[,\n]/).map(v=>v.trim()).filter(Boolean):[];
    if(!fetched){
-    if(window.KumoNativeBackend)$('#pmStatus').textContent='Model list unavailable: '+(modelFetchError||'Provider did not return models')+'. Manual IDs can still be used.';
+    if(window.KumoNativeBackend)$('#pmStatus').textContent='Model list unavailable: '+(modelFetchError||'Provider did not return models').replace(/^Model list unavailable:\s*/,'')+'. Manual IDs can still be used.';
     const known=list.find(p=>p.id===id);
     const configured=known?Object.keys(known.models||{}):[];
     fetched=(window.KumoNativeBackend?[...new Set([...Object.keys(savedModels),...configured])]:configured).map(mid=>({id:mid}));

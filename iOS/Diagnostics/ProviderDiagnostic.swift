@@ -40,6 +40,7 @@ struct ProviderDiagnostic {
                 if args.count > 4 && args[4] == "desktop-profile" {
                     for (name, value) in Self.desktopProfile { request.setValue(value, forHTTPHeaderField: name) }
                 }
+                NativeProviderCompatibility.apply(to: &request)
                 let (bytes, response) = try await session.bytes(for: request)
                 guard let http = response as? HTTPURLResponse else { print("DIAGNOSTIC_INVALID_HTTP"); return }
                 if !(200..<300).contains(http.statusCode) {
