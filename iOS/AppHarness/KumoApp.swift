@@ -13,9 +13,9 @@
 // 4. Copy this file into the app target.
 // 5. Add an ATS exception for local networking in Info.plist (see README-iOS.md).
 
+// Single-target build (xcodegen): KumoCore and KumoApp sources compile into the same
+// module, so no package imports are needed here.
 import SwiftUI
-import KumoCore
-import KumoApp
 
 @main
 struct KumoMain: App {

@@ -84,7 +84,7 @@ jobs:
             CODE_SIGNING_ALLOWED=NO \
             CODE_SIGN_IDENTITY="" \
             CODE_SIGNING_REQUIRED=NO \
-            build | xcpretty || true
+            build 2>&1 | xcpretty; test ${PIPESTATUS[0]} -eq 0
 
       - name: Run KumoCore unit tests (host)
         working-directory: ${{ github.workspace }}/iOS
