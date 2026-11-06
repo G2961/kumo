@@ -292,7 +292,6 @@ struct ReplayDiagnostic {
                             data.append(byte)
                         }
                         try Task.checkCancellation()
-                        guard expectedLength < 0 || data.count == Int(expectedLength) else { return nil }
                         return data
                     } catch { return nil }
                 }
@@ -328,7 +327,22 @@ struct ReplayDiagnostic {
            matches(param, pattern: "^(input|messages|tools|reasoning|max_output_tokens|include|model|instructions|store)(\\[[0-9]+\\]|\\.[A-Za-z_][A-Za-z0-9_]*)*$", maximum: 128) {
             report["errorParam"] = param
         }
-        let message = (error?["message"] as? String ?? object?["message"] as? String ?? "").lowercased()
+        var texts: [String] = []
+        func collect(_ value: Any, depth: Int = 0) {
+            guard depth < 5 else { return }
+            if let text = value as? String {
+                texts.append(text.lowercased())
+                if let nestedData = text.data(using: .utf8), let decoded = try? JSONSerialization.jsonObject(with: nestedData) { collect(decoded, depth: depth + 1) }
+            } else if let dict = value as? [String: Any] {
+                for key in ["error", "message", "detail", "details", "body", "response"] {
+                    if let nested = dict[key] { collect(nested, depth: depth + 1) }
+                }
+            }
+        }
+        if let object { collect(object) }
+        let message = texts.joined(separator: " ")
+        report["bodyBytes"] = data?.count ?? 0
+        report["jsonObjectAvailable"] = object != nil
         // Provider text never leaves this function. Fixed substring matches only.
         let classifications: [String: [String]] = [
             "encryptedContentMention": ["encrypted"], "reasoningMention": ["reasoning"],
@@ -337,7 +351,15 @@ struct ReplayDiagnostic {
             "previousResponseMention": ["previous_response", "previous response"],
             "itemOrderMention": ["item order", "order of items", "out of order", "must follow", "must be followed", "preceding", "without a corresponding", "not found"],
             "unknownParameterMention": ["unknown parameter", "unrecognized parameter"],
-            "requiredMention": ["required", "missing"]]
+            "requiredMention": ["required", "missing"],
+            "phaseMention": ["phase"], "logprobsMention": ["logprobs"],
+            "roleMention": ["role"], "messageIDMention": ["message id", "item id"],
+            "notAllowedMention": ["not allowed", "not permitted"],
+            "maxTokensMention": ["max_output_tokens", "max_completion_tokens"],
+            "inputTypeMention": ["input type", "input item", "input[", "input."],
+            "instructionsMention": ["instructions"], "emptyStringMention": ["empty string"],
+            "invalidParameterMention": ["invalid parameter", "invalid value", "invalid request"],
+            "storeMention": ["store"], "contentTypeMention": ["content type", "output_text", "input_text"]]
         for (name, substrings) in classifications {
             report[name] = substrings.contains(where: { message.contains($0) })
         }
