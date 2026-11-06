@@ -33,24 +33,29 @@ public final class UIServer: NSObject, URLSessionDataDelegate {
 
     public func start(preferredPort: UInt16 = 14102) throws {
         if running { return }
-        do {
-            listener = try NWListener(using: .tcp, on: NWEndpoint.Port(rawValue: preferredPort) ?? .any)
-        } catch {
-            listener = try NWListener(using: .tcp, on: .any)
+        // Try a few ports like ConnectProxy does: stale listeners from previous launches
+        // may hold the preferred one.
+        var lastError: Error?
+        for candidate in [preferredPort, preferredPort + 1, preferredPort + 2, preferredPort + 3, preferredPort + 4] {
+            do { listener = try NWListener(using: .tcp, on: NWEndpoint.Port(rawValue: candidate) ?? .any) }
+            catch { lastError = error; continue }
+            guard let listener else { lastError = NSError(domain: "UIServer", code: 1); continue }
+            port = listener.port?.rawValue ?? 0
+            running = true
+            listener.newConnectionHandler = { [weak self] conn in self?.handle(conn) }
+            listener.start(queue: queue)
+            // NWListener.start is async: the port is assigned after the listener becomes ready.
+            // Without this poll the caller reads port=0 and the WebView gets a broken URL.
+            let deadline = Date().addingTimeInterval(2)
+            while (port == 0 || listener.state == .setup) && Date() < deadline {
+                Thread.sleep(forTimeInterval: 0.02)
+            }
+            if port != 0 { return }
+            lastError = NSError(domain: "UIServer", code: 2,
+                userInfo: [NSLocalizedDescriptionKey: "listener did not start on \(candidate)"])
+            listener.cancel(); listener = nil; running = false; port = 0
         }
-        guard let listener else { throw NSError(domain: "UIServer", code: 1) }
-        port = listener.port?.rawValue ?? 0
-        running = true
-        listener.newConnectionHandler = { [weak self] conn in self?.handle(conn) }
-        listener.start(queue: queue)
-        // NWListener.start is async: the port is assigned after the listener becomes ready.
-        // Without this poll the caller reads port=0 and the WebView gets a broken URL.
-        let deadline = Date().addingTimeInterval(3)
-        while (port == 0 || listener.state == .setup) && Date() < deadline {
-            Thread.sleep(forTimeInterval: 0.02)
-        }
-        if port == 0 { throw NSError(domain: "UIServer", code: 2,
-            userInfo: [NSLocalizedDescriptionKey: "listener did not start"]) }
+        throw lastError ?? NSError(domain: "UIServer", code: 1)
     }
 
     public func stop() {
