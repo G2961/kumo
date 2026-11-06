@@ -230,7 +230,18 @@ public struct KumoWebView: UIViewRepresentable {
                 crumbChildren:document.getElementById('fmCrumb').children.length,
                 backHandler:typeof back.onclick, hitBack:!!hit && (hit === back || back.contains(hit)),
                 hitTag:hit ? hit.tagName : 'none', viewerHidden:document.getElementById('fmView').hidden,
-                nativeFlag:!!window.KumoNativeBackend};
+                nativeFlag:!!window.KumoNativeBackend,
+                scope: typeof window.__kumoFilesScope === 'function' ? window.__kumoFilesScope() : null,
+                textareaExists: !!document.getElementById('fmText')};
+              let rows = list.querySelectorAll('[data-fm-file]');
+              if(rows.length) {
+                rows[0].click();
+                await new Promise(resolve => setTimeout(resolve, 800));
+                filesProbe.readerVisible = !document.getElementById('fmView').hidden;
+                filesProbe.readCharacters = document.getElementById('fmText').value.length;
+                back.click();
+                filesProbe.readerClosed = document.getElementById('fmView').hidden;
+              }
               back.click();
               filesProbe.closed = screen.hidden;
             } catch(error) {
@@ -315,7 +326,7 @@ public struct KumoWebView: UIViewRepresentable {
                   let body = message.body as? [String: Any],
                   let kind = body["kind"] as? String else { return }
             if kind == "files-probe", let metrics = body["metrics"] as? [String: Any] {
-                let safeFields: Set<String> = ["phase", "visible", "listChildren", "rows", "crumbChildren", "backHandler", "hitBack", "hitTag", "viewerHidden", "nativeFlag", "closed", "errorName"]
+                let safeFields: Set<String> = ["phase", "visible", "listChildren", "rows", "crumbChildren", "backHandler", "hitBack", "hitTag", "viewerHidden", "nativeFlag", "closed", "errorName", "scope", "textareaExists", "readerVisible", "readCharacters", "readerClosed"]
                 let safe = metrics.filter { safeFields.contains($0.key) }
                 if let json = try? JavaScriptJSON.encode(safe) { NSLog("[files-probe] %@", json) }
                 return

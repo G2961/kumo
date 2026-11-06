@@ -813,6 +813,25 @@ async def files_native_back(page, fixture, expect):
     await expect(page.locator('#fmScreen')).to_be_hidden()
 
 
+async def files_scope(page, fixture, expect):
+    async def check_scope():
+        leaked = await page.evaluate("['fileReset','crumbRender','readState','statusHTML','currentRequest','toastNative'].filter(name => name in window)")
+        require(not leaked, 'Files helpers leaked onto window: ' + repr(leaked))
+        require(await page.evaluate('typeof window.__kumoFilesScope') == 'function', 'Files scope probe missing')
+        snapshot = await page.evaluate('window.__kumoFilesScope()')
+        require(snapshot == {'textType': 'object', 'textIsNull': False, 'textMatches': True,
+                             'textareaTag': 'TEXTAREA', 'editorConnected': True},
+                'Files closure lost its editor: ' + repr(snapshot))
+    await check_scope()
+    await open_files(page, fixture)
+    await fm_file(page, FILE).click()
+    await expect(page.locator('#fmText')).to_have_value(AFTER)
+    await check_scope()
+    await page.locator('#fmBack').click()
+    await expect(fm_file(page, FILE)).to_be_visible()
+    await check_scope()
+
+
 async def files_native_default(page, fixture, expect):
     # Empty selection is a UI boundary condition; let native fsList choose its own default.
     await page.evaluate("S.dir = ''")
@@ -827,7 +846,7 @@ CASES = {'files_browser': files_browser, 'files_loading': files_loading,
          'files_failure': files_failure, 'files_read_failure': files_read_failure,
          'files_stale_navigation': files_stale_navigation, 'files_saved_refresh': files_saved_refresh,
          'files_stale_session': files_stale_session, 'files_native_default': files_native_default,
-                  'files_native_back': files_native_back,
+         'files_native_back': files_native_back, 'files_scope': files_scope,
          'permission_diff': permission_diff, 'permission_fallback': permission_fallback,
          'permission_types': permission_types, 'permission_prepared': permission_prepared,
          'permission_bounded': permission_bounded, 'allow': allow, 'reject': reject, 'stop': stop,
@@ -968,9 +987,29 @@ def main():
                 pass
             else:
                 raise AssertionError(label + ' patch did not fail closed on changed/duplicate canonical block')
-    require((RESOURCES / 'codex.html').read_bytes() == module.patch_html(canonical).encode('utf-8'),
+    surround = module.FILE_MANAGER_BEFORE + module.FILE_MANAGER_OLD + module.FILE_MANAGER_AFTER
+    require(canonical.count(surround) == 1, 'Files surrounding canonical boundaries changed')
+    for changed in (canonical.replace(module.FILE_MANAGER_BEFORE + module.FILE_MANAGER_OLD,
+                                      module.FILE_MANAGER_BEFORE + '/* shifted start */\n' + module.FILE_MANAGER_OLD),
+                    canonical.replace(module.FILE_MANAGER_OLD + module.FILE_MANAGER_AFTER,
+                                      module.FILE_MANAGER_OLD + '\n/* shifted end */' + module.FILE_MANAGER_AFTER),
+                    canonical + '\n' + surround):
+        try:
+            module.patch_html(changed)
+        except module.PatchError:
+            pass
+        else:
+            raise AssertionError('Files patch accepted changed/duplicate surrounding boundaries')
+    require(module.FILE_MANAGER_NEW.startswith("/* ---------- file manager ---------- */\n;(function(){\n 'use strict';\n"),
+            'Files must start a function-local strict scope')
+    require(module.FILE_MANAGER_NEW.endswith('\n})();'), 'Files IIFE must end before the following app scope')
+    staged_html = module.patch_html(canonical)
+    require(staged_html.count(module.FILE_MANAGER_BEFORE + module.FILE_MANAGER_NEW + module.FILE_MANAGER_AFTER) == 1,
+            'Files IIFE changed its surrounding boundaries')
+
+    require((RESOURCES / 'codex.html').read_bytes() == staged_html.encode('utf-8'),
             'Generated iOS HTML is stale; run stage-native-ui.py first')
-    print('PASS exact permission/file manager patches fail closed; generated iOS HTML matches staging', flush=True)
+    print('PASS exact permission/file manager patches and scope boundaries fail closed; generated iOS HTML matches staging', flush=True)
     assets = output / 'assets'
     assets.mkdir(exist_ok=True)
     staged, _ = module.stage(SOURCE, assets)

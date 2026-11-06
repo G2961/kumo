@@ -4241,10 +4241,12 @@ window.addEventListener('unhandledrejection',e=>err('promise: '+(e.reason&&e.rea
 }
 
 /* ---------- file manager ---------- */
-{
+;(function(){
+ 'use strict';
  const scr=document.getElementById('fmScreen'),list=document.getElementById('fmList'),crumb=document.getElementById('fmCrumb'),
        title=document.getElementById('fmTitle'),view=document.getElementById('fmView'),viewName=document.getElementById('fmViewName'),
        text=document.getElementById('fmText'),editBtn=document.getElementById('fmEdit'),delBtn=document.getElementById('fmDel');
+ window.__kumoFilesScope=()=>({textType:typeof text,textIsNull:text===null,textMatches:text===document.getElementById('fmText'),textareaTag:document.getElementById('fmText')?.tagName,editorConnected:!!text?.isConnected});
  let fmCwd=null,fmFile=null,fmEditing=false,fmRoot=null,fmRequest=0;
  const nativeFiles=!!window.KumoNativeBackend;
  let readStatus=null;
@@ -4362,7 +4364,7 @@ window.addEventListener('unhandledrejection',e=>err('promise: '+(e.reason&&e.rea
   if(nativeFiles){fmRoot=path||S.dir||null;fmOpen(fmRoot||undefined)}
   else fmOpen(path||S.dir||'/storage/emulated/0/Documents/Kumo');
  };
-}
+})();
 const kwTpl=document.getElementById('kwTpl');
 let kwKumo=null,kwSv=null,kwOrbit=null,kwFx=null,kwParts=[],kwMiniParts=[],kwCur=null;
 let kwTail=null,kwState='idle',kwPhase='',kwT=0,kwLast=0,kwTimer=0,kwPulseTmo=0,kwLock=0,kwNextSt=0,kwNextSp=0,kwNextPk=0,kwPeekEnd=0,kwBag=[],kwStars=[],kwSince=0;

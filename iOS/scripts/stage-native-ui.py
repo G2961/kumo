@@ -286,10 +286,16 @@ FILE_MANAGER_OLD = r"""/* ---------- file manager ---------- */
 }"""
 
 
+FILE_MANAGER_BEFORE = " $('#main').addEventListener('touchcancel',()=>{swTrack=false},{passive:true});\n}\n\n"
+FILE_MANAGER_AFTER = "\nconst kwTpl=document.getElementById('kwTpl');"
+
+
 def native_file_manager():
     # Patch the whole canonical block exactly, retaining its Android branch and handlers.
     patches = [
-        (" let fmCwd=null,fmFile=null,fmEditing=false;", r""" let fmCwd=null,fmFile=null,fmEditing=false,fmRoot=null,fmRequest=0;
+        ("/* ---------- file manager ---------- */\n{", "/* ---------- file manager ---------- */\n;(function(){\n 'use strict';"),
+        (" let fmCwd=null,fmFile=null,fmEditing=false;", r""" window.__kumoFilesScope=()=>({textType:typeof text,textIsNull:text===null,textMatches:text===document.getElementById('fmText'),textareaTag:document.getElementById('fmText')?.tagName,editorConnected:!!text?.isConnected});
+ let fmCwd=null,fmFile=null,fmEditing=false,fmRoot=null,fmRequest=0;
  const nativeFiles=!!window.KumoNativeBackend;
  let readStatus=null;
  if(nativeFiles){
@@ -357,7 +363,7 @@ def native_file_manager():
     html = FILE_MANAGER_OLD
     for old, new in patches:
         html = replace_exact(html, old, new, 'file manager')
-    return html
+    return replace_exact(html, '\n };\n}', '\n };\n})();', 'file manager scope end')
 
 
 FILE_MANAGER_NEW = native_file_manager()
@@ -371,7 +377,8 @@ def patch_html(html):
         (" ['get','/event'],['get','/config/providers']", " ['get','/config/providers']", "mandatory routes"),
         (EVENTS_OLD, EVENTS_NEW, "event subscription"),
         (PERMISSION_OLD, PERMISSION_NEW, "native permission diff"),
-        (FILE_MANAGER_OLD, FILE_MANAGER_NEW, "native file manager"),
+        (FILE_MANAGER_BEFORE + FILE_MANAGER_OLD + FILE_MANAGER_AFTER,
+         FILE_MANAGER_BEFORE + FILE_MANAGER_NEW + FILE_MANAGER_AFTER, "native file manager"),
         (" if(!document.getElementById('fmScreen').hidden){\n  if(!document.getElementById('fmView').hidden)",
          " if(!document.getElementById('fmScreen').hidden){\n  if(window.KumoNativeBackend){document.getElementById('fmBack').click();return true}\n  if(!document.getElementById('fmView').hidden)", "native Files back"),
         ("if(S.live&&lastEv&&Date.now()-lastEv>15000)recycleSSE();", "if(!window.KumoNativeBackend&&S.live&&lastEv&&Date.now()-lastEv>15000)recycleSSE();", "HTTP heartbeat"),
