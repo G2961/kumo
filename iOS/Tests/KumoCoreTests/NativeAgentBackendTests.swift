@@ -388,7 +388,8 @@ final class NativeAgentBackendTests: XCTestCase {
                 let partID = properties["partID"] as! String
                 XCTAssertNotNil(liveParts[partID], "An ordered, typed part must precede its first delta")
                 let field = properties["field"] as! String
-                liveParts[partID]?[field] = (liveParts[partID]?[field] as? String ?? "") + (properties["delta"] as! String)
+                let updated = (liveParts[partID]?[field] as? String ?? "") + (properties["delta"] as! String)
+                liveParts[partID]?[field] = updated
             case "session.status":
                 running = (properties["status"] as! [String: Any])["type"] as? String != "idle"
             case "session.idle":
