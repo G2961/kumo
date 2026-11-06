@@ -87,6 +87,10 @@ jobs:
           open(path, 'wb').write(data)
           print('LC_BUILD_VERSION spliced: ncmds', ncmds, '->', ncmds + 1)
           EOF
+          # Ad-hoc re-sign AFTER the splice (page hashes changed), TrollStore needs a
+          # signed binary for its CoreTrust bypass to succeed.
+          codesign -f -s - --all-architectures $R/opencode
+          codesign -dvv $R/opencode 2>&1 | head -n 4 || true
           ls -la $R/opencode
 
       - name: "Stage web UI assets (single source: Android assets)"
