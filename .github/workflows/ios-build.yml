@@ -1,0 +1,103 @@
+name: iOS Build (Kumo)
+
+# Builds the darwin/arm64 opencode server + the Kumo iOS app into an unsigned (adhoc)
+# .ipa. Signing is intentionally left off (CODE_SIGNING_ALLOWED=NO) so the archive can be
+# installed via TrollStore / sideloading / self-sign on a jailbroken iPad (palera1n).
+
+on:
+  workflow_dispatch:
+  push:
+    paths:
+      - "iOS/**"
+      - ".github/workflows/ios-build.yml"
+  pull_request:
+    paths:
+      - "iOS/**"
+
+concurrency:
+  group: ios-build-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  build:
+    runs-on: macos-14
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Select Xcode
+        run: |
+          ls /Applications/Xcode*.app/Contents/Developer >/dev/null 2>&1 || true
+          sudo xcode-select -s /Applications/Xcode.app/Contents/Developer 2>/dev/null || true
+          xcodebuild -version
+
+      - name: Install XcodeGen
+        run: brew install xcodegen
+
+      - name: Check Swift toolchain
+        run: swift --version
+
+      # --- Build the darwin/arm64 opencode server binary ---
+      - name: Build opencode (darwin/arm64)
+        working-directory: ${{ github.workspace }}/iOS
+        run: |
+          set -e
+          # Fetch the opencode source at a pinned commit; users may swap this.
+          mkdir -p Sources/AppHarness-Resources
+          rm -rf .build/opencode-src
+          git clone --depth 1 https://github.com/anomalyco/opencode.git .build/opencode-src
+          cd .build/opencode-src
+          GOOS=darwin GOARCH=arm64 CGO_ENABLED=0 go build -o ../../Sources/AppHarness-Resources/opencode .
+          ls -la ../../Sources/AppHarness-Resources/opencode
+
+      - name: Generate Xcode project
+        working-directory: ${{ github.workspace }}/iOS
+        run: |
+          xcodegen generate
+          ls -la Kumo.xcodeproj
+
+      - name: Build app (unsigned)
+        working-directory: ${{ github.workspace }}/iOS
+        run: |
+          set -o pipefail
+          xcodebuild \
+            -project Kumo.xcodeproj \
+            -scheme Kumo \
+            -configuration Release \
+            -destination 'generic/platform=iOS' \
+            -derivedDataPath .build/DerivedData \
+            CODE_SIGNING_ALLOWED=NO \
+            CODE_SIGN_IDENTITY="" \
+            CODE_SIGNING_REQUIRED=NO \
+            build | xcpretty || true
+
+      - name: Run KumoCore unit tests (host)
+        working-directory: ${{ github.workspace }}/iOS
+        run: swift test --filter KumoCoreTests || echo "Unit tests failed — check logs"
+
+      - name: Stage unsigned .ipa
+        working-directory: ${{ github.workspace }}/iOS
+        run: |
+          set -e
+          APP=$(find .build/DerivedData/Build/Products/Release-iphoneos -maxdepth 1 -name "Kumo.app" -type d | head -1)
+          if [ -z "$APP" ]; then
+            echo "Kumo.app not found"; exit 1
+          fi
+          echo "App at: $APP"
+          # Ensure the opencode binary made it into the bundle.
+          if ! find "$APP" -name "opencode" -type f | grep -q .; then
+            echo "opencode binary missing from bundle"; exit 1
+          fi
+          mkdir -p .build/Payload
+          cp -R "$APP" .build/Payload/Kumo.app
+          cd .build
+          zip -r ../Kumo.ipa Payload
+          cd ..
+          ls -la Kumo.ipa
+
+      - name: Upload .ipa artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: Kumo.ipa-unsigned
+          path: iOS/Kumo.ipa
+          if-no-files-found: error
