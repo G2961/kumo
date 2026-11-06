@@ -216,6 +216,28 @@ public struct KumoWebView: UIViewRepresentable {
             const sessions = await api('/session');
             const providers = await api('/config/providers');
             const listing = await nativeCall('fsList', {path: S.dir});
+            let filesProbe = {phase:'initial'};
+            try {
+              window.openFiles();
+              await new Promise(resolve => setTimeout(resolve, 1500));
+              const screen = document.getElementById('fmScreen');
+              const list = document.getElementById('fmList');
+              const back = document.getElementById('fmBack');
+              const rect = back.getBoundingClientRect();
+              const hit = document.elementFromPoint(rect.left + rect.width/2, rect.top + rect.height/2);
+              filesProbe = {phase:'opened', visible:!screen.hidden,
+                listChildren:list.children.length, rows:list.querySelectorAll('[data-fm-file]').length,
+                crumbChildren:document.getElementById('fmCrumb').children.length,
+                backHandler:typeof back.onclick, hitBack:!!hit && (hit === back || back.contains(hit)),
+                hitTag:hit ? hit.tagName : 'none', viewerHidden:document.getElementById('fmView').hidden,
+                nativeFlag:!!window.KumoNativeBackend};
+              back.click();
+              filesProbe.closed = screen.hidden;
+            } catch(error) {
+              filesProbe = {phase:'exception',errorName:error.name};
+              document.getElementById('fmScreen').hidden = true;
+            }
+            window.webkit.messageHandlers.kumoDiagnostics.postMessage({kind:'files-probe',metrics:filesProbe});
             return {backend: health.backend, sessions: sessions.length,
               providers: providers.providers.length, mainChildren: document.getElementById('main').children.length,
               files: listing.files.length};
@@ -291,8 +313,14 @@ public struct KumoWebView: UIViewRepresentable {
         ) {
             guard message.name == "kumoDiagnostics",
                   let body = message.body as? [String: Any],
-                  let kind = body["kind"] as? String,
-                  kind == "error" || kind == "unhandledrejection" else { return }
+                  let kind = body["kind"] as? String else { return }
+            if kind == "files-probe", let metrics = body["metrics"] as? [String: Any] {
+                let safeFields: Set<String> = ["phase", "visible", "listChildren", "rows", "crumbChildren", "backHandler", "hitBack", "hitTag", "viewerHidden", "nativeFlag", "closed", "errorName"]
+                let safe = metrics.filter { safeFields.contains($0.key) }
+                if let json = try? JavaScriptJSON.encode(safe) { NSLog("[files-probe] %@", json) }
+                return
+            }
+            guard kind == "error" || kind == "unhandledrejection" else { return }
             let line = (body["line"] as? Int).flatMap { $0 >= 0 ? $0 : nil } ?? 0
             let column = (body["column"] as? Int).flatMap { $0 >= 0 ? $0 : nil } ?? 0
             NSLog("[web] JavaScript %@ mainFrame=%@ line=%ld column=%ld", kind,
