@@ -150,6 +150,24 @@ jobs:
         run: |
           set -e
           APP=$(find .build/DerivedData/Build/Products/Release-iphoneos -maxdepth 1 -name "Kumo.app" -type d | head -1)
+          # TrollStore reads entitlements.plist from the app bundle root and applies these
+          # entitlements when it fakesigns — platform-application + no-sandbox lets the app
+          # spawn bundled binaries, which otherwise dies with posix_spawn EACCES/EPERM.
+          cat > "$APP/entitlements.plist" <<'ENTS'
+          <?xml version="1.0" encoding="UTF-8"?>
+          <!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+          <plist version="1.0">
+          <dict>
+          	<key>platform-application</key><true/>
+          	<key>com.apple.private.security.no-container</key><true/>
+          	<key>com.apple.private.skip-library-validation</key><true/>
+          	<key>com.apple.security.cs.allow-jit</key><true/>
+          	<key>com.apple.security.cs.allow-unsigned-executable-memory</key><true/>
+          	<key>get-task-allow</key><true/>
+          </dict>
+          </plist>
+          ENTS
+          cat "$APP/entitlements.plist" | head -n 5
           if [ -z "$APP" ]; then
             echo "Kumo.app not found"; exit 1
           fi
