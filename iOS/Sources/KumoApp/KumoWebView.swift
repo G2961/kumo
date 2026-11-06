@@ -211,6 +211,27 @@ public struct KumoWebView: UIViewRepresentable {
             cancelTimeout()
             isLoading = false
             onLoadStateChange(.loaded)
+            webView.callAsyncJavaScript("""
+            const health = await api('/global/health');
+            const sessions = await api('/session');
+            const providers = await api('/config/providers');
+            return {backend: health.backend, sessions: sessions.length,
+              providers: providers.providers.length, mainChildren: document.getElementById('main').children.length};
+            """, arguments: [:], in: nil, in: .page) { result in
+                switch result {
+                case .success(let value):
+                    guard let info = value as? [String: Any], info["backend"] as? String == "native" else {
+                        NSLog("[web] native bridge smoke returned unexpected data")
+                        return
+                    }
+                    NSLog("[web] native bridge smoke OK sessions=%@ providers=%@ mainChildren=%@",
+                          String(describing: info["sessions"] ?? 0),
+                          String(describing: info["providers"] ?? 0),
+                          String(describing: info["mainChildren"] ?? 0))
+                case .failure(let error):
+                    NSLog("[web] native bridge smoke failed domain=%@ code=%ld", (error as NSError).domain, (error as NSError).code)
+                }
+            }
             webView.evaluateJavaScript("""
             (function(){
               var app = document.getElementById('app');
