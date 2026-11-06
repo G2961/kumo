@@ -19,6 +19,9 @@ concurrency:
   group: ios-build-${{ github.ref }}
   cancel-in-progress: true
 
+env:
+  OPENCODE_VERSION: 1.19.3
+
 jobs:
   build:
     runs-on: macos-15
@@ -38,22 +41,18 @@ jobs:
       - name: Check Swift toolchain
         run: swift --version
 
-      # --- Build the darwin/arm64 opencode server binary ---
-      - name: Setup Go
-        uses: actions/setup-go@v5
-        with:
-          go-version: stable
-      - name: Build opencode (darwin/arm64)
-        working-directory: ${{ github.workspace }}/iOS
+      # --- Stage the darwin/arm64 opencode server binary (npm package, same version as Android) ---
+      - name: Download opencode (darwin/arm64)
         run: |
           set -e
-          # Fetch the opencode source at a pinned commit; users may swap this.
-          mkdir -p Sources/AppHarness-Resources
-          rm -rf .build/opencode-src
-          git clone --depth 1 https://github.com/anomalyco/opencode.git .build/opencode-src
-          cd .build/opencode-src
-          GOOS=darwin GOARCH=arm64 CGO_ENABLED=0 go build -o ../../Sources/AppHarness-Resources/opencode .
-          ls -la ../../Sources/AppHarness-Resources/opencode
+          R=iOS/Sources/AppHarness-Resources
+          mkdir -p $R
+          curl -fsSL --retry 5 --retry-all-errors "https://registry.npmjs.org/opencode-darwin-arm64/-/opencode-darwin-arm64-${OPENCODE_VERSION}.tgz" -o /tmp/oc.tgz
+          rm -rf /tmp/oc-pkg && mkdir -p /tmp/oc-pkg
+          tar -xzf /tmp/oc.tgz -C /tmp/oc-pkg
+          cp /tmp/oc-pkg/package/bin/opencode $R/opencode
+          chmod +x $R/opencode
+          ls -la $R/opencode
 
       - name: "Stage web UI assets (single source: Android assets)"
         run: |

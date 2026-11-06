@@ -106,29 +106,24 @@ jobs:
         run: |
           set -e
           mkdir -p /tmp/npmfs app/src/main/assets
-          ALPINE_MAIN="https://dl-2.alpinelinux.org/alpine/v${ALPINE_VERSION%.*}/main/aarch64"
-          NPM_PKG=$(curl -fsSL --retry 5 --retry-all-errors "https://dl-2.alpinelinux.org/alpine/v${ALPINE_VERSION%.*}/community/aarch64/" | grep -oE 'npm-[0-9][^"]*\.apk' | sort -V | tail -1)
-          [ -n "$NPM_PKG" ] || { echo "npm package not found" >&2; exit 1; }
-          echo "npm package: $NPM_PKG"
-          curl -fsSL --retry 5 --retry-all-errors "https://dl-2.alpinelinux.org/alpine/v${ALPINE_VERSION%.*}/community/aarch64/$NPM_PKG" -o /tmp/npmfs/npm.apk
-          GIT_PKGS=""
-          for p in git libcurl pcre2 libexpat zlib ca-certificates-bundle curl libssl3 libcrypto3 brotli-libs libidn2 libunistring libpsl nghttp2-libs c-ares zstd-libs; do
-            PKG=$(curl -fsSL --retry 5 --retry-all-errors "$ALPINE_MAIN/" | grep -oE "${p}-[0-9][^\"]*\.apk" | sort -V | tail -1)
-            [ -n "$PKG" ] || { echo "$p package not found" >&2; exit 1; }
-            echo "$p: $PKG"
-            curl -fsSL --retry 5 --retry-all-errors "$ALPINE_MAIN/$PKG" -o "/tmp/npmfs/${p}.apk"
-            GIT_PKGS="$GIT_PKGS /tmp/npmfs/${p}.apk"
+          # Pinned package names (verified live on the mirror) — the CDN listing mixes in
+          # stale/foreign names that break `sort -V` selection (zlib-2.3.3 404s).
+          BASE="https://dl-2.alpinelinux.org/alpine/v${ALPINE_VERSION%.*}"
+          curl -fsSL --retry 5 --retry-all-errors "$BASE/community/aarch64/npm-11.6.4-r0.apk" -o /tmp/npmfs/npm.apk
+          PKGS="git-2.49.1-r0 libcurl-8.14.1-r4 pcre2-32-10.46-r1 libexpat-2.10.0-r0 zlib-1.3.2-r1 ca-certificates-bundle-20261020-r0 curl-8.14.1-r4 libssl3-3.5.9-r0 libcrypto3-3.5.9-r0 brotli-libs-1.1.1-r0 libidn2-2.3.7-r0 libunistring-1.3-r0 libpsl-0.21.5-r3 nghttp2-libs-1.69.0-r0 c-ares-1.34.9-r0 zstd-libs-1.5.7-r0"
+          for p in $PKGS; do
+            curl -fsSL --retry 5 --retry-all-errors "$BASE/main/aarch64/$p.apk" -o "/tmp/npmfs/$p.apk"
           done
           python3 - <<'EOF'
           import tarfile, os
           out = '/tmp/npmfs/rootfs'
           os.makedirs(out, exist_ok=True)
-          sources = ['/tmp/npmfs/npm.apk', '/tmp/npmfs/git.apk', '/tmp/npmfs/libcurl.apk',
-                     '/tmp/npmfs/pcre2.apk', '/tmp/npmfs/libexpat.apk', '/tmp/npmfs/zlib.apk',
-                     '/tmp/npmfs/ca-certificates-bundle.apk', '/tmp/npmfs/curl.apk',
-                     '/tmp/npmfs/libssl3.apk', '/tmp/npmfs/libcrypto3.apk', '/tmp/npmfs/brotli-libs.apk',
-                     '/tmp/npmfs/libidn2.apk', '/tmp/npmfs/libunistring.apk', '/tmp/npmfs/libpsl.apk',
-                     '/tmp/npmfs/nghttp2-libs.apk', '/tmp/npmfs/c-ares.apk', '/tmp/npmfs/zstd-libs.apk']
+          sources = ['/tmp/npmfs/npm.apk', '/tmp/npmfs/git-2.49.1-r0.apk', '/tmp/npmfs/libcurl-8.14.1-r4.apk',
+                     '/tmp/npmfs/pcre2-32-10.46-r1.apk', '/tmp/npmfs/libexpat-2.10.0-r0.apk', '/tmp/npmfs/zlib-1.3.2-r1.apk',
+                     '/tmp/npmfs/ca-certificates-bundle-20261020-r0.apk', '/tmp/npmfs/curl-8.14.1-r4.apk',
+                     '/tmp/npmfs/libssl3-3.5.9-r0.apk', '/tmp/npmfs/libcrypto3-3.5.9-r0.apk', '/tmp/npmfs/brotli-libs-1.1.1-r0.apk',
+                     '/tmp/npmfs/libidn2-2.3.7-r0.apk', '/tmp/npmfs/libunistring-1.3-r0.apk', '/tmp/npmfs/libpsl-0.21.5-r3.apk',
+                     '/tmp/npmfs/nghttp2-libs-1.69.0-r0.apk', '/tmp/npmfs/c-ares-1.34.9-r0.apk', '/tmp/npmfs/zstd-libs-1.5.7-r0.apk']
           kept = 0
           for apk_path in sources:
               apk = tarfile.open(apk_path, 'r:gz')
