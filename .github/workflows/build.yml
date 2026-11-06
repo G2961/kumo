@@ -63,8 +63,8 @@ jobs:
         run: |
           set -e
           mkdir -p app/src/main/assets
-          MINI="https://dl-cdn.alpinelinux.org/alpine/v${ALPINE_VERSION%.*}/releases/aarch64/alpine-minirootfs-${ALPINE_VERSION}-aarch64.tar.gz"
-          MAIN="https://dl-cdn.alpinelinux.org/alpine/v${ALPINE_VERSION%.*}/main/aarch64"
+          MINI="https://dl-2.alpinelinux.org/alpine/v${ALPINE_VERSION%.*}/releases/aarch64/alpine-minirootfs-${ALPINE_VERSION}-aarch64.tar.gz"
+          MAIN="https://dl-2.alpinelinux.org/alpine/v${ALPINE_VERSION%.*}/main/aarch64"
 
           mkdir -p /tmp/alpine && cd /tmp/alpine
           curl -fsSL --retry 5 --retry-all-errors "$MINI" -o mini.tgz
@@ -106,11 +106,11 @@ jobs:
         run: |
           set -e
           mkdir -p /tmp/npmfs app/src/main/assets
-          ALPINE_MAIN="https://dl-cdn.alpinelinux.org/alpine/v${ALPINE_VERSION%.*}/main/aarch64"
-          NPM_PKG=$(curl -fsSL --retry 5 --retry-all-errors "https://dl-cdn.alpinelinux.org/alpine/v${ALPINE_VERSION%.*}/community/aarch64/" | grep -oE 'npm-[0-9][^"]*\.apk' | sort -V | tail -1)
+          ALPINE_MAIN="https://dl-2.alpinelinux.org/alpine/v${ALPINE_VERSION%.*}/main/aarch64"
+          NPM_PKG=$(curl -fsSL --retry 5 --retry-all-errors "https://dl-2.alpinelinux.org/alpine/v${ALPINE_VERSION%.*}/community/aarch64/" | grep -oE 'npm-[0-9][^"]*\.apk' | sort -V | tail -1)
           [ -n "$NPM_PKG" ] || { echo "npm package not found" >&2; exit 1; }
           echo "npm package: $NPM_PKG"
-          curl -fsSL --retry 5 --retry-all-errors "https://dl-cdn.alpinelinux.org/alpine/v${ALPINE_VERSION%.*}/community/aarch64/$NPM_PKG" -o /tmp/npmfs/npm.apk
+          curl -fsSL --retry 5 --retry-all-errors "https://dl-2.alpinelinux.org/alpine/v${ALPINE_VERSION%.*}/community/aarch64/$NPM_PKG" -o /tmp/npmfs/npm.apk
           GIT_PKGS=""
           for p in git libcurl pcre2 libexpat zlib ca-certificates-bundle curl libssl3 libcrypto3 brotli-libs libidn2 libunistring libpsl nghttp2-libs c-ares zstd-libs; do
             PKG=$(curl -fsSL --retry 5 --retry-all-errors "$ALPINE_MAIN/" | grep -oE "${p}-[0-9][^\"]*\.apk" | sort -V | tail -1)

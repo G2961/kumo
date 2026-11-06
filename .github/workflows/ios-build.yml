@@ -39,6 +39,10 @@ jobs:
         run: swift --version
 
       # --- Build the darwin/arm64 opencode server binary ---
+      - name: Setup Go
+        uses: actions/setup-go@v5
+        with:
+          go-version: stable
       - name: Build opencode (darwin/arm64)
         working-directory: ${{ github.workspace }}/iOS
         run: |
