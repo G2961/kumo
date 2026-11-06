@@ -19,6 +19,17 @@ jobs:
             iOS/Diagnostics/ProviderDiagnostic.swift \
             -o iOS/.build/Diagnostics/KumoProviderDiagnostic
           codesign -s - -f --identifier space.g2961.kumo.diagnostic iOS/.build/Diagnostics/KumoProviderDiagnostic
+      - name: Build read-only Responses replay diagnostic
+        run: |
+          xcrun --sdk iphoneos swiftc -Onone \
+            -target arm64-apple-ios16.0 \
+            -parse-as-library \
+            iOS/Sources/KumoCore/NativeProviderCompatibility.swift \
+            iOS/Sources/KumoCore/NativeModelClient.swift \
+            iOS/Sources/KumoCore/NativeFileTools.swift \
+            iOS/Diagnostics/ReplayDiagnostic.swift \
+            -o iOS/.build/Diagnostics/KumoReplayDiagnostic
+          codesign -s - -f --identifier space.g2961.kumo.replay-diagnostic iOS/.build/Diagnostics/KumoReplayDiagnostic
       - name: Build live file-agent acceptance harness
         run: |
           xcrun --sdk iphoneos swiftc -Onone \
@@ -35,6 +46,11 @@ jobs:
         with:
           name: KumoProviderDiagnostic
           path: iOS/.build/Diagnostics/KumoProviderDiagnostic
+          if-no-files-found: error
+      - uses: actions/upload-artifact@v4
+        with:
+          name: KumoReplayDiagnostic
+          path: iOS/.build/Diagnostics/KumoReplayDiagnostic
           if-no-files-found: error
       - uses: actions/upload-artifact@v4
         with:
