@@ -111,6 +111,22 @@ WKWebView browsing could not be run because the iPad was locked. Startup smoke
 now also requests the real `fsList` through the page's native bridge and logs only
 counts/errors, not file contents.
 
+A physical WKWebView probe then found the actual remaining cause: old iOS WebKit
+resolved block-level function declarations outside the Files block's lexical
+scope. `fileReset()` failed at `text.readOnly`; `fmOpen` rejected before rendering
+Loading or requesting its list, and Back failed in the same helper before hiding
+the screen. Independent `fsList` returned one file, and hit-testing showed that
+nothing covered the Back button. Chromium did not reproduce this scope behavior.
+
+Native staging now wraps Files in a function-scoped strict IIFE, leaving its
+exported handlers and UI behavior intact. On the physical iPad the next probe
+verified: one file row, one breadcrumb, connected textarea reference, successful
+18-byte file read, Back from reader, and Back closing Files. No JavaScript error
+occurred in that sequence. CI `42288323361` passed core/build and 21 browser
+scenarios. The auto-navigation diagnostic is opt-in via
+`UserDefaults["kumo.files-probe"]`; ordinary startup does not open/read/close the
+Files screen automatically.
+
 ## Scope and remaining limits
 
 The device probe shares the app's source-level native core and real provider, but
