@@ -52,6 +52,12 @@ jobs:
           tar -xzf /tmp/oc.tgz -C /tmp/oc-pkg
           cp /tmp/oc-pkg/package/bin/opencode $R/opencode
           chmod +x $R/opencode
+          # The npm binary is a Bun-compiled macOS binary with no LC_BUILD_VERSION; its
+          # signature says platform=macOS, which dyld refuses on iOS ("wrong platform").
+          # Retarget to iOS and re-sign ad-hoc.
+          xcrun vtool -arch arm64 -set-build-version ios 16.0 16.0 $R/opencode -o $R/opencode
+          codesign -f -s - --all-architectures $R/opencode
+          codesign -dvv $R/opencode 2>&1 | head -n 4 || true
           ls -la $R/opencode
 
       - name: "Stage web UI assets (single source: Android assets)"
