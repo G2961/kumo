@@ -32,12 +32,13 @@ jobs:
         run: |
           python iOS/scripts/stage-native-ui.py --check
           python iOS/scripts/test-native-file-agent-ui.py --output ../.local/file-agent-ui-proof
+          python -c "import shutil; shutil.copytree('../.local/file-agent-ui-proof', 'file-agent-ui-proof')"
       - name: Upload UI acceptance evidence
         if: always()
         uses: actions/upload-artifact@v4
         with:
           name: Kumo-file-agent-UI-proof
-          path: ${{ github.workspace }}/../.local/file-agent-ui-proof
+          path: file-agent-ui-proof
           if-no-files-found: warn
 
   build:
