@@ -1,0 +1,29 @@
+name: Kumo
+options:
+  bundleIdPrefix: space.g2961
+  deploymentTarget:
+    iOS: "16.0"
+targets:
+  Kumo:
+    type: application
+    platform: iOS
+    sources:
+      - path: Sources/KumoApp
+      - path: Sources/KumoCore
+      - path: AppHarness
+    settings:
+      base:
+        PRODUCT_BUNDLE_IDENTIFIER: space.g2961.kumo
+        GENERATE_INFOPLIST_FILE: YES
+        INFOPLIST_KEY_CFBundleDisplayName: Kumo
+        TARGETED_DEVICE_FAMILY: "1,2"
+        IPHONEOS_DEPLOYMENT_TARGET: "16.0"
+        OTHER_LDFLAGS: $(inherited) -framework Security -framework Network
+        CODE_SIGN_STYLE: Automatic
+schemes:
+  Kumo:
+    build:
+      targets:
+        Kumo: all
+    run:
+      config: Debug
