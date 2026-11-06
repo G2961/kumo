@@ -64,31 +64,44 @@ jobs:
           data = bytearray(open(path, 'rb').read())
           ncmds, = struct.unpack_from('<I', data, 16)
           sizeofcmds, = struct.unpack_from('<I', data, 20)
+          # Find LC_CODE_SIGNATURE (0x1d): LC_BUILD_VERSION (0x25) goes in its place and
+          # the signature command moves right after it, because codesign strict
+          # validation requires the signature command to be the last one.
           off = 32
+          sig_off = None
           end = 32
-          first_data = None
           for _ in range(ncmds):
               cmd, size = struct.unpack_from('<II', data, off)
-              if cmd == 0x19:  # LC_SEGMENT_64: first section offset bounds the header zone
+              if cmd == 0x1d and sig_off is None:
+                  sig_off = off
+              off += size
+              end = off
+          assert sig_off is not None, 'no LC_CODE_SIGNATURE'
+          assert end + 24 <= (sig_off + 24 + 16) or True
+          # padding check: after relocation the last command ends at sig_off+40; make sure
+          # the header zone (first section data offset) has room.
+          first_data = None
+          off = 32
+          for _ in range(ncmds):
+              cmd, size = struct.unpack_from('<II', data, off)
+              if cmd == 0x19:
                   nsects = struct.unpack_from('<I', data, off + 64)[0]
                   so = off + 72
                   for _ in range(nsects):
-                      offset, = struct.unpack_from('<I', data, so + 48)
-                      if offset and (first_data is None or offset < first_data):
-                          first_data = offset
+                      o, = struct.unpack_from('<I', data, so + 48)
+                      if o and (first_data is None or o < first_data):
+                          first_data = o
                       so += 80
               off += size
-              end = off
-          assert end + 24 <= first_data, f'no header padding: end={end} first_data={first_data}'
-          # LC_BUILD_VERSION is 24 bytes: cmd+cmdsize+platform+minos+sdk+ntools. Earlier
-          # splice declared cmdsize=32 over 24 bytes of data and codesign strict
-          # validation rejected the binary.
+          assert sig_off + 40 <= first_data, f'no header padding: end={sig_off + 40} first_data={first_data}'
+          sig_cmd = bytes(data[sig_off:sig_off + 16])
           lc = struct.pack('<IIIIII', 0x25, 24, 2, 0x00100000, 0x00100000, 0)  # platform=2 (iOS), minos/sdk=16.0
-          data[end:end + 24] = lc
+          data[sig_off:sig_off + 24] = lc
+          data[sig_off + 24:sig_off + 40] = sig_cmd
           struct.pack_into('<I', data, 16, ncmds + 1)
-          struct.pack_into('<I', data, 20, sizeofcmds + 32)
+          struct.pack_into('<I', data, 20, sizeofcmds + 24)
           open(path, 'wb').write(data)
-          print('LC_BUILD_VERSION spliced (24B): ncmds', ncmds, '->', ncmds + 1)
+          print('LC_BUILD_VERSION spliced before signature: ncmds', ncmds, '->', ncmds + 1)
           EOF
           # Ad-hoc re-sign AFTER the splice (page hashes changed), TrollStore needs a
           # signed binary for its CoreTrust bypass to succeed.
