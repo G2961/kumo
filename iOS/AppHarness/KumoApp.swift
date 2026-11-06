@@ -27,7 +27,11 @@ struct KumoMain: App {
 
     /// Resolves the bundled opencode binary from the main bundle's resources.
     static func binaryPath() -> String {
-        // The binary is copied into the APP_BUNDLE under `AppHarness-Resources/`.
+        // Sideloading tools (Sideloadly/AltStore) re-sign everything under Frameworks/ but
+        // leave plain resource folders untouched, so a copy there is preferred.
+        if let p = Bundle.main.path(forResource: "opencode", ofType: nil, inDirectory: "Frameworks") {
+            return p
+        }
         if let p = Bundle.main.path(forResource: "opencode", ofType: nil, inDirectory: "AppHarness-Resources") {
             return p
         }
