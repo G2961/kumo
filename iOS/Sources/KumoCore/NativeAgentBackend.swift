@@ -1363,7 +1363,9 @@ enum NativeAgentKeychain {
         guard let marker = marker, marker.count <= 4096,
               let path = String(data: marker, encoding: .utf8), path.hasPrefix("/"),
               !marker.contains(where: { $0 == 0 || $0 == 10 || $0 == 13 }) else { return [current] }
-        let legacy = URL(fileURLWithPath: path).standardizedFileURL.path + ":" + id
+        // The legacy account is the exact previously recorded string. Rebuilding an
+        // arbitrary path through Foundation can silently truncate long paths on Apple OSes.
+        let legacy = path + ":" + id
         return legacy == current ? [current] : [current, legacy]
     }
 
