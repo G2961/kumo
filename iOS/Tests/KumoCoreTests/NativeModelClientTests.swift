@@ -262,6 +262,41 @@ final class NativeModelClientTests: XCTestCase {
         XCTAssertThrowsError(try NativeModelRequestBuilder.makeURLRequest(modelRequest))
     }
 
+    func testAPIKeysWithAnyLineBreakAreRejectedBeforeHeaderConstruction() {
+        for format in [NativeProviderFormat.responses, .chatCompletions] {
+            for key in ["", "key\rX-Injected: yes", "key\nX-Injected: yes", "key\r\nX-Injected: yes",
+                        "key\r", "key\n", "key\r\n"] {
+                var modelRequest = request(format)
+                modelRequest.apiKey = key
+                XCTAssertThrowsError(try NativeModelRequestBuilder.makeURLRequest(modelRequest)) { error in
+                    guard let safe = error as? NativeModelClientError,
+                          case .invalidRequest = safe else { return XCTFail("Unexpected error: \(error)") }
+                }
+            }
+        }
+    }
+
+    func testInvalidToolParametersAndNonFiniteSchemaValuesAreRejected() {
+        for format in [NativeProviderFormat.responses, .chatCompletions] {
+            let invalidTools: [[String: Any]] = [
+                ["name": "read_file", "parameters": "not an object"],
+                ["name": "read_file", "parameters": [
+                    "type": "object", "properties": [
+                        "limit": ["type": "number", "default": Double.nan]
+                    ]
+                ]]
+            ]
+            for tool in invalidTools {
+                var modelRequest = request(format)
+                modelRequest.tools = [tool]
+                XCTAssertThrowsError(try NativeModelRequestBuilder.makeURLRequest(modelRequest)) { error in
+                    guard let safe = error as? NativeModelClientError,
+                          case .invalidRequest = safe else { return XCTFail("Unexpected error: \(error)") }
+                }
+            }
+        }
+    }
+
     func testSSEFragmentationMultilineCRLFUnicodeAndComments() throws {
         let wire = ": heartbeat\r\nevent: response.output_text.delta\r\n"
             + "id: ignored\r\nretry: 1000\r\ndata: {\"type\":\"response.output_text.delta\",\r\n"

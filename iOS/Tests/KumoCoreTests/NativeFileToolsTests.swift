@@ -1,5 +1,10 @@
 import Foundation
 import XCTest
+#if canImport(Darwin)
+import Darwin
+#elseif canImport(Glibc)
+import Glibc
+#endif
 @testable import KumoCore
 
 final class NativeFileToolsTests: XCTestCase {
@@ -36,6 +41,23 @@ final class NativeFileToolsTests: XCTestCase {
     private func prepare(_ name: String, _ arguments: [String: Any], turn: String = "user-1") throws -> NativePreparedTool {
         try tools.prepare(name: name, arguments: arguments, directory: project.path,
                           sessionID: "session-1", turnID: turn)
+    }
+
+    private func canonicalPath(_ url: URL) throws -> String {
+        guard let resolved = realpath(url.path, nil) else {
+            throw NSError(domain: NSPOSIXErrorDomain, code: Int(errno), userInfo: [NSFilePathErrorKey: url.path])
+        }
+        defer { free(resolved) }
+        return String(cString: resolved)
+    }
+
+    private func assertPathIdentity(_ prepared: NativePreparedTool, requested: URL,
+                                    file: StaticString = #filePath, line: UInt = #line) throws {
+        let resolved = try canonicalPath(requested)
+        let expected = requested.path == resolved ? [requested.path] : [requested.path, resolved]
+        XCTAssertEqual(prepared.patterns, expected, file: file, line: line)
+        XCTAssertEqual(prepared.metadata["filepath"] as? String, requested.path, file: file, line: line)
+        XCTAssertEqual(prepared.metadata["resolvedPath"] as? String, resolved, file: file, line: line)
     }
 
     private func turns(_ history: NativePatchLedger? = nil, session: String = "session-1") throws -> [[String: Any]] {
@@ -96,22 +118,42 @@ final class NativeFileToolsTests: XCTestCase {
         let list = try prepare("list", [:]).execute()
         XCTAssertTrue(list.output.contains("nested/"))
         let glob = try prepare("glob", ["pattern": "**/*.txt"]).execute()
-        XCTAssertTrue(glob.output.contains("a.txt"))
-        XCTAssertTrue(glob.output.contains("nested/b.txt"))
+        XCTAssertEqual(Set(glob.output.split(separator: "\n").map(String.init)), Set(["a.txt", "nested/b.txt"]), glob.output)
         XCTAssertFalse(glob.output.contains("secret.txt"))
         XCTAssertFalse(glob.output.contains("loop/"))
         let grep = try prepare("grep", ["pattern": "hello (café|世界)"]).execute()
         XCTAssertTrue(grep.output.contains("a.txt:1:hello café"))
-        XCTAssertTrue(grep.output.contains("b.txt:1:hello 世界"))
+        XCTAssertTrue(grep.output.contains("nested/b.txt:1:hello 世界"), grep.output)
         XCTAssertFalse(grep.output.contains("secret"))
         XCTAssertThrowsError(try prepare("grep", ["pattern": "["]))
+    }
+
+    func testSearchThroughDirectoryAliasPreservesRelativePathsAndMetadata() throws {
+        _ = try put("a.txt", "hello café\n")
+        _ = try put("nested/b.txt", "hello 世界\n")
+        _ = try put(".git/secret.txt", "hello secret\n")
+        let alias = root.appendingPathComponent("project-alias")
+        try FileManager.default.createSymbolicLink(at: alias, withDestinationURL: project)
+        for (name, arguments, expected) in [
+            ("list", ["path": alias.path], [".git/", "a.txt", "nested/"]),
+            ("glob", ["path": alias.path, "pattern": "nested/*.txt"], ["nested/b.txt"]),
+            ("grep", ["path": alias.path, "pattern": "hello (café|世界)"], ["a.txt:1:hello café", "nested/b.txt:1:hello 世界"])
+        ] {
+            let prepared = try prepare(name, arguments)
+            try assertPathIdentity(prepared, requested: alias)
+            let result = try prepared.execute()
+            XCTAssertEqual(Set(result.output.split(separator: "\n").map(String.init)), Set(expected), result.output)
+            XCTAssertEqual(result.metadata["filepath"] as? String, alias.path)
+            XCTAssertEqual(result.metadata["resolvedPath"] as? String, try canonicalPath(project))
+            XCTAssertEqual(result.metadata["truncated"] as? Bool, false)
+        }
     }
 
     func testEditApprovalContainsActualDiffAndOnlyExecutionRecordsHistory() throws {
         let file = try put("a.txt", "one\ntwo\nthree\n")
         let prepared = try prepare("edit", ["filePath": "a.txt", "oldString": "two", "newString": "TWO"])
         XCTAssertTrue(prepared.modifies)
-        XCTAssertEqual(prepared.patterns, [file.standardizedFileURL.path])
+        try assertPathIdentity(prepared, requested: file)
         let patch = try XCTUnwrap(prepared.metadata["diff"] as? String)
         XCTAssertTrue(patch.contains("--- "))
         XCTAssertTrue(patch.contains("+++ "))
@@ -176,7 +218,10 @@ final class NativeFileToolsTests: XCTestCase {
         let file = try put("target.txt", "old")
         let link = project.appendingPathComponent("link.txt")
         try FileManager.default.createSymbolicLink(at: link, withDestinationURL: file)
-        _ = try prepare("write", ["filePath": "link.txt", "content": "new"]).execute()
+        let prepared = try prepare("write", ["filePath": "link.txt", "content": "new"])
+        try assertPathIdentity(prepared, requested: link)
+        XCTAssertNotEqual(link.path, try canonicalPath(link))
+        _ = try prepared.execute()
         XCTAssertEqual(try String(contentsOf: file, encoding: .utf8), "new")
         XCTAssertEqual(try FileManager.default.destinationOfSymbolicLink(atPath: link.path), file.path)
     }

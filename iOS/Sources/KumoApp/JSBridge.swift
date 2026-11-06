@@ -212,7 +212,7 @@ public final class JSBridge: NSObject, WKScriptMessageHandler {
         }
         let key: String
         if let value = data["key"], !(value is NSNull) {
-            guard let text = value as? String, !text.contains("\r"), !text.contains("\n") else {
+            guard let text = value as? String, !text.unicodeScalars.contains(where: { $0.value == 10 || $0.value == 13 }) else {
                 throw BridgeError("Provider API key must be text without CR or LF.")
             }
             key = text

@@ -123,8 +123,11 @@ enum NativeModelRequestBuilder {
               url.query == nil, url.fragment == nil else {
             throw NativeModelClientError.invalidRequest("a remote HTTPS provider base URL is required")
         }
+        // CRLF is a single Swift Character; inspect scalars so paired line breaks
+        // cannot bypass header-injection validation.
         guard !request.model.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty,
-              !request.apiKey.isEmpty, !request.apiKey.contains("\r"), !request.apiKey.contains("\n") else {
+              !request.apiKey.isEmpty,
+              !request.apiKey.unicodeScalars.contains(where: { $0.value == 13 || $0.value == 10 }) else {
             throw NativeModelClientError.invalidRequest("model and a valid API key are required")
         }
         if let cap = request.maxOutputTokens, cap <= 0 {

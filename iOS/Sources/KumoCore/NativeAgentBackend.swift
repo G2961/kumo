@@ -249,7 +249,7 @@ public actor NativeAgentBackend {
             if method == "PUT" {
                 guard body["type"] as? String == "api", let key = body["key"] as? String,
                       !key.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty,
-                      !key.contains("\n"), !key.contains("\r") else { throw Self.failure("Supply a nonempty API key using type api.") }
+                      !key.unicodeScalars.contains(where: { $0.value == 10 || $0.value == 13 }) else { throw Self.failure("Supply a nonempty API key using type api.") }
                 knownSecrets.insert(key)
                 try credentialWrite(id, key)
                 return true
@@ -1117,7 +1117,7 @@ public actor NativeAgentBackend {
             _ = try providerURL(p)
             guard let models = p["models"] as? [String: [String: Any]] else { throw failure("Configure model IDs and metadata manually as a models object.") }
             for (mid, metadata) in models {
-                guard !mid.isEmpty, !mid.contains("\n"), !mid.contains("\r"), mid.utf8.count <= 512,
+                guard !mid.isEmpty, !mid.unicodeScalars.contains(where: { $0.value == 10 || $0.value == 13 }), mid.utf8.count <= 512,
                       Set(metadata.keys).isSubset(of: ["id", "name", "reasoning", "attachment", "tool_call", "modalities", "limit", "variants", "cost"]) else { throw failure("Invalid or unsupported model metadata.") }
                 if let limit = metadata["limit"] {
                     guard let limit = limit as? [String: Any], Set(limit.keys).isSubset(of: ["context", "input", "output"]),

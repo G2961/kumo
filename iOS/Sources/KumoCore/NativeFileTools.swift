@@ -765,7 +765,11 @@ public final class NativeFileTools {
     }
 
     private static func search(name: String, root: URL, pattern: String, regex: NSRegularExpression?, base: [String: Any]) throws -> NativeToolResult {
-        let traversal = try traverse(root, recursive: name != "list")
+        // Foundation enumeration can spell /var as /private/var on Apple platforms.
+        // Use the same canonical root for traversal and relative search paths, while
+        // preserving requested + resolved paths in the prepared permission metadata.
+        let searchRoot = try NativeFS.canonical(root)
+        let traversal = try traverse(searchRoot, recursive: name != "list")
         var output = NativeOutput()
         var incomplete = traversal.incomplete
         var skipped = 0, count = 0, bytes = 0
@@ -774,7 +778,7 @@ public final class NativeFileTools {
         for url in traversal.urls {
             try Task.checkCancellation()
             if ProcessInfo.processInfo.systemUptime >= deadline { incomplete = true; warnings.append("Truncated: search time limit reached"); break }
-            let relative = url.path.hasPrefix(root.path + "/") ? String(url.path.dropFirst(root.path.count + 1)) : url.lastPathComponent
+            let relative = url.path.hasPrefix(searchRoot.path + "/") ? String(url.path.dropFirst(searchRoot.path.count + 1)) : url.lastPathComponent
             if name == "list" {
                 let values = try url.resourceValues(forKeys: [.isDirectoryKey, .isSymbolicLinkKey])
                 let suffix = values.isSymbolicLink == true ? "@" : (values.isDirectory == true ? "/" : "")
