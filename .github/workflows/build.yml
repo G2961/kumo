@@ -106,26 +106,50 @@ jobs:
         run: |
           set -e
           mkdir -p /tmp/npmfs app/src/main/assets
-          # Pinned package names (verified live on the mirror) — the CDN listing mixes in
-          # stale/foreign names that break `sort -V` selection (zlib-2.3.3 404s).
-          BASE="https://dl-2.alpinelinux.org/alpine/v${ALPINE_VERSION%.*}"
-          curl -fsSL --retry 5 --retry-all-errors "$BASE/community/aarch64/npm-11.6.4-r0.apk" -o /tmp/npmfs/npm.apk
-          PKGS="git-2.49.1-r0 libcurl-8.14.1-r4 pcre2-32-10.46-r1 libexpat-2.10.0-r0 zlib-1.3.2-r1 ca-certificates-bundle-20261020-r0 curl-8.14.1-r4 libssl3-3.5.9-r0 libcrypto3-3.5.9-r0 brotli-libs-1.1.1-r0 libidn2-2.3.7-r0 libunistring-1.3-r0 libpsl-0.21.5-r3 nghttp2-libs-1.69.0-r0 c-ares-1.34.9-r0 zstd-libs-1.5.7-r0"
-          for p in $PKGS; do
-            echo "GET $p"; curl -fsSL --retry 5 --retry-all-errors "$BASE/main/aarch64/$p.apk" -o "/tmp/npmfs/$p.apk" || { echo "FAILED: $BASE/main/aarch64/$p.apk"; exit 1; }
-          done
+          # Resolve exact package versions from APKINDEX (the CDN HTML listing mixes in
+          # stale/foreign names like zlib-2.3.3 that sort -V happily picks and 404s).
           python3 - <<'EOF'
-          import tarfile, os
+          import tarfile, os, urllib.request
+          BASE = 'https://dl-cdn.alpinelinux.org/alpine/v${ALPINE_VERSION%.*}'
           out = '/tmp/npmfs/rootfs'
           os.makedirs(out, exist_ok=True)
-          sources = ['/tmp/npmfs/npm.apk', '/tmp/npmfs/git-2.49.1-r0.apk', '/tmp/npmfs/libcurl-8.14.1-r4.apk',
-                     '/tmp/npmfs/pcre2-32-10.46-r1.apk', '/tmp/npmfs/libexpat-2.10.0-r0.apk', '/tmp/npmfs/zlib-1.3.2-r1.apk',
-                     '/tmp/npmfs/ca-certificates-bundle-20261020-r0.apk', '/tmp/npmfs/curl-8.14.1-r4.apk',
-                     '/tmp/npmfs/libssl3-3.5.9-r0.apk', '/tmp/npmfs/libcrypto3-3.5.9-r0.apk', '/tmp/npmfs/brotli-libs-1.1.1-r0.apk',
-                     '/tmp/npmfs/libidn2-2.3.7-r0.apk', '/tmp/npmfs/libunistring-1.3-r0.apk', '/tmp/npmfs/libpsl-0.21.5-r3.apk',
-                     '/tmp/npmfs/nghttp2-libs-1.69.0-r0.apk', '/tmp/npmfs/c-ares-1.34.9-r0.apk', '/tmp/npmfs/zstd-libs-1.5.7-r0.apk']
+
+          def index(repo):
+              tmp = f'/tmp/idx-{repo}.tgz'
+              urllib.request.urlretrieve(f'{BASE}/{repo}/aarch64/APKINDEX.tar.gz', tmp)
+              res = {}
+              name = None
+              with tarfile.open(tmp) as t:
+                  f = t.extractfile('APKINDEX')
+                  for line in f.read().decode().splitlines():
+                      if line.startswith('P:'): name = line[2:]
+                      elif line.startswith('V:') and name:
+                          res[name] = line[2:]; name = None
+              return res
+
+          main = index('main')
+          comm = index('community')
+
+          pkgs = [('community','npm'), ('main','git'), ('main','libcurl'),
+                  ('main','libpcre2-8'), ('main','libpcre2-16'), ('main','libpcre2-32'),
+                  ('main','libexpat'), ('main','zlib'), ('main','ca-certificates-bundle'),
+                  ('main','curl'), ('main','libssl3'), ('main','libcrypto3'),
+                  ('main','brotli-libs'), ('main','libidn2'), ('main','libunistring'),
+                  ('main','libpsl'), ('main','nghttp2-libs'), ('main','c-ares'),
+                  ('main','zstd-libs')]
+
+          apks = []
+          for repo, name in pkgs:
+              ver = (main if repo=='main' else comm).get(name)
+              if not ver:
+                  raise SystemExit(f'package not in {repo} index: {name}')
+              dst = f'/tmp/npmfs/{name}.apk'
+              print('get', name, ver, flush=True)
+              urllib.request.urlretrieve(f'{BASE}/{repo}/aarch64/{name}-{ver}.apk', dst)
+              apks.append(dst)
+
           kept = 0
-          for apk_path in sources:
+          for apk_path in apks:
               apk = tarfile.open(apk_path, 'r:gz')
               for m in apk.getmembers():
                   if m.isdir() or m.issym() or m.islnk():
