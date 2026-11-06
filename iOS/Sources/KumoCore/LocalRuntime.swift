@@ -145,7 +145,7 @@ public final class LocalRuntime {
             setState(.failed, "opencode binary not found at \(settings.executablePath)")
             return nil
         }
-        let p = Process()
+        let p = KumoProcess()
         p.executableURL = URL(fileURLWithPath: settings.executablePath)
         p.arguments = ["serve", "--hostname", "127.0.0.1", "--port", "\(serverPort)"]
         p.currentDirectoryURL = settings.cwd

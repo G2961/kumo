@@ -36,7 +36,7 @@ public final class KumoProcess {
         let errWriteFD = dup(standardError.fileHandleForWriting.fileDescriptor)
         defer { close(inReadFD); close(outWriteFD); close(errWriteFD) }
 
-        let fa = UnsafeMutablePointer<posix_spawn_file_actions_t>.allocate(capacity: 1)
+        let fa = UnsafeMutablePointer<posix_spawn_file_actions_t?>.allocate(capacity: 1)
         posix_spawn_file_actions_init(fa)
         defer { posix_spawn_file_actions_destroy(fa); fa.deallocate() }
         posix_spawn_file_actions_adddup2(fa, inReadFD, STDIN_FILENO)
@@ -60,7 +60,7 @@ public final class KumoProcess {
         }
         envp.append(nil)
 
-        let sa = UnsafeMutablePointer<posix_spawnattr_t>.allocate(capacity: 1)
+        let sa = UnsafeMutablePointer<posix_spawnattr_t?>.allocate(capacity: 1)
         posix_spawnattr_init(sa)
         defer { posix_spawnattr_destroy(sa); sa.deallocate() }
 
