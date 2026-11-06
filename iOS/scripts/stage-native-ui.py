@@ -4,6 +4,9 @@
 Usage: python iOS/scripts/stage-native-ui.py [--root REPO] [--check]
        python iOS/scripts/stage-native-ui.py --source HTML --resources EXISTING_DIR
 
+UI approval previews use only prepared write/edit metadata.diff, escaped by the
+canonical diff renderer; before/after and tool inputs never manufacture a patch.
+
 Other resources remain parent-CI-owned. WK must inject KumoNativeBackend=true at
  documentStart and expose CodexNative (or the webkit codexNative message handler).
 backendRequest {method,path,directory,body} replies with the direct JSON value via
@@ -190,6 +193,23 @@ SYSTEM_NEW = r"""  body.system=`You are Kumo's native iOS coding assistant. The 
 """
 
 
+PERMISSION_OLD = r"""function permCard(p){
+ const pats=p.patterns||(p.pattern?[].concat(p.pattern):[]);
+ const cmd=p.metadata&&(p.metadata.command||p.metadata.filepath)||'';
+ const title=p.title||((p.permission||p.type||'permission')+(pats.length?' '+pats.join(', '):''));
+ return `<div class="card" data-pid="${esc(p.id)}"><div class="ch">${I.term}<span>Approve?</span></div><pre>${esc(title)}${cmd&&title.indexOf(cmd)<0?'\n$ '+esc(cmd):''}</pre><div class="btns"><button class="btn p" data-r="once">Approve</button><button class="btn" data-r="always">Always</button><button class="btn" data-r="reject">Deny</button></div></div>`;
+}"""
+PERMISSION_NEW = r"""function permCard(p){
+ const pats=p.patterns||(p.pattern?[].concat(p.pattern):[]);
+ const cmd=p.metadata&&(p.metadata.command||p.metadata.filepath)||'';
+ const title=p.title||((p.permission||p.type||'permission')+(pats.length?' '+pats.join(', '):''));
+ const meta=p.metadata||{},diff=meta.diff;
+ const file=meta.filepath||meta.filePath||pats[0]||'File';
+ const preview=['write','edit','patch','apply_patch','multiedit'].includes(p.permission||p.type)&&typeof diff==='string'&&diff.trim()?`<details class="change-card permission-change" open><summary class="ch"><span>Proposed changes</span></summary><pre class="tool-command">${esc(file)}</pre><div class="change-preview">${dl(diff.split('\n'))}</div></details>`:'';
+ return `<div class="card" data-pid="${esc(p.id)}"><div class="ch">${I.term}<span>Approve?</span></div><pre>${esc(title)}${cmd&&title.indexOf(cmd)<0?'\n$ '+esc(cmd):''}</pre>${preview}<div class="btns"><button class="btn p" data-r="once">Approve</button><button class="btn" data-r="always">Always</button><button class="btn" data-r="reject">Deny</button></div></div>`;
+}"""
+
+
 def patch_html(html):
     """Pure, fail-closed canonical-source transform; never patch the staged output."""
     patches = [
@@ -197,6 +217,7 @@ def patch_html(html):
         ("  try{S.spec=await (await fetch('/doc')).json();S.specErr=null}catch(e){S.specErr=String(e.message||e)}", "  try{S.spec=await api('/doc');S.specErr=null}catch(e){S.specErr=String(e.message||e)}", "boot doc"),
         (" ['get','/event'],['get','/config/providers']", " ['get','/config/providers']", "mandatory routes"),
         (EVENTS_OLD, EVENTS_NEW, "event subscription"),
+        (PERMISSION_OLD, PERMISSION_NEW, "native permission diff"),
         ("if(S.live&&lastEv&&Date.now()-lastEv>15000)recycleSSE();", "if(!window.KumoNativeBackend&&S.live&&lastEv&&Date.now()-lastEv>15000)recycleSSE();", "HTTP heartbeat"),
         (" if(document.hidden||!S.sid)return;\n if(!S.es||!S.live||(lastEv&&Date.now()-lastEv>15000))recycleSSE();",
          " if(document.hidden)return;\n if(window.KumoNativeBackend){if(!S.es||!S.live)recycleSSE();if(S.sid)syncSession();return}\n if(!S.sid)return;\n if(!S.es||!S.live||(lastEv&&Date.now()-lastEv>15000))recycleSSE();", "subscription resume"),

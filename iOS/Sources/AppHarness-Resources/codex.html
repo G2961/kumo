@@ -3053,7 +3053,10 @@ function permCard(p){
  const pats=p.patterns||(p.pattern?[].concat(p.pattern):[]);
  const cmd=p.metadata&&(p.metadata.command||p.metadata.filepath)||'';
  const title=p.title||((p.permission||p.type||'permission')+(pats.length?' '+pats.join(', '):''));
- return `<div class="card" data-pid="${esc(p.id)}"><div class="ch">${I.term}<span>Approve?</span></div><pre>${esc(title)}${cmd&&title.indexOf(cmd)<0?'\n$ '+esc(cmd):''}</pre><div class="btns"><button class="btn p" data-r="once">Approve</button><button class="btn" data-r="always">Always</button><button class="btn" data-r="reject">Deny</button></div></div>`;
+ const meta=p.metadata||{},diff=meta.diff;
+ const file=meta.filepath||meta.filePath||pats[0]||'File';
+ const preview=['write','edit','patch','apply_patch','multiedit'].includes(p.permission||p.type)&&typeof diff==='string'&&diff.trim()?`<details class="change-card permission-change" open><summary class="ch"><span>Proposed changes</span></summary><pre class="tool-command">${esc(file)}</pre><div class="change-preview">${dl(diff.split('\n'))}</div></details>`:'';
+ return `<div class="card" data-pid="${esc(p.id)}"><div class="ch">${I.term}<span>Approve?</span></div><pre>${esc(title)}${cmd&&title.indexOf(cmd)<0?'\n$ '+esc(cmd):''}</pre>${preview}<div class="btns"><button class="btn p" data-r="once">Approve</button><button class="btn" data-r="always">Always</button><button class="btn" data-r="reject">Deny</button></div></div>`;
 }
 function splitThoughts(text){
  const source=String(text||''),thoughts=[],visible=[],segments=[];

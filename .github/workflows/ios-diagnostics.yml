@@ -19,8 +19,25 @@ jobs:
             iOS/Diagnostics/ProviderDiagnostic.swift \
             -o iOS/.build/Diagnostics/KumoProviderDiagnostic
           codesign -s - -f --identifier space.g2961.kumo.diagnostic iOS/.build/Diagnostics/KumoProviderDiagnostic
+      - name: Build live file-agent acceptance harness
+        run: |
+          xcrun --sdk iphoneos swiftc -O \
+            -target arm64-apple-ios16.0 \
+            -parse-as-library \
+            iOS/Sources/KumoCore/NativeProviderCompatibility.swift \
+            iOS/Sources/KumoCore/NativeModelClient.swift \
+            iOS/Sources/KumoCore/NativeFileTools.swift \
+            iOS/Sources/KumoCore/NativeAgentBackend.swift \
+            iOS/Diagnostics/FileAgentAcceptance.swift \
+            -o iOS/.build/Diagnostics/KumoFileAgentAcceptance
+          codesign -s - -f --identifier space.g2961.kumo.acceptance iOS/.build/Diagnostics/KumoFileAgentAcceptance
       - uses: actions/upload-artifact@v4
         with:
           name: KumoProviderDiagnostic
           path: iOS/.build/Diagnostics/KumoProviderDiagnostic
+          if-no-files-found: error
+      - uses: actions/upload-artifact@v4
+        with:
+          name: KumoFileAgentAcceptance
+          path: iOS/.build/Diagnostics/KumoFileAgentAcceptance
           if-no-files-found: error
