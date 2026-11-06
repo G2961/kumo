@@ -209,6 +209,232 @@ final class NativeModelClientTests: XCTestCase {
         XCTAssertEqual(input[4]["role"] as? String, "user")
     }
 
+    private func savedHistory(_ messages: [NativeModelMessage]) throws -> Data {
+        let rows = messages.map { message -> [String: Any] in
+            var row: [String: Any] = [
+                "role": message.role, "content": message.content,
+                "toolCalls": message.toolCalls.map { ["id": $0.id, "name": $0.name, "arguments": $0.arguments] },
+                "replayItems": message.replayItems
+            ]
+            if let id = message.toolCallID { row["toolCallID"] = id }
+            return row
+        }
+        return try JSONSerialization.data(withJSONObject: rows, options: [.sortedKeys])
+    }
+
+    private func restoredHistory(_ data: Data) throws -> [NativeModelMessage] {
+        let rows = try XCTUnwrap(JSONSerialization.jsonObject(with: data) as? [[String: Any]])
+        return try rows.map { row in
+            NativeModelMessage(role: try XCTUnwrap(row["role"] as? String),
+                content: try XCTUnwrap(row["content"] as? String),
+                toolCalls: try XCTUnwrap(row["toolCalls"] as? [[String: String]]).map {
+                    NativeToolCall(id: try XCTUnwrap($0["id"]), name: try XCTUnwrap($0["name"]),
+                                   arguments: try XCTUnwrap($0["arguments"]))
+                }, toolCallID: row["toolCallID"] as? String,
+                replayItems: try XCTUnwrap(row["replayItems"] as? [[String: Any]]))
+        }
+    }
+
+    private func routeBoundReplay() -> [[String: Any]] {
+        [
+            ["type": "reasoning", "id": "rs_channel_a", "status": "completed",
+             "summary": [["type": "summary_text", "text": "Visible work summary"]],
+             "content": [["type": "reasoning_text", "text": "Visible reasoning"]],
+             "encrypted_content": "opaque-channel-a-ciphertext"],
+            ["type": "message", "id": "msg_commentary_channel_a", "status": "completed",
+             "role": "assistant", "phase": "commentary", "content": [
+                ["type": "output_text", "text": "Reading 🌍\n", "annotations": [["type": "file_citation", "file_id": "file_a"]],
+                 "logprobs": [["token": "Reading", "logprob": -0.25]]],
+                ["type": "output_text", "text": "Then checking", "annotations": []]
+             ]],
+            ["type": "function_call", "id": "fc_channel_a", "status": "completed",
+             "call_id": "call_1", "name": "read_file", "arguments": "{ \"path\": \"a.swift\" }",
+             "parsed_arguments": ["path": "a.swift"]],
+            ["type": "message", "id": "msg_after_call_channel_a", "status": "completed",
+             "role": "assistant", "phase": "commentary",
+             "content": [["type": "output_text", "text": "Waiting for the file", "annotations": []]]]
+        ]
+    }
+
+    func testAgentRouterPortableReplayPreservesPhasesOrderAndExactToolPairsWithoutMutatingHistory() throws {
+        var modelRequest = request()
+        modelRequest.baseURL = URL(string: "https://agentrouter.org/v1/")!
+        modelRequest.maxOutputTokens = 2048
+        let original = [
+            NativeModelMessage(role: "user", content: "Read the file"),
+            NativeModelMessage(role: "assistant", content: "Reading 🌍\nThen checkingWaiting for the file",
+                toolCalls: [NativeToolCall(id: "call_1", name: "read_file", arguments: "{ \"path\": \"a.swift\" }")],
+                replayItems: routeBoundReplay()),
+            NativeModelMessage(role: "tool", content: "Exact tool output\n🌍", toolCallID: "call_1"),
+            NativeModelMessage(role: "assistant", content: "Done", replayItems: [
+                ["type": "message", "id": "msg_final_channel_a", "status": "completed", "role": "assistant",
+                 "phase": "final_answer", "content": [["type": "output_text", "text": "Done", "annotations": []]]]
+            ]),
+            NativeModelMessage(role: "user", content: "Now continue after restart")
+        ]
+        let saved = try savedHistory(original)
+        modelRequest.messages = try restoredHistory(saved)
+        let json = try body(NativeModelRequestBuilder.makeURLRequest(modelRequest))
+        let input = try XCTUnwrap(json["input"] as? [[String: Any]])
+        let expected: [[String: Any]] = [
+            ["role": "user", "content": "Read the file"],
+            ["type": "message", "role": "assistant", "phase": "commentary", "content": [
+                ["type": "output_text", "text": "Reading 🌍\n"], ["type": "output_text", "text": "Then checking"]
+            ]],
+            ["type": "function_call", "call_id": "call_1", "name": "read_file", "arguments": "{ \"path\": \"a.swift\" }"],
+            ["type": "message", "role": "assistant", "phase": "commentary",
+             "content": [["type": "output_text", "text": "Waiting for the file"]]],
+            ["type": "function_call_output", "call_id": "call_1", "output": "Exact tool output\n🌍"],
+            ["type": "message", "role": "assistant", "phase": "final_answer",
+             "content": [["type": "output_text", "text": "Done"]]],
+            ["role": "user", "content": "Now continue after restart"]
+        ]
+        XCTAssertEqual(try JSONSerialization.data(withJSONObject: input, options: [.sortedKeys]),
+                       try JSONSerialization.data(withJSONObject: expected, options: [.sortedKeys]))
+        XCTAssertEqual(try savedHistory(modelRequest.messages), saved)
+        XCTAssertEqual(try savedHistory(original), saved)
+        XCTAssertEqual(json["max_output_tokens"] as? Int, 2048)
+        XCTAssertEqual(json["include"] as? [String], ["reasoning.encrypted_content"])
+    }
+
+    func testPortableHistoryIsLimitedToExactHTTPSAgentRouterDefaultPort() throws {
+        let replay = routeBoundReplay()
+        let replayBytes = try JSONSerialization.data(withJSONObject: replay, options: [.sortedKeys])
+        for endpoint in ["https://agentrouter.org", "HTTPS://AGENTROUTER.ORG:443/v1/responses", "https://agentrouter.org:443/custom/"] {
+            var modelRequest = request()
+            modelRequest.baseURL = try XCTUnwrap(URL(string: endpoint))
+            modelRequest.messages = [NativeModelMessage(role: "assistant", content: "", replayItems: replay)]
+            let input = try XCTUnwrap(body(NativeModelRequestBuilder.makeURLRequest(modelRequest))["input"] as? [[String: Any]])
+            XCTAssertEqual(input.count, 3, endpoint)
+            XCTAssertTrue(input.allSatisfy { $0["id"] == nil && $0["type"] as? String != "reasoning" }, endpoint)
+            XCTAssertEqual(input[0]["phase"] as? String, "commentary", endpoint)
+        }
+        for endpoint in [
+            "https://provider.example/v1", "https://freeinference.org/v1", "https://api.agentrouter.org/v1",
+            "https://www.agentrouter.org/v1", "https://agentrouter.org.evil.example/v1", "https://evilagentrouter.org/v1",
+            "https://agentrouter.org./v1", "https://evil.example/agentrouter.org", "https://agentrouter.org:80/v1",
+            "https://agentrouter.org:444/v1", "https://agentrouter.org:8443/v1"
+        ] {
+            var modelRequest = request()
+            modelRequest.baseURL = try XCTUnwrap(URL(string: endpoint))
+            modelRequest.messages = [NativeModelMessage(role: "assistant", content: "", replayItems: replay)]
+            let input = try XCTUnwrap(body(NativeModelRequestBuilder.makeURLRequest(modelRequest))["input"] as? [[String: Any]])
+            XCTAssertEqual(try JSONSerialization.data(withJSONObject: input, options: [.sortedKeys]), replayBytes, endpoint)
+        }
+        for endpoint in ["http://agentrouter.org/v1", "http://agentrouter.org:443/v1",
+                         "https://user@agentrouter.org/v1", "https://user:pass@agentrouter.org/v1",
+                         "https://:pass@agentrouter.org/v1", "https://@agentrouter.org/v1"] {
+            var modelRequest = request()
+            modelRequest.baseURL = try XCTUnwrap(URL(string: endpoint))
+            XCTAssertThrowsError(try NativeModelRequestBuilder.makeURLRequest(modelRequest), endpoint)
+        }
+    }
+
+    func testAgentRouterFallsBackToExactNeutralContentAndMissingCallsWithoutOverlayingReplay() throws {
+        var modelRequest = request()
+        modelRequest.baseURL = URL(string: "https://agentrouter.org/v1")!
+        let call = NativeToolCall(id: "call_neutral", name: "read_file", arguments: "{ \"path\": \"🌍\" }\n")
+        let reasoning = routeBoundReplay()[0]
+        let replayCall: [String: Any] = ["type": "function_call", "id": "fc_old", "status": "completed",
+            "call_id": call.id, "name": call.name, "arguments": call.arguments]
+        let text: [String: Any] = ["type": "message", "id": "msg_old", "role": "assistant", "phase": "final_answer",
+            "content": [["type": "output_text", "text": "Replay text", "annotations": []]]]
+        for replay in [[], [reasoning], [reasoning, replayCall], [reasoning, text], [reasoning, replayCall, text]] {
+            modelRequest.messages = [
+                NativeModelMessage(role: "assistant", content: "Exact neutral\n🌍", toolCalls: [call], replayItems: replay),
+                NativeModelMessage(role: "tool", content: "\nTool result 🌍\n", toolCallID: call.id)
+            ]
+            let input = try XCTUnwrap(body(NativeModelRequestBuilder.makeURLRequest(modelRequest))["input"] as? [[String: Any]])
+            XCTAssertEqual(input.count, 3)
+            let calls = input.filter { $0["type"] as? String == "function_call" }
+            XCTAssertEqual(calls.count, 1)
+            XCTAssertEqual(calls.first?["call_id"] as? String, call.id)
+            XCTAssertEqual(calls.first?["arguments"] as? String, call.arguments)
+            XCTAssertEqual(input.last?["output"] as? String, "\nTool result 🌍\n")
+            XCTAssertEqual(input.last?["call_id"] as? String, call.id)
+            if replay.contains(where: { $0["type"] as? String == "message" }) {
+                XCTAssertFalse(input.contains { $0["content"] as? String == "Exact neutral\n🌍" })
+                let message = try XCTUnwrap(input.first { $0["type"] as? String == "message" })
+                XCTAssertEqual(message["phase"] as? String, "final_answer")
+                XCTAssertEqual((message["content"] as? [[String: String]])?.first?["text"], "Replay text")
+            } else {
+                XCTAssertEqual(input[0]["content"] as? String, "Exact neutral\n🌍")
+            }
+        }
+        modelRequest.messages = [NativeModelMessage(role: "assistant", content: "", replayItems: [reasoning])]
+        let empty = try XCTUnwrap(body(NativeModelRequestBuilder.makeURLRequest(modelRequest))["input"] as? [[String: Any]])
+        XCTAssertTrue(empty.isEmpty, "Opaque-only replay must not become an empty assistant message")
+    }
+
+    func testAgentRouterPortableReplayKeepsToolOutputsAndAddsOnlyMissingNeutralCalls() throws {
+        var modelRequest = request()
+        modelRequest.baseURL = URL(string: "https://agentrouter.org/v1")!
+        let first = NativeToolCall(id: "call_1", name: "read_file", arguments: "{ \"path\": \"a.swift\" }")
+        let second = NativeToolCall(id: "call_2", name: "read_file", arguments: "{\"path\":\"b.swift\"}")
+        modelRequest.messages = [NativeModelMessage(role: "assistant", content: "", toolCalls: [first, second], replayItems: [
+            routeBoundReplay()[2],
+            ["type": "function_call_output", "id": "output_channel_a", "status": "completed",
+             "call_id": first.id, "output": "\nExact embedded result 🌍\n"]
+        ])]
+        let input = try XCTUnwrap(body(NativeModelRequestBuilder.makeURLRequest(modelRequest))["input"] as? [[String: Any]])
+        let expected: [[String: Any]] = [
+            ["type": "function_call", "call_id": first.id, "name": first.name, "arguments": first.arguments],
+            ["type": "function_call_output", "call_id": first.id, "output": "\nExact embedded result 🌍\n"],
+            ["type": "function_call", "call_id": second.id, "name": second.name, "arguments": second.arguments]
+        ]
+        XCTAssertEqual(try JSONSerialization.data(withJSONObject: input, options: [.sortedKeys]),
+                       try JSONSerialization.data(withJSONObject: expected, options: [.sortedKeys]))
+    }
+
+    func testAgentRouterPortableMessagesKeepOnlyValidSuppliedPhases() throws {
+        var modelRequest = request()
+        modelRequest.baseURL = URL(string: "https://agentrouter.org/v1")!
+        for phase in [nil, "commentary", "final_answer", "unknown"] as [String?] {
+            var replay: [String: Any] = ["type": "message", "id": "msg_old", "status": "completed", "role": "assistant",
+                "content": [["type": "output_text", "text": "Exact text", "annotations": [], "logprobs": []]]]
+            if let phase { replay["phase"] = phase }
+            modelRequest.messages = [NativeModelMessage(role: "assistant", content: "Exact text", replayItems: [replay])]
+            let input = try XCTUnwrap(body(NativeModelRequestBuilder.makeURLRequest(modelRequest))["input"] as? [[String: Any]])
+            XCTAssertEqual(input.count, 1)
+            XCTAssertEqual(input[0]["phase"] as? String, phase == "unknown" ? nil : phase)
+            XCTAssertNil(input[0]["id"])
+            XCTAssertNil(input[0]["status"])
+            XCTAssertEqual(input[0]["content"] as? [[String: String]], [["type": "output_text", "text": "Exact text"]])
+        }
+    }
+
+    func testEmptyAssistantPlaceholdersAreOmittedInBothFormatsButEmptyUsersAndToolOutputsRemain() throws {
+        for format in [NativeProviderFormat.responses, .chatCompletions] {
+            for endpoint in ["https://provider.example/v1", "https://agentrouter.org/v1"] {
+                var modelRequest = request(format)
+                modelRequest.baseURL = try XCTUnwrap(URL(string: endpoint))
+                modelRequest.system = ""
+                modelRequest.messages = [
+                    NativeModelMessage(role: "assistant", content: ""),
+                    NativeModelMessage(role: "user", content: ""),
+                    NativeModelMessage(role: "assistant", content: "", toolCalls: [
+                        NativeToolCall(id: "c", name: "read_file", arguments: "{}")
+                    ]),
+                    NativeModelMessage(role: "tool", content: "", toolCallID: "c"),
+                    NativeModelMessage(role: "assistant", content: " "),
+                    NativeModelMessage(role: "assistant", content: "", toolCallID: "unused-placeholder")
+                ]
+                if format == .chatCompletions {
+                    modelRequest.messages.append(NativeModelMessage(role: "assistant", content: "",
+                        replayItems: [routeBoundReplay()[0]]))
+                }
+                let field = format == .responses ? "input" : "messages"
+                let rows = try XCTUnwrap(body(NativeModelRequestBuilder.makeURLRequest(modelRequest))[field] as? [[String: Any]])
+                XCTAssertEqual(rows.count, 4, endpoint)
+                XCTAssertEqual(rows[0]["role"] as? String, "user")
+                XCTAssertEqual(rows[0]["content"] as? String, "")
+                XCTAssertEqual(rows[2][format == .responses ? "call_id" : "tool_call_id"] as? String, "c")
+                XCTAssertEqual(rows[2][format == .responses ? "output" : "content"] as? String, "")
+                XCTAssertEqual(rows[3]["content"] as? String, " ")
+            }
+        }
+    }
+
     func testResponsesWithoutReplayFlattensCallsAndOmitsOptionalFields() throws {
         var modelRequest = request()
         modelRequest.system = ""
@@ -763,6 +989,82 @@ final class NativeModelClientTests: XCTestCase {
     }
 
     @available(iOS 15.0, macOS 12.0, *)
+    func testTransportAgentRouterSecondTurnRestoresPortableHistoryAndDoesNotRetryRouteBound400() async throws {
+        let output = routeBoundReplay()
+        let firstWire = "data: " + (try frame(["type": "response.reasoning_summary_text.delta", "delta": "Visible work summary"])).data + "\n\n"
+            + "data: " + (try frame(["type": "response.output_text.delta", "delta": "Reading 🌍\nThen checkingWaiting for the file"])).data + "\n\n"
+            + "data: " + (try responseCompleted(output: output)).data + "\n\n"
+        let nextCall: [String: Any] = ["type": "function_call", "id": "fc_channel_b", "status": "completed",
+            "call_id": "call_2", "name": "read_file", "arguments": "{\"path\":\"next.swift\"}"]
+        let secondWire = "data: " + (try responseCompleted(output: [nextCall])).data + "\n\n"
+        for endpoint in ["https://agentrouter.org/v1", "https://agentrouter.org:444/v1"] {
+            let host = "agentrouter.org"
+            let fixture = NativeModelURLFixture(body: Data(firstWire.utf8), rejectsReplayItemIDs: true,
+                                                continuationBody: Data(secondWire.utf8))
+            NativeModelTestURLProtocol.register(fixture, host: host)
+            defer { NativeModelTestURLProtocol.unregister(host: host) }
+            let configuration = URLSessionConfiguration.ephemeral
+            configuration.protocolClasses = [NativeModelTestURLProtocol.self]
+            configuration.urlCache = nil
+            configuration.httpCookieStorage = nil
+            var modelRequest = request()
+            modelRequest.baseURL = try XCTUnwrap(URL(string: endpoint))
+            let firstClient = URLSessionNativeModelClient(configuration: configuration)
+            var content = ""
+            var calls: [NativeToolCall] = []
+            var replay: [[String: Any]] = []
+            var visibleSummary = ""
+            var finished = false
+            for try await event in firstClient.stream(request: modelRequest) {
+                switch event {
+                case .text(let text): content += text
+                case .reasoning(let text): visibleSummary += text
+                case .toolCall(let call): calls.append(call)
+                case .replay(let items): replay += items
+                case .finished: finished = true
+                default: break
+                }
+            }
+            XCTAssertTrue(finished)
+            XCTAssertEqual(calls.count, 1)
+            XCTAssertEqual(visibleSummary, "Visible work summary")
+            XCTAssertEqual(try JSONSerialization.data(withJSONObject: replay, options: [.sortedKeys]),
+                           try JSONSerialization.data(withJSONObject: output, options: [.sortedKeys]))
+            modelRequest.messages += [
+                NativeModelMessage(role: "assistant", content: content, toolCalls: calls, replayItems: replay),
+                NativeModelMessage(role: "tool", content: "Exact file contents\n🌍", toolCallID: "call_1"),
+                NativeModelMessage(role: "user", content: "Continue after restart")
+            ]
+            let saved = try savedHistory(modelRequest.messages)
+            modelRequest.messages = try restoredHistory(saved)
+            // A fresh client has no transport state from the first request.
+            let reopenedClient = URLSessionNativeModelClient(configuration: configuration)
+            var labels: [String] = []
+            do {
+                for try await event in reopenedClient.stream(request: modelRequest) { labels += eventLabels([event]) }
+                XCTAssertEqual(endpoint, "https://agentrouter.org/v1")
+                XCTAssertEqual(labels, ["tool:call_2:read_file:{\"path\":\"next.swift\"}", "usage:11:7", "replay:1", "finished"])
+            } catch {
+                XCTAssertEqual(endpoint, "https://agentrouter.org:444/v1")
+                guard let safe = error as? NativeModelClientError, case .http(let status) = safe else {
+                    return XCTFail("Unexpected error: \(error)")
+                }
+                XCTAssertEqual(status, 400)
+                XCTAssertTrue(labels.isEmpty)
+            }
+            XCTAssertEqual(fixture.requestCount, 2, "Exactly one HTTP request per turn, even for 400")
+            XCTAssertEqual(try savedHistory(modelRequest.messages), saved)
+            let secondRequest = try XCTUnwrap(fixture.requests.last)
+            let second = try body(secondRequest)
+            let input = try XCTUnwrap(second["input"] as? [[String: Any]])
+            XCTAssertEqual(input.contains { $0["id"] != nil }, endpoint.contains(":444"))
+            XCTAssertEqual(input.filter { $0["type"] as? String == "function_call" }.count, 1)
+            XCTAssertEqual(input.filter { $0["type"] as? String == "function_call_output" }.first?["output"] as? String,
+                           "Exact file contents\n🌍")
+        }
+    }
+
+    @available(iOS 15.0, macOS 12.0, *)
     func testTransportHTTPErrorIsBoundedRedactedAndNotRetried() async throws {
         let stopped = expectation(description: "Non-JSON error body was cancelled without reading")
         let fixture = NativeModelURLFixture(status: 401, body: Data(String(repeating: "secret-test-key", count: 10000).utf8),
@@ -1096,12 +1398,16 @@ private final class NativeModelURLFixture {
     let failure: NSError?
     let started: XCTestExpectation?
     let stopped: XCTestExpectation?
+    let rejectsReplayItemIDs: Bool
+    let continuationBody: Data?
     private let lock = NSLock()
     private var count = 0
+    private var capturedRequests: [URLRequest] = []
 
     init(status: Int = 200, body: Data, finish: Bool = true,
          started: XCTestExpectation? = nil, stopped: XCTestExpectation? = nil,
-         contentType: String = "text/event-stream", expectedLength: Int64? = nil, failure: NSError? = nil) {
+         contentType: String = "text/event-stream", expectedLength: Int64? = nil, failure: NSError? = nil,
+         rejectsReplayItemIDs: Bool = false, continuationBody: Data? = nil) {
         self.status = status
         self.body = body
         self.finish = finish
@@ -1110,12 +1416,52 @@ private final class NativeModelURLFixture {
         self.failure = failure
         self.started = started
         self.stopped = stopped
+        self.rejectsReplayItemIDs = rejectsReplayItemIDs
+        self.continuationBody = continuationBody
+    }
+
+    var requests: [URLRequest] {
+        lock.lock()
+        defer { lock.unlock() }
+        return capturedRequests
     }
 
     var requestCount: Int {
         lock.lock()
         defer { lock.unlock() }
         return count
+    }
+
+    func reply(to request: URLRequest) throws -> (status: Int, body: Data, contentType: String) {
+        // Snapshot one-shot uploads while URLProtocol still owns the request.
+        var captured = request
+        if captured.httpBody == nil, let stream = request.httpBodyStream {
+            stream.open()
+            defer { stream.close() }
+            var data = Data()
+            var buffer = [UInt8](repeating: 0, count: 4096)
+            while true {
+                let bytes = stream.read(&buffer, maxLength: buffer.count)
+                if bytes < 0 { throw stream.streamError ?? URLError(.cannotDecodeContentData) }
+                if bytes == 0 { break }
+                data.append(contentsOf: buffer.prefix(bytes))
+            }
+            captured.httpBody = data
+        }
+        lock.lock()
+        defer { lock.unlock() }
+        count += 1
+        capturedRequests.append(captured)
+        if rejectsReplayItemIDs {
+            guard let data = captured.httpBody,
+                  let json = try JSONSerialization.jsonObject(with: data) as? [String: Any],
+                  let input = json["input"] as? [[String: Any]] else { throw URLError(.badServerResponse) }
+            if input.contains(where: { $0["id"] != nil }) {
+                return (400, Data("{\"error\":{\"message\":\"This item was created on a different route; use the same route\"}}".utf8),
+                        "application/json")
+            }
+        }
+        return (status, count > 1 ? continuationBody ?? body : body, contentType)
     }
 
     func recordRequest() {
@@ -1156,17 +1502,25 @@ private final class NativeModelTestURLProtocol: URLProtocol {
             fixture?.started?.fulfill()
             return
         }
-        var headers = ["Content-Type": fixture?.contentType ?? ""]
-        if let length = fixture?.expectedLength { headers["Content-Length"] = String(length) }
-        guard let fixture, let url = request.url,
-              let response = HTTPURLResponse(url: url, statusCode: fixture.status,
+        guard let fixture, let url = request.url else {
+            client?.urlProtocol(self, didFailWithError: URLError(.badServerResponse))
+            return
+        }
+        let reply: (status: Int, body: Data, contentType: String)
+        do { reply = try fixture.reply(to: request) }
+        catch {
+            client?.urlProtocol(self, didFailWithError: error)
+            return
+        }
+        var headers = ["Content-Type": reply.contentType]
+        if let length = fixture.expectedLength { headers["Content-Length"] = String(length) }
+        guard let response = HTTPURLResponse(url: url, statusCode: reply.status,
                                              httpVersion: "HTTP/1.1", headerFields: headers) else {
             client?.urlProtocol(self, didFailWithError: URLError(.badServerResponse))
             return
         }
-        fixture.recordRequest()
         client?.urlProtocol(self, didReceive: response, cacheStoragePolicy: .notAllowed)
-        client?.urlProtocol(self, didLoad: fixture.body)
+        client?.urlProtocol(self, didLoad: reply.body)
         if fixture.finish { client?.urlProtocolDidFinishLoading(self) }
         fixture.started?.fulfill()
     }

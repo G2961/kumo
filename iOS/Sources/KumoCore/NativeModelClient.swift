@@ -256,7 +256,10 @@ enum NativeModelRequestBuilder {
             // store:false reasoning must be explicitly requested for stateless replay.
             body["include"] = ["reasoning.encrypted_content"]
             if !request.system.isEmpty { body["instructions"] = request.system }
-            body["input"] = try responseInput(request.messages)
+            // HTTPS and absent URL credentials were validated above; match only the
+            // exact AgentRouter host/default port, never suffixes or other providers.
+            body["input"] = try responseInput(request.messages,
+                portableHistory: host == "agentrouter.org" && (url.port == nil || url.port == 443))
             if let effort = request.effort {
                 body["reasoning"] = ["effort": effort, "summary": "auto"]
             }
@@ -264,7 +267,9 @@ enum NativeModelRequestBuilder {
             if let cap = request.maxOutputTokens { body["max_completion_tokens"] = cap }
             var messages: [[String: Any]] = []
             if !request.system.isEmpty { messages.append(["role": "system", "content": request.system]) }
-            messages += try request.messages.map(chatMessage)
+            messages += try request.messages.filter {
+                $0.role != "assistant" || !$0.content.isEmpty || !$0.toolCalls.isEmpty
+            }.map(chatMessage)
             body["messages"] = messages
             body["stream_options"] = ["include_usage": true]
             if let effort = request.effort { body["reasoning_effort"] = effort }
@@ -323,10 +328,12 @@ enum NativeModelRequestBuilder {
         }
     }
 
-    private static func responseInput(_ messages: [NativeModelMessage]) throws -> [[String: Any]] {
+    private static func responseInput(_ messages: [NativeModelMessage], portableHistory: Bool) throws -> [[String: Any]] {
         var input: [[String: Any]] = []
         for message in messages {
             try validateRole(message.role)
+            if message.role == "assistant", message.content.isEmpty,
+               message.toolCalls.isEmpty, message.replayItems.isEmpty { continue }
             if message.role == "tool" {
                 guard let id = message.toolCallID, !id.isEmpty else {
                     throw NativeModelClientError.invalidRequest("tool output requires a call ID")
@@ -341,7 +348,11 @@ enum NativeModelRequestBuilder {
                         throw NativeModelClientError.invalidRequest("unsupported Responses replay item")
                     }
                 }
-                input += message.replayItems
+                if portableHistory {
+                    input += try portableResponseItems(message)
+                } else {
+                    input += message.replayItems
+                }
             } else {
                 if !message.content.isEmpty || message.toolCalls.isEmpty {
                     input.append(["role": message.role, "content": message.content])
@@ -357,6 +368,66 @@ enum NativeModelRequestBuilder {
             }
         }
         return input
+    }
+
+    private static func portableResponseItems(_ message: NativeModelMessage) throws -> [[String: Any]] {
+        // Project only reusable semantics. Item IDs and encrypted reasoning belong
+        // to the gateway route that created them; the saved replay remains untouched.
+        var items: [[String: Any]] = []
+        for item in message.replayItems {
+            switch item["type"] as? String {
+            case "message":
+                guard let role = item["role"] as? String,
+                      let content = item["content"] as? [[String: Any]] else {
+                    throw NativeModelClientError.invalidRequest("Responses replay messages require a role and content")
+                }
+                try validateRole(role)
+                let text = content.compactMap { part -> [String: String]? in
+                    guard part["type"] as? String == "output_text",
+                          let text = part["text"] as? String, !text.isEmpty else { return nil }
+                    return ["type": "output_text", "text": text]
+                }
+                if !text.isEmpty {
+                    var projected: [String: Any] = ["type": "message", "role": role, "content": text]
+                    if let phase = item["phase"] as? String, ["commentary", "final_answer"].contains(phase) {
+                        projected["phase"] = phase
+                    }
+                    items.append(projected)
+                }
+            case "function_call":
+                guard let id = item["call_id"] as? String, let name = item["name"] as? String,
+                      let arguments = item["arguments"] as? String else {
+                    throw NativeModelClientError.invalidRequest("Responses replay calls require a call ID, name and arguments")
+                }
+                try validateCall(NativeToolCall(id: id, name: name, arguments: arguments))
+                items.append(["type": "function_call", "call_id": id, "name": name, "arguments": arguments])
+            case "function_call_output":
+                guard let id = item["call_id"] as? String, !id.isEmpty, let output = item["output"] as? String else {
+                    throw NativeModelClientError.invalidRequest("Responses replay tool output requires a call ID and output")
+                }
+                items.append(["type": "function_call_output", "call_id": id, "output": output])
+            default: break // Reasoning is display/persistence-only on this gateway.
+            }
+        }
+        // Older or partial transcripts can have only reasoning or only calls in
+        // replay. Use neutral data for the missing kind, never overlay its duplicate.
+        if !items.contains(where: { $0["type"] as? String == "message" }), !message.content.isEmpty {
+            items.insert(["role": message.role, "content": message.content], at: 0)
+        }
+        guard message.toolCalls.isEmpty || message.role == "assistant" else {
+            throw NativeModelClientError.invalidRequest("only assistants may call tools")
+        }
+        let replayCallIDs = Set(items.compactMap { item -> String? in
+            item["type"] as? String == "function_call" ? item["call_id"] as? String : nil
+        })
+        for call in message.toolCalls {
+            try validateCall(call)
+            if !replayCallIDs.contains(call.id) {
+                items.append(["type": "function_call", "call_id": call.id,
+                              "name": call.name, "arguments": call.arguments])
+            }
+        }
+        return items
     }
 
     private static func chatMessage(_ message: NativeModelMessage) throws -> [String: Any] {
