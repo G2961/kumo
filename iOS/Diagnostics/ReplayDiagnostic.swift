@@ -17,6 +17,7 @@ struct ReplayDiagnostic {
         case firstContinuation = "first-continuation"
         case skipEmpty = "skip-empty"
         case noReasoning = "no-reasoning"
+        case firstWithoutReasoning = "first-without-reasoning"
     }
 
     private enum Failure: String, Error {
@@ -75,7 +76,7 @@ struct ReplayDiagnostic {
             // The failed turn's user is already stored. Do not append another user turn.
             if droppedPlaceholder { history.removeLast() }
             guard history.contains(where: { $0.role == "user" }) else { throw Failure.transcript }
-            if mode == .firstContinuation {
+            if mode == .firstContinuation || mode == .firstWithoutReasoning {
                 if let index = history.indices.dropFirst().first(where: { history[$0].role == "user" }) {
                     history = Array(history.prefix(index + 1))
                 }
@@ -87,7 +88,7 @@ struct ReplayDiagnostic {
                 history.removeAll(where: isEmptyAssistant)
                 removedEmpty = before - history.count
             }
-            if mode == .noReasoning {
+            if mode == .noReasoning || mode == .firstWithoutReasoning {
                 for index in history.indices {
                     let before = history[index].replayItems.count
                     history[index].replayItems.removeAll { $0["type"] as? String == "reasoning" }
@@ -365,6 +366,10 @@ struct ReplayDiagnostic {
             "inputTypeMention": ["input type", "input item", "input[", "input."],
             "instructionsMention": ["instructions"], "emptyStringMention": ["empty string"],
             "invalidParameterMention": ["invalid parameter", "invalid value", "invalid request"],
+            "cipherMention": ["cipher", "decrypt", "encrypt", "signature", "verified", "verification"],
+            "sessionMention": ["session"], "accountMention": ["account", "organization"],
+            "schemaMention": ["schema", "validation", "validate"],
+            "networkMention": ["upstream", "connection", "timeout", "timed out", "proxy"],
             "inputMention": ["input"], "modelMention": ["model"],
             "assistantMention": ["assistant"], "lastMessageMention": ["last message", "must end", "end with"],
             "userMention": ["user"], "toolMention": ["tool"], "jsonMention": ["json"],
@@ -372,7 +377,7 @@ struct ReplayDiagnostic {
             "tokenMention": ["token"], "temperatureMention": ["temperature"],
             "parseMention": ["parse", "parsing", "deserialize"],
             "storeMention": ["store"], "contentTypeMention": ["content type", "output_text", "input_text"]]
-        let vocabulary: Set<String> = ["the","a","an","is","are","was","must","be","not","no","empty","invalid","expected","value","request","message","messages","last","first","user","assistant","tool","role","input","output","content","string","array","object","parameter","field","required","unsupported","unknown","id","encrypted","reasoning","cannot","with","without","for","in","of","type","model","error","failed","parse","parsing","end","start","response","responses","valid","provided","supported","format","only","allowed","length","too","long","short","null","data","index","missing","after","before","call","calls","function","status","token","tokens","max_output_tokens","phase","summary","logprobs"]
+        let vocabulary: Set<String> = ["the","a","an","is","are","was","must","be","not","no","empty","invalid","expected","value","request","message","messages","last","first","user","assistant","tool","role","input","output","content","string","array","object","parameter","field","required","unsupported","unknown","id","encrypted","reasoning","cannot","with","without","for","in","of","type","model","error","failed","parse","parsing","end","start","response","responses","valid","provided","supported","format","only","allowed","length","too","long","short","null","data","index","missing","after","before","call","calls","function","status","token","tokens","max_output_tokens","phase","summary","logprobs","processing","process","api","supplied","ciphertext","cipher","decryption","decrypt","decrypted","encryption","key","keys","signature","signed","verification","verify","verified","organization","account","session","blob","payload","upstream","connection","timeout","timed","out","proxy","server","header","headers","bad","malformed","unexpected","encountered","because","due","during","this","your","our","please","try","again","contact","support","problem","unable","decode","decoding","encoding","encoded","base64","using","different","same","another","belongs","safety","security","policy","blocked","denied","client","could","does","match","did","authentication","authorization"]
         report["messageVocabulary"] = message.split(whereSeparator: { !$0.isLetter && $0 != "_" }).map(String.init).map { vocabulary.contains($0) ? $0 : "?" }.prefix(70).joined(separator: " ")
         for (name, substrings) in classifications {
             report[name] = substrings.contains(where: { message.contains($0) })
