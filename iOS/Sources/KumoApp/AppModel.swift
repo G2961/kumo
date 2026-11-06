@@ -18,6 +18,7 @@ public final class AppModel: ObservableObject {
     @Published public var bridge: JSBridge?
 
     private let runtime: LocalRuntime
+    private var uiServer: UIServer?
     private var started = false
 
     public init(runtime: LocalRuntime) {
@@ -59,7 +60,28 @@ extension AppModel: RuntimeDelegate {
 
     public func runtime(_ runtime: LocalRuntime, didBecomeReady port: Int) {
         DispatchQueue.main.async {
-            self.currentURL = URL(string: "http://127.0.0.1:\(port)/")
+            // Front-end: serve the bundled Kumo UI and proxy the API on one origin
+            // (mirrors Android's /_ui/index.html substitution).
+            do {
+                let ui = UIServer(targetPort: UInt16(port),
+                                  user: runtime.authUser,
+                                  password: runtime.password)
+                if let existing = self.uiServer {
+                    existing.stop()
+                }
+                try ui.start()
+                self.uiServer = ui
+                let dir = ProjectManager.currentDir().path
+                let data = Data(dir.utf8).base64EncodedString()
+                    .replacingOccurrences(of: "+", with: "-")
+                    .replacingOccurrences(of: "/", with: "_")
+                    .replacingOccurrences(of: "=", with: "")
+                self.currentURL = URL(string: "http://127.0.0.1:\(ui.port)/_ui/index.html#d=\(data)")
+            } catch {
+                self.statusMessage = "UI server failed: \(error.localizedDescription)"
+                self.phase = .failed
+                return
+            }
             self.phase = .ready
         }
     }

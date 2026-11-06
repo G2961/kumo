@@ -47,7 +47,7 @@ public final class LocalRuntime {
     private var settings: Settings
     private let lock = NSLock()
     private var stopping = false
-    private var authUser = "opencode"
+    public private(set) var authUser = "opencode"
 
     public init(settings: Settings) {
         self.settings = settings

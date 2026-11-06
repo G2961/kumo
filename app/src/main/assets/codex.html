@@ -2332,6 +2332,9 @@ $('#settingsScreen').onclick=e=>{
  }
 };
 const nativePending=new Map();
+// WKWebView transport shim: iOS bridge listens on webkit.messageHandlers.codexNative
+// and expects an object; Android registers window.CodexNative directly.
+if(!window.CodexNative&&window.webkit&&window.webkit.messageHandlers&&window.webkit.messageHandlers.codexNative)window.CodexNative={request:s=>{try{window.webkit.messageHandlers.codexNative.postMessage(JSON.parse(s))}catch(e){}}};
 window.codexNativeResult=(id,result)=>{const p=nativePending.get(id);if(!p)return;clearTimeout(p.timer);nativePending.delete(id);result?.error?p.reject(new Error(result.error)):p.resolve(result)};
 function nativeCall(action,data={}){
  return new Promise((resolve,reject)=>{

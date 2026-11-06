@@ -1,0 +1,439 @@
+<!doctype html>
+<html lang="ru">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">
+<meta http-equiv="Content-Security-Policy" content="default-src 'none'; script-src 'unsafe-inline'; style-src 'unsafe-inline'; img-src data:; connect-src 'none'; form-action 'none'; base-uri 'none'">
+<title>Макет ленты — Kumo</title>
+<style>
+:root{color-scheme:light;--base:#fff;--surface:#f5f5f7;--line:#e7e7eb;--text:#17191d;--muted:#62656d;--accent:#126bd6;--error:#b3261e;--send:#17191d;--send-text:#fff;--scrim:rgba(0,0,0,.3)}
+:root[data-theme="dark"]{color-scheme:dark;--base:#212121;--surface:#28282b;--line:#3c3c40;--text:#f5f5f7;--muted:#b3b5bc;--accent:#81b8ff;--error:#ffb4ab;--send:#f5f5f7;--send-text:#212121;--scrim:rgba(0,0,0,.55)}
+*{box-sizing:border-box;-webkit-tap-highlight-color:transparent}
+html,body{height:100%;margin:0;overflow:hidden;background:var(--base);color:var(--text)}
+body{font:16px/1.5 Roboto,-apple-system,"Segoe UI",sans-serif}
+button,textarea{font:inherit;color:inherit}
+button{border:0;background:none;cursor:pointer;padding:0}
+svg{width:20px;height:20px;fill:none;stroke:currentColor;stroke-width:1.7;stroke-linecap:round;stroke-linejoin:round;flex:none}
+button:focus-visible,summary:focus-visible,textarea:focus-visible{outline:2px solid var(--accent);outline-offset:3px}
+[hidden]{display:none!important}
+#preview{height:100%;height:100dvh;display:flex;flex-direction:column;background:var(--base)}
+.preview-header{display:flex;align-items:center;gap:8px;min-height:64px;padding:6px 12px;border-bottom:1px solid var(--line);flex:none}
+.icon-button{width:44px;height:44px;min-width:44px;display:grid;place-items:center;border-radius:12px;color:var(--muted)}
+.icon-button:active{background:var(--surface)}
+.heading{flex:1;min-width:0}
+h1{font-size:16px;line-height:1.4;margin:0;font-weight:600;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.preview-caption{font-size:11px;line-height:1.5;color:var(--muted);margin:1px 0 0}
+#feed{flex:1;min-height:0;overflow-y:auto;overscroll-behavior:contain;scrollbar-width:thin;padding:16px 16px 24px;-webkit-overflow-scrolling:touch}
+.thread{max-width:640px;margin:0 auto}
+.user-row{display:flex;justify-content:flex-end;margin-bottom:22px}
+.user-message{font-size:15px;line-height:1.45;background:var(--surface);border-radius:18px;padding:10px 14px;max-width:85%;margin:0}
+.phase{display:flex;flex-direction:column;gap:0}
+.phase+.phase{margin-top:12px}
+.event>summary{list-style:none;cursor:pointer;min-height:44px;display:flex;align-items:center;gap:10px;font-size:14px;line-height:1.4;text-align:left}
+.event>summary::-webkit-details-marker{display:none}
+.event-label{flex:1;min-width:0;overflow-wrap:anywhere}
+.thought>summary{color:var(--muted)}
+.duration{font-size:12px;white-space:nowrap;font-variant-numeric:tabular-nums;color:var(--muted)}
+.caret{width:16px;height:16px;color:var(--muted);transition:transform 140ms ease}
+.event[open]>summary .caret{transform:rotate(180deg)}
+.thought-text{font-size:14px;line-height:1.55;color:var(--muted);margin:0;padding:0 0 4px;overflow-wrap:anywhere;white-space:pre-wrap}
+.reason-window{max-height:132px;overflow:hidden}
+.reason-window.expanded{max-height:none}
+.reason-toggle{display:block;min-height:44px;width:100%;text-align:left;font-size:12px;color:var(--muted)}
+.command{border:1px solid transparent;border-radius:12px;overflow:hidden}
+.command>summary{display:grid;grid-template-columns:18px minmax(0,1fr) auto 16px;padding:8px;min-height:48px;column-gap:8px;row-gap:4px;border-bottom:1px solid transparent}
+.command>summary>.terminal{grid-column:1;grid-row:1;width:18px;height:18px;color:var(--muted)}
+.command .event-label{grid-column:2;grid-row:1;font-weight:500;display:-webkit-box;-webkit-box-orient:vertical;-webkit-line-clamp:2;overflow:hidden}
+.command-meta{grid-column:3;grid-row:1;display:flex;align-items:center;gap:6px;flex:none;margin-left:auto}
+.command>summary>.caret{grid-column:4;grid-row:1;margin-left:0}
+.environment{font-size:12px;color:var(--muted);white-space:nowrap}
+.command-status{display:flex;color:var(--muted)}
+.command-status svg{width:14px;height:14px}
+.command[open]{background:var(--surface);border-color:var(--line)}
+.command[open]>summary{border-bottom-color:var(--line)}
+.event-error{grid-column:2 / -1;grid-row:2;color:var(--error);font-size:12px;line-height:1.5}
+.command[data-state="error"] .command-status{color:var(--error)}
+.command-status .running-mark{width:14px;height:14px;animation:preview-spin 1s linear infinite}
+@keyframes preview-spin{to{transform:rotate(360deg)}}
+.command-content{padding:12px}
+.command-line,.command-output{font:12px/1.6 ui-monospace,"Cascadia Mono",Menlo,Consolas,monospace;margin:0;tab-size:2}
+.command-line{white-space:pre-wrap;overflow-wrap:anywhere;color:var(--text);margin-bottom:12px}
+.command-output{white-space:pre;overflow-x:auto;overscroll-behavior-x:contain;color:var(--muted)}
+.output-window{max-height:138px;overflow:hidden}
+.output-window.expanded{max-height:none}
+.output-toggle{display:flex;align-items:center;justify-content:center;gap:8px;min-height:44px;width:100%;border-top:1px solid var(--line);font-size:12px;color:var(--muted)}
+.output-toggle svg{width:14px;height:14px}
+.output-toggle[aria-expanded="true"] svg{transform:rotate(180deg)}
+.skipped{font-size:12px;color:var(--muted);margin:12px 0 0;line-height:1.5}
+.answer{margin-top:24px}
+.answer p{margin:0;font-size:16px;font-weight:400;line-height:1.55;overflow-wrap:anywhere}
+.answer-actions{display:flex;align-items:center;gap:4px;margin-top:10px}
+.answer-actions .icon-button{width:44px;height:44px}
+.answer-actions svg{width:19px;height:19px}
+.composer-footer{flex:none;padding:8px 12px 6px;background:var(--base);border-top:1px solid transparent}
+.composer{max-width:648px;margin:0 auto;border:1px solid var(--line);border-radius:24px;padding:4px 10px}
+#draft{display:block;width:100%;min-height:44px;max-height:96px;resize:none;outline-offset:0;border:0;background:none;padding:0 4px 6px;line-height:1.5;font-size:15px}
+#draft::placeholder{color:var(--muted);opacity:1}
+.composer-row{display:flex;align-items:center;gap:8px;min-width:0}
+.composer-row .icon-button{width:44px;min-width:44px;height:44px}
+.separator{width:1px;height:20px;background:var(--line);flex:none}
+.model{display:flex;align-items:center;gap:4px;font-size:13px;color:var(--muted);min-height:44px;min-width:0}
+.model span{white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.model svg{width:14px;height:14px}
+.send{margin-left:auto;width:44px;height:44px;min-width:44px;background:var(--send);color:var(--send-text);border-radius:50%;display:grid;place-items:center}
+.send svg{width:23px;height:23px}
+.composer-options{max-width:648px;margin:0 auto;display:flex;align-items:center;gap:12px;padding:0 4px;min-width:0}
+.option{display:flex;align-items:center;gap:3px;font-size:12px;min-height:44px;min-width:0;color:var(--muted)}
+.option span{white-space:nowrap}
+.option svg{width:12px;height:12px}
+.option.environment-option{color:var(--accent)}
+.composer-options .separator{height:16px}
+#notice{position:fixed;left:16px;right:16px;bottom:170px;z-index:3;max-width:480px;margin:0 auto;padding:10px 14px;border:1px solid var(--line);border-radius:12px;background:var(--text);color:var(--base);font-size:13px;box-shadow:0 3px 16px rgba(0,0,0,.12);pointer-events:none}
+.preview-dialog{width:calc(100% - 32px);max-width:400px;background:var(--base);color:var(--text);border:1px solid var(--line);border-radius:20px;padding:20px}
+.preview-dialog::backdrop{background:var(--scrim)}
+.preview-dialog h2{font-size:18px;margin:0 0 8px;font-weight:600}
+.preview-dialog p{font-size:14px;color:var(--muted);margin:0 0 16px}
+.preview-controls{display:flex;gap:8px;margin-bottom:12px}
+.control{display:flex;align-items:center;justify-content:center;min-height:44px;padding:8px 12px;border:1px solid var(--line);border-radius:10px;font-size:14px;flex:1}
+.control[aria-pressed="true"]{border-color:var(--text);background:var(--surface)}
+.dialog-action{width:100%;min-height:44px;text-align:left;font-size:14px;padding:8px 0}
+.dialog-close{width:100%;min-height:44px;border-top:1px solid var(--line);font-size:14px;margin-top:8px}
+.scenario-choices{display:flex;flex-direction:column;gap:6px;margin-bottom:12px}
+.scenario-choices .control{text-align:left;justify-content:flex-start}
+.simulation-bar{flex:none;padding:8px 16px;border-bottom:1px solid var(--line);background:var(--base)}
+.simulation-controls{display:flex;align-items:center;gap:8px;max-width:640px;margin:0 auto}
+.simulation-controls button{font-size:12px;min-height:44px;padding:0 12px;border:1px solid var(--line);border-radius:10px}
+.simulation-controls button:disabled{opacity:.45;cursor:default}
+#simulationState{max-width:640px;margin:0 auto 4px;font-size:12px;line-height:1.4;color:var(--muted)}
+.approval{padding:12px;border:1px solid var(--line);border-radius:12px;margin-top:12px}
+.approval p{font-size:14px;margin:0 0 8px}
+.approval .preview-controls{margin:0}
+.approval-note{color:var(--muted);font-size:12px!important}
+@media(max-width:350px){.command>summary{column-gap:6px}.command-meta{gap:4px}.composer-options{gap:8px;padding:0}.option{gap:2px}}
+@media(max-height:400px){
+ #preview{display:block;overflow-y:auto;overscroll-behavior:contain}
+ #feed{max-height:240px;min-height:120px;padding-top:8px;padding-bottom:8px}
+ .composer-footer{position:relative}
+}
+@media(prefers-reduced-motion:reduce){.caret{transition:none}.command-status .running-mark{animation:none}}
+</style>
+</head>
+<body>
+<svg hidden aria-hidden="true" xmlns="http://www.w3.org/2000/svg">
+ <symbol id="chevron" viewBox="0 0 24 24"><path d="m6 9 6 6 6-6"/></symbol>
+ <symbol id="terminal" viewBox="0 0 24 24"><path d="m4 6 5 6-5 6m9 0h7"/></symbol>
+ <symbol id="check" viewBox="0 0 24 24"><path d="m5 12 4 4L19 6"/></symbol>
+ <symbol id="back" viewBox="0 0 24 24"><path d="m14 6-6 6 6 6"/></symbol>
+ <symbol id="more" viewBox="0 0 24 24"><circle cx="5" cy="12" r="1"/><circle cx="12" cy="12" r="1"/><circle cx="19" cy="12" r="1"/></symbol>
+ <symbol id="copy" viewBox="0 0 24 24"><rect x="8" y="8" width="12" height="13" rx="2"/><path d="M16 8V5a2 2 0 0 0-2-2H5a2 2 0 0 0-2 2v10a2 2 0 0 0 2 2h3"/></symbol>
+ <symbol id="plus" viewBox="0 0 24 24"><path d="M12 4v16M4 12h16"/></symbol>
+ <symbol id="up" viewBox="0 0 24 24"><path d="M12 20V4m-7 7 7-7 7 7"/></symbol>
+</svg>
+<div id="preview" data-scenario="short">
+ <header class="preview-header">
+  <button class="icon-button" id="exit" aria-label="Вернуться в приложение"><svg><use href="#back"/></svg></button>
+  <div class="heading"><h1>допиши бэкенд</h1><p class="preview-caption">Макет · тестовые данные</p></div>
+  <button class="icon-button" id="previewSettings" aria-label="Настройки макета"><svg><use href="#more"/></svg></button>
+ </header>
+ <section class="simulation-bar" id="simulationBar" hidden aria-label="Управление симуляцией">
+  <p id="simulationState" role="status" aria-live="polite">Готово к запуску · только тестовые события</p>
+  <div class="simulation-controls"><button id="simulationStart">Запустить пример</button><button id="simulationStop" disabled>Остановить</button></div>
+ </section>
+ <main id="feed" aria-label="Пример переписки">
+  <div class="thread">
+   <div class="user-row"><p class="user-message">допиши бэкенд</p></div>
+   <section class="phase" aria-label="Проверка локального проекта">
+    <details class="event thought" id="thought-local">
+     <summary><span class="event-label">Проверка структуры проекта</span><span class="duration">1 с</span><svg class="caret" aria-hidden="true"><use href="#chevron"/></svg></summary>
+     <p class="thought-text">Проверю файлы проекта и найду точки подключения API.</p>
+    </details>
+    <details class="event command" id="command-local">
+     <summary><svg class="terminal" aria-hidden="true"><use href="#terminal"/></svg><span class="event-label">Просмотр файлов проекта</span><span class="command-meta"><span class="environment">Local</span><span class="command-status" role="img" aria-label="Выполнено"><svg><use href="#check"/></svg></span></span><svg class="caret" aria-hidden="true"><use href="#chevron"/></svg></summary>
+     <div class="command-content">
+      <pre class="command-line">$ find /storage/emulated/0/cc/wptube -maxdepth 3 -type f -not -path '*/node_modules/*'</pre>
+      <div class="output-window" id="local-output"><pre class="command-output">index.html
+package.json
+package-lock.json
+README.md
+vite.config.js
+src/app.js
+src/main.js
+src/styles.css
+src/api/client.js
+src/api/videos.js
+src/components/Header.js
+src/components/VideoCard.js
+src/pages/Home.js
+src/pages/Watch.js
+public/favicon.svg
+public/logo.svg</pre></div>
+     </div>
+     <button class="output-toggle" aria-expanded="false" aria-controls="local-output"><span>Показать ещё</span><svg aria-hidden="true"><use href="#chevron"/></svg></button>
+    </details>
+   </section>
+   <section class="phase" aria-label="Проверка сервера">
+    <details class="event thought" id="thought-remote">
+     <summary><span class="event-label">Проверка серверного каталога</span><span class="duration">2 с</span><svg class="caret" aria-hidden="true"><use href="#chevron"/></svg></summary>
+     <p class="thought-text">Локально вижу фронтенд. Проверю известный каталог развёртывания на сервере.</p>
+    </details>
+    <details class="event command" id="command-remote">
+     <summary><svg class="terminal" aria-hidden="true"><use href="#terminal"/></svg><span class="event-label">Просмотр каталога развёртывания</span><span class="command-meta"><span class="environment">SSH · aeza</span><span class="command-status" role="img" aria-label="Выполнено"><svg><use href="#check"/></svg></span></span><svg class="caret" aria-hidden="true"><use href="#chevron"/></svg></summary>
+     <div class="command-content"><pre class="command-line">$ ls -la /root/.opencode/youtube-metro</pre><pre class="command-output">drwxr-xr-x 2 root root 4096 Oct 14 12:42 .
+drwxr-xr-x 8 root root 4096 Nov  4 03:17 ..
+-rw-r--r-- 1 root root 6306 Oct 14 12:42 index.html</pre></div>
+    </details>
+   </section>
+   <p class="skipped">Вопрос пропущен</p>
+   <article class="answer" aria-label="Ответ агента">
+    <p id="answerText">В проверенных каталогах есть фронтенд, но готовый бэкенд не найден. Нужно уточнить API и хранение данных перед реализацией.</p>
+    <div class="answer-actions"><button class="icon-button" id="copyAnswer" aria-label="Скопировать ответ"><svg><use href="#copy"/></svg></button><button class="icon-button" id="answerMore" aria-label="Действия с ответом"><svg><use href="#more"/></svg></button></div>
+   </article>
+  </div>
+ </main>
+ <footer class="composer-footer">
+  <div class="composer">
+   <textarea id="draft" rows="1" placeholder="Ask anything…" aria-label="Черновик макета, не отправляется" autocomplete="off"></textarea>
+   <div class="composer-row">
+    <button class="icon-button" data-demo="Вложения доступны в основном чате. Здесь только макет." aria-label="Добавить вложение"><svg><use href="#plus"/></svg></button>
+    <span class="separator" aria-hidden="true"></span>
+    <button class="model" data-demo="GLM-5.3-Flash — пример модели. Настройки приложения не меняются." aria-label="Модель GLM-5.3-Flash"><span>GLM-5.3-Flash</span><svg aria-hidden="true"><use href="#chevron"/></svg></button>
+    <button class="send" id="demoSend" aria-label="Попробовать отправку в макете"><svg><use href="#up"/></svg></button>
+   </div>
+  </div>
+  <div class="composer-options">
+   <button class="option environment-option" data-demo="Проект локальный. SSH доступен при необходимости. В макете соединение не выполняется."><span>Local · SSH доступен</span><svg aria-hidden="true"><use href="#chevron"/></svg></button>
+   <span class="separator" aria-hidden="true"></span>
+   <button class="option" data-demo="Ask first: команды требуют подтверждения согласно правам. Это только пример интерфейса."><span>Ask first</span><svg aria-hidden="true"><use href="#chevron"/></svg></button>
+  </div>
+ </footer>
+</div>
+<div id="notice" role="status" aria-live="polite" hidden></div>
+<dialog id="settings" class="preview-dialog" aria-labelledby="settingsTitle">
+ <h2 id="settingsTitle">Настройки макета</h2>
+ <p>Это интерактивный пример. Команды не выполняются, сообщения не отправляются. Реальные треды и настройки не меняются.</p>
+ <div class="scenario-choices" role="group" aria-label="Сценарий макета">
+  <button class="control" data-scenario="short" aria-pressed="true">Короткая задача</button>
+  <button class="control" data-scenario="long" aria-pressed="false">Длинная работа</button>
+  <button class="control" data-scenario="execution" aria-pressed="false">Выполнение и ошибка</button>
+ </div>
+ <div class="preview-controls"><button class="control" data-theme="light" aria-pressed="true">Светлая</button><button class="control" data-theme="dark" aria-pressed="false">Тёмная</button></div>
+ <button class="dialog-action" id="collapseAll">Свернуть всё</button>
+ <button class="dialog-action" id="expandExample">Раскрыть первую мысль и команду</button>
+ <button class="dialog-action" id="exitFromSettings">Вернуться в приложение</button>
+ <button class="dialog-close" data-close-dialog>Закрыть</button>
+</dialog>
+<dialog id="answerMenu" class="preview-dialog" aria-labelledby="answerMenuTitle">
+ <h2 id="answerMenuTitle">Ответ в макете</h2>
+ <button class="dialog-action" id="copyFromMenu">Скопировать текст</button>
+ <p>Повтор ответа и ветвление остаются в основном чате. Этот пример не вызывает модель.</p>
+ <button class="dialog-close" data-close-dialog>Закрыть</button>
+</dialog>
+<script>
+'use strict';
+const $=s=>document.querySelector(s);
+const icon=(name,cls='')=>`<svg class="${cls}" aria-hidden="true"><use href="#${name}"/></svg>`;
+const escapeText=value=>String(value).replace(/[&<>"']/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
+const thread=$('.thread'),shortFixture=thread.innerHTML;
+const timers=new Set();let generation=0,noticeTimer;
+function notice(text){clearTimeout(noticeTimer);$('#notice').textContent=text;$('#notice').hidden=false;noticeTimer=setTimeout(()=>{$('#notice').hidden=true},3500)}
+function setTheme(theme){document.documentElement.dataset.theme=theme;document.querySelectorAll('button[data-theme]').forEach(b=>b.setAttribute('aria-pressed',String(b.dataset.theme===theme)))}
+setTheme(new URLSearchParams(location.search).get('theme')==='dark'?'dark':'light');
+function cancelTimers(){generation++;for(const id of timers)clearTimeout(id);timers.clear();clearTimeout(noticeTimer);$('#notice').hidden=true}
+function later(delay,fn){
+ const run=generation,id=setTimeout(()=>{timers.delete(id);if(run===generation&&$('#preview').dataset.scenario==='execution')fn()},delay);
+ timers.add(id);
+}
+function closePreview(){
+ cancelTimers();
+ if(window.parent!==window){window.parent.postMessage({type:'thread-preview-close'},'*');return}
+ notice('Макет открыт отдельно. Можно закрыть эту вкладку.');
+}
+function updateOverflow(event){
+ if(!event.open)return;
+ for(const button of event.querySelectorAll('.output-toggle,.reason-toggle')){
+  const body=document.getElementById(button.getAttribute('aria-controls'));
+  button.hidden=!body.classList.contains('expanded')&&body.scrollHeight<=body.clientHeight+1;
+ }
+}
+function followUpdate(fn){
+ const feed=$('#feed'),near=feed.scrollHeight-feed.clientHeight-feed.scrollTop<48,top=feed.scrollTop;
+ fn();document.querySelectorAll('.event[open]').forEach(updateOverflow);
+ feed.scrollTop=near?feed.scrollHeight:top;
+}
+function heading(raw){
+ const first=String(raw).trim().split('\n')[0],match=first.match(/^#{1,6}\s+(.+?)\s*#*$/)||first.match(/^\*\*(.+?)\*\*$/);
+ return match&&match[1].length<=64?match[1]:'Рассуждение';
+}
+function thoughtHtml(id,raw,duration='2 с'){
+ return `<details class="event thought" id="${id}" data-state="completed"><summary><span class="event-label">${escapeText(heading(raw))}</span><span class="duration">${duration}</span>${icon('chevron','caret')}</summary><div class="reason-window" id="${id}-reason"><p class="thought-text">${escapeText(raw)}</p></div><button class="reason-toggle" aria-expanded="false" aria-controls="${id}-reason" hidden>Показать полностью</button></details>`;
+}
+function commandLabel(tool,input){
+ if(tool==='read')return 'Чтение '+input;
+ if(tool==='grep')return 'Поиск «'+input+'»';
+ return input;
+}
+function commandHtml(id,tool,input,environment,command,output=''){
+ const label=commandLabel(tool,input);
+ return `<details class="event command" id="${id}" data-state="completed"><summary>${icon('terminal','terminal')}<span class="event-label" title="${escapeText(label)}">${escapeText(label)}</span><span class="command-meta"><span class="environment">${escapeText(environment)}</span><span class="command-status" role="img" aria-label="Выполнено">${icon('check')}</span></span><span class="event-error" hidden></span>${icon('chevron','caret')}</summary><div class="command-content"><pre class="command-line">${escapeText(command)}</pre><div class="output-window" id="${id}-output"><pre class="command-output">${escapeText(output)}</pre></div></div><button class="output-toggle" aria-expanded="false" aria-controls="${id}-output" hidden><span>Показать ещё</span>${icon('chevron')}</button></details>`;
+}
+function answerHtml(text){
+ return `<article class="answer" aria-label="Ответ агента"><p id="answerText">${escapeText(text)}</p><div class="answer-actions"><button class="icon-button" id="copyAnswer" aria-label="Скопировать ответ">${icon('copy')}</button><button class="icon-button" id="answerMore" aria-label="Действия с ответом">${icon('more')}</button></div></article>`;
+}
+function userHtml(text){return `<div class="user-row"><p class="user-message">${escapeText(text)}</p></div>`}
+function longFixture(){
+ const path='/storage/emulated/0/cc/wptube/packages/backend/src/modules/authentication/session-management/session-service.integration.test.ts';
+ const raw='Нужно выяснить, как устроена авторизация, прежде чем менять хранение сессий. Я пока не знаю, покрывают ли тесты истечение токена. Проверю вызовы клиента и ограничения API.\n\n'+
+ 'Путь к тесту длинный, но его нельзя терять за красивой подписью: '+path+'.\n\n'+
+ 'В тестовом JSON встречается строка <img src=x onerror=alert(1)> — здесь она должна остаться обычным текстом. Прочитаю ожидания вокруг cookie, срока действия токена и повторного входа. Из того, что тест существует, ещё не следует, что он проходит.\n\n'+
+ 'Затем сопоставлю поведение клиента и API. Если выяснится, что серверный контракт неизвестен, отмечу это явно, а не стану утверждать, что проверка успешна. Решение о записи файлов будет отдельным действием после чтения.';
+ const shell="cd /storage/emulated/0/cc/wptube/packages/backend && npm run test:integration -- --runInBand src/modules/authentication/session-management/session-service.integration.test.ts && npm run typecheck";
+ const output=Array.from({length:36},(_,i)=>`PASS auth/session-case-${String(i+1).padStart(2,'0')}.test.ts (${12+i} ms)`).join('\n')+'\n\nTests: 36 passed, 36 total\nTypecheck: completed';
+ const phases=[
+  [thoughtHtml('long-reason-1','## Чтение конфигурации\nПроверю объявленные скрипты и зависимости.'),commandHtml('long-read-1','read','package.json','Local','read package.json','{"scripts":{"test:integration":"vitest run","typecheck":"tsc --noEmit"}}')],
+  [thoughtHtml('long-reason-2',raw),commandHtml('long-read-2','read',path,'Local','read '+path,Array.from({length:25},(_,i)=>`${i+1}: session assertion ${i+1}`).join('\n'))],
+  [thoughtHtml('long-reason-3','**Поиск вызовов API**\nПроверю, где клиент передаёт токен сессии.'),commandHtml('long-search','grep','Authorization','Local',"grep -R -n 'Authorization' src/api src/modules",'src/api/client.ts:18: Authorization: token\nsrc/modules/auth/session.ts:42: Authorization: session.token')],
+  [thoughtHtml('long-reason-4','Запущу тесты и проверку типов. Пока результатов нет, нельзя считать изменения проверенными.'),commandHtml('long-test','bash',shell,'Local','$ '+shell,output)]
+ ];
+ return userHtml('Проверь авторизацию и тесты сессий')+phases.map(pair=>`<section class="phase">${pair.join('')}</section>`).join('')+answerHtml('В этом примере чтение, поиск и запуск тестов показаны отдельно. Длинные пути и полный вывод доступны внутри соответствующего действия. Все результаты здесь — тестовые данные.');
+}
+function setSimulationState(text,active=false){$('#simulationState').textContent=text;$('#simulationStop').disabled=!active}
+function selectScenario(name){
+ if(!['short','long','execution'].includes(name))return;
+ cancelTimers();$('#answerMenu').close();$('#preview').dataset.scenario=name;
+ document.querySelectorAll('button[data-scenario]').forEach(b=>b.setAttribute('aria-pressed',String(b.dataset.scenario===name)));
+ $('#simulationBar').hidden=name!=='execution';
+ $('#expandExample').hidden=name==='execution';$('#collapseAll').hidden=name==='execution';
+ $('h1').textContent=name==='short'?'допиши бэкенд':name==='long'?'проверь авторизацию':'проверь тесты и сервер';
+ $('.preview-caption').textContent='Макет · '+({short:'короткая задача',long:'длинная работа',execution:'выполнение и ошибка'}[name]);
+ thread.innerHTML=name==='short'?shortFixture:name==='long'?longFixture():userHtml('Проверь тесты и состояние сервера');
+ thread.querySelectorAll('.event').forEach(e=>e.dataset.state='completed');
+ $('#simulationStart').textContent='Запустить пример';setSimulationState('Готово к запуску · только тестовые события');
+ $('#feed').scrollTop=0;$('#settings').close();
+}
+function resetExample(expanded){
+ document.querySelectorAll('.event').forEach(e=>{e.open=false;e.dataset.manual='closed'});
+ document.querySelectorAll('.output-window,.reason-window').forEach(e=>e.classList.remove('expanded'));
+ document.querySelectorAll('.output-toggle,.reason-toggle').forEach(b=>{b.setAttribute('aria-expanded','false');if(b.matches('.reason-toggle'))b.textContent='Показать полностью';else b.querySelector('span').textContent='Показать ещё'});
+ if(expanded){
+  const phase=$('.phase');phase?.querySelectorAll('.event').forEach(e=>{e.open=true;e.dataset.manual='open';updateOverflow(e)});
+ }
+ $('#feed').scrollTop=0;$('#settings').close();
+}
+function setEventState(id,state,error=''){
+ const e=document.getElementById(id);if(!e)return;
+ e.dataset.state=state;
+ const running=state==='running',waiting=state==='waiting';
+ e.open=e.dataset.manual?e.dataset.manual==='open':running||waiting;
+ if(e.matches('.thought'))e.querySelector('.duration').textContent=running?'Думает…':state==='cancelled'?'Остановлено':'2 с';
+ else{
+  const status=e.querySelector('.command-status');
+  status.setAttribute('aria-label',({running:'Выполняется',waiting:'Ожидает подтверждения',completed:'Выполнено',error:'Ошибка',cancelled:'Отменено'})[state]);
+  status.innerHTML=state==='completed'?icon('check'):running?'<svg class="running-mark" aria-hidden="true" viewBox="0 0 24 24"><path d="M20 12a8 8 0 1 1-8-8"/></svg>':state==='error'?'<span aria-hidden="true">!</span>':waiting?'<span aria-hidden="true">?</span>':'<span aria-hidden="true">—</span>';
+  const explanation=e.querySelector('.event-error');explanation.textContent=error;explanation.hidden=!error;
+ }
+ updateOverflow(e);
+}
+function addPhase(id,html){const phase=document.createElement('section');phase.className='phase';phase.id=id;phase.innerHTML=html;thread.appendChild(phase)}
+function appendOutput(id,text){const out=document.querySelector('#'+id+' .command-output');out.textContent+=(out.textContent?'\n':'')+text}
+function runSimulation(){
+ if($('#preview').dataset.scenario!=='execution')return;
+ cancelTimers();thread.innerHTML=userHtml('Проверь тесты и состояние сервера');
+ $('#simulationStart').textContent='Повторить пример';
+ followUpdate(()=>{
+  addPhase('sim-phase-1',thoughtHtml('sim-thought-1','## Проверка тестов\nСначала запущу локальные тесты. Результат ещё неизвестен.',''));
+  setEventState('sim-thought-1','running');setSimulationState('Проверка локальных тестов · симуляция',true);
+ });
+ later(1600,()=>followUpdate(()=>{
+  setEventState('sim-thought-1','completed');
+  $('#sim-phase-1').insertAdjacentHTML('beforeend',commandHtml('sim-local','bash','npm test -- --runInBand','Local','$ npm test -- --runInBand','> wptube-api test\n> vitest run --runInBand\n\nRUN v2.1.0 /workspace/wptube'));
+  setEventState('sim-local','running');setSimulationState('Выполняется npm test · симуляция',true);
+ }));
+ for(let i=0;i<3;i++)later(2400+i*700,()=>followUpdate(()=>appendOutput('sim-local',`PASS auth/session-${i+1}.test.ts\nPASS api/videos-${i+1}.test.ts`)));
+ later(4600,()=>followUpdate(()=>{
+  appendOutput('sim-local','FAIL api/database.test.ts\nError: connect ECONNREFUSED 127.0.0.1:5432\nTest Suites: 1 failed, 6 passed');
+  setEventState('sim-local','error','Ошибка: тестовая БД недоступна на порту 5432.');setSimulationState('Тесты завершились ошибкой · симуляция',true);
+ }));
+ later(5600,()=>followUpdate(()=>{
+  addPhase('sim-phase-2',thoughtHtml('sim-thought-2','Тестовая БД недоступна. Проверю статус удалённого сервиса только после подтверждения.'));
+  setEventState('sim-thought-2','running');setSimulationState('Подготовка проверки сервера · симуляция',true);
+ }));
+ later(7400,()=>followUpdate(()=>{
+  setEventState('sim-thought-2','completed');
+  $('#sim-phase-2').insertAdjacentHTML('beforeend',commandHtml('sim-remote','bash','systemctl status postgresql --no-pager','SSH · aeza','$ systemctl status postgresql --no-pager'));
+  setEventState('sim-remote','waiting');
+  $('#sim-phase-2').insertAdjacentHTML('beforeend','<section class="approval" id="approval-panel" aria-label="Подтверждение команды"><p>Проверить статус PostgreSQL на aeza?</p><p class="approval-note">Тестовый запрос. Никакого подключения к серверу.</p><div class="preview-controls"><button class="control" id="approveDemo">Разрешить</button><button class="control" id="denyDemo">Отменить</button></div></section>');
+  setSimulationState('Ожидает подтверждения · симуляция',true);
+ }));
+}
+function resolveApproval(approved){
+ if($('#preview').dataset.scenario!=='execution'||!$('#approval-panel'))return;
+ followUpdate(()=>{
+  $('#approval-panel').remove();
+  if(!approved){setEventState('sim-remote','cancelled');setSimulationState('Команда отменена · симуляция');thread.insertAdjacentHTML('beforeend','<p class="skipped">Вопрос пропущен</p>'+answerHtml('Проверка сервера отменена. Локальные тесты выявили недоступную БД; исправления не выполнялись.'));return}
+  setEventState('sim-remote','running');appendOutput('sim-remote','Проверка статуса сервиса…');setSimulationState('Выполняется проверка SSH · симуляция',true);
+ });
+ if(!approved)return;
+ later(800,()=>followUpdate(()=>appendOutput('sim-remote','postgresql.service - PostgreSQL database server\nLoaded: loaded\nActive: active (running)')));
+ later(2000,()=>followUpdate(()=>{
+  setEventState('sim-remote','completed');setSimulationState('Пример завершён · команды не выполнялись');
+  thread.insertAdjacentHTML('beforeend',answerHtml('В симуляции локальная тестовая БД оказалась недоступна, а удалённый сервис работает. Это разные окружения; автоматически менять настройки проекта не следует.'));
+ }));
+}
+function stopSimulation(){
+ cancelTimers();
+ followUpdate(()=>{
+  $('#approval-panel')?.remove();
+  thread.querySelectorAll('.event[data-state="running"],.event[data-state="waiting"]').forEach(e=>setEventState(e.id,'cancelled'));
+  setSimulationState('Симуляция остановлена');
+ });
+}
+async function copyAnswer(){
+ const text=$('#answerText')?.textContent;if(!text)return;
+ try{
+  if(navigator.clipboard?.writeText)await navigator.clipboard.writeText(text);
+  else{
+   const field=document.createElement('textarea');field.value=text;field.style.cssText='position:fixed;left:-9999px';document.body.appendChild(field);field.select();
+   const copied=document.execCommand('copy');field.remove();if(!copied)throw new Error('Clipboard unavailable');
+  }
+  notice('Текст примера скопирован');
+ }catch(e){notice('Копирование недоступно. Текст ответа можно выделить вручную.')}
+}
+thread.addEventListener('click',e=>{
+ const summary=e.target.closest('.event>summary');
+ if(summary){
+  e.preventDefault();const event=summary.parentElement;
+  event.open=!event.open;event.dataset.manual=event.open?'open':'closed';updateOverflow(event);return;
+ }
+ const toggle=e.target.closest('.output-toggle,.reason-toggle');
+ if(toggle){
+  const expanded=toggle.getAttribute('aria-expanded')!=='true',body=document.getElementById(toggle.getAttribute('aria-controls'));
+  toggle.closest('.event').dataset.manual='open';
+  toggle.setAttribute('aria-expanded',String(expanded));body.classList.toggle('expanded',expanded);
+  if(toggle.matches('.reason-toggle'))toggle.textContent=expanded?'Свернуть текст':'Показать полностью';
+  else toggle.querySelector('span').textContent=expanded?'Свернуть вывод':'Показать ещё';return;
+ }
+ if(e.target.closest('#copyAnswer'))copyAnswer();
+ if(e.target.closest('#answerMore'))$('#answerMenu').showModal();
+ if(e.target.closest('#approveDemo'))resolveApproval(true);
+ if(e.target.closest('#denyDemo'))resolveApproval(false);
+});
+thread.addEventListener('toggle',e=>{if(e.target.matches('.event'))updateOverflow(e.target)},true);
+$('#exit').onclick=closePreview;$('#exitFromSettings').onclick=closePreview;
+$('#previewSettings').onclick=()=>$('#settings').showModal();
+$('#copyFromMenu').onclick=()=>{$('#answerMenu').close();copyAnswer()};
+$('#collapseAll').onclick=()=>resetExample(false);$('#expandExample').onclick=()=>resetExample(true);
+$('#simulationStart').onclick=runSimulation;$('#simulationStop').onclick=stopSimulation;
+document.querySelectorAll('button[data-scenario]').forEach(b=>b.onclick=()=>selectScenario(b.dataset.scenario));
+document.querySelectorAll('button[data-theme]').forEach(b=>b.onclick=()=>setTheme(b.dataset.theme));
+document.querySelectorAll('[data-close-dialog]').forEach(b=>b.onclick=()=>b.closest('dialog').close());
+document.querySelectorAll('[data-demo]').forEach(b=>b.onclick=()=>notice(b.dataset.demo));
+$('#demoSend').onclick=()=>{document.activeElement?.blur();notice('Это макет — сообщение не отправлено.')};
+$('#draft').oninput=e=>{e.target.style.height='auto';e.target.style.height=Math.min(e.target.scrollHeight,96)+'px'};
+document.addEventListener('keydown',e=>{if(e.key==='Escape'&&!document.querySelector('dialog[open]'))closePreview()});
+window.addEventListener('pagehide',cancelTimers);
+window.addEventListener('resize',()=>document.querySelectorAll('.event[open]').forEach(updateOverflow));
+selectScenario('short');
+document.documentElement.dataset.previewReady='true';
+</script>
+</body>
+</html>

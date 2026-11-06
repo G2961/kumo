@@ -9,6 +9,7 @@ on:
   push:
     paths:
       - "iOS/**"
+      - "app/src/main/assets/**"
       - ".github/workflows/ios-build.yml"
   pull_request:
     paths:
@@ -50,6 +51,17 @@ jobs:
           GOOS=darwin GOARCH=arm64 CGO_ENABLED=0 go build -o ../../Sources/AppHarness-Resources/opencode .
           ls -la ../../Sources/AppHarness-Resources/opencode
 
+      - name: Stage web UI assets (single source: Android assets)
+        run: |
+          set -e
+          R=iOS/Sources/AppHarness-Resources
+          cp app/src/main/assets/codex.html $R/codex.html
+          cp app/src/main/assets/xterm.js $R/xterm.js
+          cp app/src/main/assets/xterm.css $R/xterm.css
+          cp app/src/main/assets/xterm-addon-fit.js $R/xterm-addon-fit.js
+          cp app/src/main/assets/thread-preview.html $R/thread-preview.html
+          cp app/src/main/assets/kumo_*.png $R/
+          ls -la $R
       - name: Generate Xcode project
         working-directory: ${{ github.workspace }}/iOS
         run: |
