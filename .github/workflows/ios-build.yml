@@ -16,6 +16,30 @@ concurrency:
   cancel-in-progress: true
 
 jobs:
+  file-agent-ui:
+    runs-on: ubuntu-latest
+    timeout-minutes: 8
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - name: Install existing browser test dependencies
+        run: |
+          python -m pip install -r tests/requirements.txt
+          python -m playwright install --with-deps chromium
+      - name: Test native approval, Stop and history UI
+        run: |
+          python iOS/scripts/stage-native-ui.py --check
+          python iOS/scripts/test-native-file-agent-ui.py --output ../.local/file-agent-ui-proof
+      - name: Upload UI acceptance evidence
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: Kumo-file-agent-UI-proof
+          path: ../.local/file-agent-ui-proof
+          if-no-files-found: warn
+
   build:
     runs-on: macos-15
     steps:

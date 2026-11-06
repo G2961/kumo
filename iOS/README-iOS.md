@@ -124,6 +124,17 @@ session persistence/recovery and bookmarks. Scripted model tests prove the agent
 loop with real local files, **not a real provider response**. Live-provider and
 physical-device checks must be reported separately.
 
+Milestone 1 has now been exercised on the physical iPad with the real AgentRouter
+model: read/edit/read, one-time approval, rejection, Stop, stale-file conflict and
+separate-process recovery all passed. The iOS approval card's missing diff preview
+was fixed and covered by browser UI tests. See
+`Diagnostics/FILE-AGENT-ACCEPTANCE.md` for exact evidence and the distinction between
+live-core/device checks and UI-fixture checks.
+
+```sh
+python iOS/scripts/test-native-file-agent-ui.py
+```
+
 WebView lifecycle diagnostics use `[web]`; successful `didFinish` confirms a
 navigation, not the completion of an agent task. Load failures show a native
 message and Reload interface instead of leaving a black screen.
