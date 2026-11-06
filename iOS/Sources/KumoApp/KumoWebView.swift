@@ -205,6 +205,25 @@ public struct KumoWebView: UIViewRepresentable {
             cancelTimeout()
             isLoading = false
             onLoadStateChange(.loaded)
+            webView.evaluateJavaScript("""
+            (function(){
+              var app = document.getElementById('app');
+              var feed = document.getElementById('feed');
+              return {width: app ? app.clientWidth : 0, height: app ? app.clientHeight : 0,
+                feedChildren: feed ? feed.children.length : 0,
+                renderAvailable: typeof render === 'function'};
+            })();
+            """) { result, error in
+                guard let metrics = result as? [String: Any], error == nil else {
+                    NSLog("[web] DOM probe failed code=%ld", (error as NSError?)?.code ?? 0)
+                    return
+                }
+                NSLog("[web] DOM width=%@ height=%@ feedChildren=%@ renderAvailable=%@",
+                      String(describing: metrics["width"] ?? 0),
+                      String(describing: metrics["height"] ?? 0),
+                      String(describing: metrics["feedChildren"] ?? 0),
+                      String(describing: metrics["renderAvailable"] ?? false))
+            }
         }
 
         public func webView(

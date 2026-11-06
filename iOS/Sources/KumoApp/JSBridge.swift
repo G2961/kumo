@@ -37,19 +37,14 @@ public final class JSBridge: NSObject, WKScriptMessageHandler {
 
     public func evaluateJavaScript(_ fn: String, args: [Any]) {
         let serialized = args.map { arg -> String in
-            if let s = arg as? String {
-                return escaped(s)
-            }
-            guard let d = try? JSONSerialization.data(withJSONObject: arg, options: []),
-                  let j = String(data: d, encoding: .utf8) else { return "null" }
-            return j
+            (try? JavaScriptJSON.encode(arg)) ?? "null"
         }.joined(separator: ", ")
         let js = "window.\(fn) && window.\(fn)(\(serialized));"
         DispatchQueue.main.async { self.evaluate?(js) }
     }
 
     private func escaped(_ s: String) -> String {
-        (try? String(data: JSONSerialization.data(withJSONObject: s), encoding: .utf8)) ?? "\"\""
+        (try? JavaScriptJSON.encode(s)) ?? "\"\""
     }
 
     public func userContentController(
@@ -375,16 +370,14 @@ public final class JSBridge: NSObject, WKScriptMessageHandler {
     }
 
     public func nativeEvent(_ name: String, detail: [String: Any]) {
-        guard let data = try? JSONSerialization.data(withJSONObject: detail, options: []),
-              let s = String(data: data, encoding: .utf8) else { return }
+        guard let s = try? JavaScriptJSON.encode(detail) else { return }
         let js = "window.dispatchEvent(new CustomEvent('\(name)',{detail:\(s)}));"
         DispatchQueue.main.async { self.evaluate?(js) }
     }
 
     private func sendResult(id: String, result: [String: Any]) {
         guard !id.isEmpty else { return }
-        guard let jsonData = try? JSONSerialization.data(withJSONObject: result, options: []),
-              let jsonString = String(data: jsonData, encoding: .utf8) else { return }
+        guard let jsonString = try? JavaScriptJSON.encode(result) else { return }
         let js = "window.codexNativeResult && window.codexNativeResult(\(escaped(id)), \(jsonString));"
         DispatchQueue.main.async { self.evaluate?(js) }
     }

@@ -141,7 +141,7 @@ jobs:
             CODE_SIGNING_REQUIRED=NO \
             build 2>&1 | xcpretty; test ${PIPESTATUS[0]} -eq 0
 
-      - name: Run UIServer integration tests (host)
+      - name: Run UI transport and bridge JSON tests (host)
         run: |
           python3 - <<'PY'
           import pathlib
@@ -155,8 +155,9 @@ jobs:
               root = pathlib.Path(directory)
               (root / 'Sources/KumoCore').mkdir(parents=True)
               (root / 'Tests/KumoCoreTests').mkdir(parents=True)
-              shutil.copy('iOS/Sources/KumoCore/UIServer.swift', root / 'Sources/KumoCore')
-              shutil.copy('iOS/Tests/KumoCoreTests/UIServerTests.swift', root / 'Tests/KumoCoreTests')
+              for name in ['UIServer', 'JavaScriptJSON']:
+                  shutil.copy(f'iOS/Sources/KumoCore/{name}.swift', root / 'Sources/KumoCore')
+                  shutil.copy(f'iOS/Tests/KumoCoreTests/{name}Tests.swift', root / 'Tests/KumoCoreTests')
               (root / 'Package.swift').write_text('''// swift-tools-version:5.9
           import PackageDescription
           let package = Package(
@@ -180,19 +181,15 @@ jobs:
         run: |
           set -e
           APP=$(find .build/DerivedData/Build/Products/Release-iphoneos -maxdepth 1 -name "Kumo.app" -type d | head -1)
-          # TrollStore reads entitlements.plist from the app bundle root and applies these
-          # entitlements when it fakesigns — platform-application + no-sandbox lets the app
-          # spawn bundled binaries, which otherwise dies with posix_spawn EACCES/EPERM.
+          # Keep the UI host a normal sandboxed app. platform-application/no-container
+          # tighten system policy and can block WebKit XPC services and IOSurface.
+          # Local runtime execution needs a separate, trusted helper; granting the UI
+          # private entitlements does not make a macOS child executable trusted on iOS.
           cat > "$APP/entitlements.plist" <<'ENTS'
           <?xml version="1.0" encoding="UTF-8"?>
           <!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
           <plist version="1.0">
           <dict>
-          	<key>platform-application</key><true/>
-          	<key>com.apple.private.security.no-container</key><true/>
-          	<key>com.apple.private.skip-library-validation</key><true/>
-          	<key>com.apple.security.cs.allow-jit</key><true/>
-          	<key>com.apple.security.cs.allow-unsigned-executable-memory</key><true/>
           	<key>get-task-allow</key><true/>
           </dict>
           </plist>

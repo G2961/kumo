@@ -81,6 +81,42 @@ GOOS=darwin GOARCH=arm64 CGO_ENABLED=0 go build -o opencode .
 
 > Пока нет бинаря — приложение покажет «opencode binary not found», это ожидаемо.
 
+## Подпись UI host и диагностика WebKit
+
+UI-приложение должно оставаться обычным sandboxed app. Не добавляй ему
+`platform-application`, `com.apple.private.security.no-container` и
+`com.apple.private.skip-library-validation` ради запуска локального сервера.
+На iPad с iOS 16.7.12 такая подпись дала реальные системные отказы:
+
+```text
+System Policy: Kumo deny mach-lookup com.apple.WebKit.Networking
+System Policy: Kumo deny mach-lookup com.apple.WebKit.WebContent
+System Policy: Kumo deny iokit-open-user-client IOSurfaceRootUserClient
+WebProcessProxy::didFinishLaunching: Invalid connection identifier
+```
+
+Listener при этом успешно отдавал полный HTML по HTTP 200, но процесс WebKit
+не запускался. CI кладёт в корень bundle `entitlements.plist` без этих private
+прав. При ручной ldid-подписи также используй минимальные entitlements для UI
+host, сохраняя текущие application/team identifiers. Изменение файла в bundle
+не меняет уже встроенные entitlements бинарника: требуется переподпись.
+
+Запуск дочерних процессов из sandbox остаётся отдельной нерешённой задачей;
+он требует подходящего iOS-бинарника и доверенного jailbreak helper. Добавление
+повышенных прав UI-приложению не устраняет AMFI-проверку дочернего executable.
+Не считай открытие интерфейса подтверждением работы local runtime или SSH.
+
+`KumoWebView` пишет этапы navigation и отказ процесса с префиксом `[web]` в
+системный лог. Native status остаётся видимым до `didFinish`; ошибка navigation,
+завершение WebContent или таймаут 15 секунд показывают причину и кнопку
+`Reload interface`. Она пересоздаёт WebView, не перезапускает runtime.
+
+Ответы native bridge сериализуются через `JavaScriptJSON`: строковые ID и другие
+скалярные аргументы требуют `.fragmentsAllowed`. `try?` вокруг обычного
+`JSONSerialization.data(withJSONObject: string)` не перехватывает
+`NSInvalidArgumentException` и завершает приложение сразу после первого ответа
+bridge. CI отдельно проверяет round-trip строк, скаляров и вложенных reply.
+
 ## Info.plist (локальная сеть + loopback)
 
 Добавь в Info.plist host-app:
