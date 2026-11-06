@@ -661,6 +661,94 @@ final class NativeModelClientTests: XCTestCase {
         }
     }
 
+    func testProviderHTTPReasonUsesOnlyExactAllowlistedFields() throws {
+        let codes: [(String, NativeProviderHTTPReason)] = [
+            ("unauthorized_client_error", .unauthorizedClient),
+            ("invalid_api_key", .invalidCredential), ("invalid_api_key_error", .invalidCredential),
+            ("model_not_found", .unsupportedModel), ("unsupported_model", .unsupportedModel),
+            ("rate_limit_exceeded", .rateLimited), ("rate_limit_error", .rateLimited),
+            ("unsupported_parameter", .invalidRequest), ("invalid_request_error", .invalidRequest)
+        ]
+        for (code, expected) in codes {
+            for json in [["error": ["type": code]], ["error": ["code": code]],
+                         ["type": code], ["code": code]] as [[String: Any]] {
+                let data = try JSONSerialization.data(withJSONObject: json)
+                let error = NativeProviderHTTPDiagnostic.error(status: 401, data: data)
+                guard case .httpReason(let status, let reason) = error else {
+                    return XCTFail("Allowlisted code was not classified: \(code)")
+                }
+                XCTAssertEqual(status, 401)
+                XCTAssertEqual(reason, expected)
+                XCTAssertEqual(NativeProviderHTTPDiagnostic.description(status: 401, data: data),
+                               error.localizedDescription)
+            }
+        }
+        // A specific nested code takes precedence over a generic nested type.
+        let data = Data("{\"error\":{\"type\":\"invalid_request_error\",\"code\":\"model_not_found\"}}".utf8)
+        guard case .httpReason(_, .unsupportedModel) = NativeProviderHTTPDiagnostic.error(status: 404, data: data) else {
+            return XCTFail("Specific error code was lost")
+        }
+    }
+
+    func testProviderHTTPReasonDoesNotInferFromStatusMessagesOrUnknownCodes() throws {
+        let bodies: [Data?] = [
+            nil, Data(), Data("not JSON: secret-test-key".utf8), Data("[]".utf8),
+            Data("{\"error\":{\"type\":\"invalid_api_key\"}".utf8),
+            Data("{\"message\":\"UNAUTHENTICATED\",\"success\":false}".utf8),
+            Data("{\"error\":\"invalid_api_key\"}".utf8),
+            Data("{\"message\":\"unauthorized_client_error invalid_api_key model_not_found\"}".utf8),
+            Data("{\"error\":{\"message\":\"invalid_api_key\",\"type\":\"authentication_error\"}}".utf8),
+            Data("{\"detail\":{\"code\":\"invalid_api_key\"}}".utf8),
+            Data("{\"type\":401,\"code\":true}".utf8)
+        ] + ["INVALID_API_KEY", " invalid_api_key", "invalid_api_key ", "invalid_api_key:secret-test-key",
+             "unknown_provider_error", "UNAUTHENTICATED"].map { Data(("{\"code\":\"" + $0 + "\"}").utf8) }
+        for status in [400, 401, 403, 404, 429, 500] {
+            for data in bodies {
+                let error = NativeProviderHTTPDiagnostic.error(status: status, data: data)
+                guard case .http(let actual) = error else { return XCTFail("Unknown response was classified") }
+                XCTAssertEqual(actual, status)
+                XCTAssertEqual(error.localizedDescription, "Model provider returned HTTP \(status); response details withheld.")
+            }
+        }
+    }
+
+    func testProviderHTTPDiagnosticWithholdsAllUntrustedDetailsAndRejectsOversizedJSON() throws {
+        let secret = "Bearer secret-test-key https://provider.example/?key=secret%2Dtest%2Dkey c2VjcmV0LXRlc3Qta2V5"
+        let json: [String: Any] = [
+            "error": ["message": secret], "message": "UNAUTHENTICATED " + secret,
+            "success": false, "type": "unauthorized_client_error", "url": secret
+        ]
+        let data = try JSONSerialization.data(withJSONObject: json)
+        let description = NativeProviderHTTPDiagnostic.description(status: 401, data: data)
+        XCTAssertEqual(description, "Model provider returned HTTP 401; provider rejected this client; contact provider support.")
+        for value in [secret, "secret-test-key", "secret%2Dtest%2Dkey", "c2VjcmV0LXRlc3Qta2V5", "provider.example", "UNAUTHENTICATED"] {
+            XCTAssertFalse(description.contains(value))
+        }
+        XCTAssertLessThan(description.count, 200)
+        let prefix = "{\"type\":\"unauthorized_client_error\"}"
+        let exactLimit = Data((prefix + String(repeating: " ", count: 8192 - prefix.utf8.count)).utf8)
+        XCTAssertEqual(NativeProviderHTTPDiagnostic.description(status: 401, data: exactLimit), description)
+        let oversized = exactLimit + Data(" ".utf8)
+        guard case .http(401) = NativeProviderHTTPDiagnostic.error(status: 401, data: oversized) else {
+            return XCTFail("Oversized JSON was parsed")
+        }
+    }
+
+    func testTransportErrorDescriptionsUseFixedCodeDiagnoses() {
+        let expected: [(Int, String)] = [
+            (-1003, "provider hostname could not be resolved; check DNS and connectivity."),
+            (-1200, "secure connection failed; check TLS compatibility."),
+            (-1202, "provider certificate is not trusted; check the certificate chain."),
+            (-1001, "request timed out; check provider connectivity.")
+        ]
+        for (code, detail) in expected {
+            XCTAssertEqual(NativeModelClientError.transport(code).localizedDescription,
+                           "Model provider transport failed (code \(code)); " + detail)
+        }
+        XCTAssertEqual(NativeModelClientError.transport(-9999).localizedDescription,
+                       "Model provider transport failed (code -9999); details withheld.")
+    }
+
     @available(iOS 15.0, macOS 12.0, *)
     private func stubbed(_ fixture: NativeModelURLFixture, format: NativeProviderFormat = .responses)
         -> (URLSessionNativeModelClient, NativeModelRequest, String) {
@@ -676,7 +764,9 @@ final class NativeModelClientTests: XCTestCase {
 
     @available(iOS 15.0, macOS 12.0, *)
     func testTransportHTTPErrorIsBoundedRedactedAndNotRetried() async throws {
-        let fixture = NativeModelURLFixture(status: 401, body: Data(String(repeating: "secret-test-key", count: 10000).utf8))
+        let stopped = expectation(description: "Non-JSON error body was cancelled without reading")
+        let fixture = NativeModelURLFixture(status: 401, body: Data(String(repeating: "secret-test-key", count: 10000).utf8),
+                                            finish: false, stopped: stopped)
         let (client, modelRequest, host) = stubbed(fixture)
         defer { NativeModelTestURLProtocol.unregister(host: host) }
         do {
@@ -687,7 +777,160 @@ final class NativeModelClientTests: XCTestCase {
             XCTAssertFalse(error.localizedDescription.contains(modelRequest.apiKey))
             XCTAssertLessThan(error.localizedDescription.count, 200)
         }
+        await fulfillment(of: [stopped], timeout: 2)
         XCTAssertEqual(fixture.requestCount, 1)
+    }
+
+    @available(iOS 15.0, macOS 12.0, *)
+    func testTransportClassifiesOnlyTheActualJSONErrorResponseWithoutRetry() async throws {
+        let json: [String: Any] = [
+            "error": ["message": "unauthorized client detected, contact support secret-test-key"],
+            "message": "UNAUTHENTICATED", "success": false, "type": "unauthorized_client_error"
+        ]
+        let data = try JSONSerialization.data(withJSONObject: json)
+        for format in [NativeProviderFormat.responses, .chatCompletions] {
+            for contentType in ["application/json; charset=utf-8", "application/problem+json", "text/event-stream", "text/html", ""] {
+                let fixture = NativeModelURLFixture(status: 401, body: data, contentType: contentType)
+                let (client, modelRequest, host) = stubbed(fixture, format: format)
+                defer { NativeModelTestURLProtocol.unregister(host: host) }
+                do {
+                    for try await _ in client.stream(request: modelRequest) { XCTFail("HTTP error emitted an event") }
+                    XCTFail("Expected HTTP error")
+                } catch {
+                    guard let safe = error as? NativeModelClientError else { return XCTFail("Client error was not preserved") }
+                    if contentType.hasPrefix("application/") {
+                        guard case .httpReason(401, .unauthorizedClient) = safe else { return XCTFail("JSON error was not classified") }
+                    } else {
+                        guard case .http(401) = safe else { return XCTFail("Non-JSON error body was read") }
+                    }
+                    XCTAssertFalse(error.localizedDescription.contains(modelRequest.apiKey))
+                }
+                XCTAssertEqual(fixture.requestCount, 1)
+            }
+        }
+        // A 401 from an authenticated request does not inherit the public /models diagnosis.
+        let fixture = NativeModelURLFixture(status: 401, body: Data("{\"error\":{\"code\":\"invalid_api_key\"}}".utf8),
+                                            contentType: "application/json")
+        let (client, modelRequest, host) = stubbed(fixture)
+        defer { NativeModelTestURLProtocol.unregister(host: host) }
+        do {
+            for try await _ in client.stream(request: modelRequest) { XCTFail("HTTP error emitted an event") }
+            XCTFail("Expected HTTP error")
+        } catch {
+            guard let safe = error as? NativeModelClientError,
+                  case .httpReason(401, .invalidCredential) = safe else { return XCTFail("Actual credential diagnosis was lost") }
+        }
+        XCTAssertEqual(fixture.requestCount, 1)
+    }
+
+    @available(iOS 15.0, macOS 12.0, *)
+    func testTransportErrorBodyReadIsBoundedByBytesAndDeclaredLength() async throws {
+        let prefix = "{\"type\":\"unauthorized_client_error\"}"
+        let atLimit = Data((prefix + String(repeating: " ", count: 8192 - prefix.utf8.count)).utf8)
+        let cases: [(Data, Int64?, Bool, Bool)] = [
+            (atLimit, nil, true, true), (atLimit + Data(" ".utf8), nil, true, false),
+            (atLimit + Data(" ".utf8), nil, false, false), (Data(prefix.utf8), 8193, false, false),
+            (Data(prefix.utf8), Int64(prefix.utf8.count), true, true),
+            (Data("{".utf8), 100, true, false)
+        ]
+        for (data, length, finish, classified) in cases {
+            let stopped = expectation(description: "Bounded error body request was cancelled")
+            let fixture = NativeModelURLFixture(status: 401, body: data, finish: finish,
+                                                stopped: finish ? nil : stopped,
+                                                contentType: "application/json", expectedLength: length)
+            let (client, modelRequest, host) = stubbed(fixture)
+            defer { NativeModelTestURLProtocol.unregister(host: host) }
+            do {
+                for try await _ in client.stream(request: modelRequest) { XCTFail("HTTP error emitted an event") }
+                XCTFail("Expected HTTP error")
+            } catch {
+                guard let safe = error as? NativeModelClientError else { return XCTFail("Client error was lost") }
+                if classified {
+                    guard case .httpReason(401, .unauthorizedClient) = safe else { return XCTFail("8 KiB JSON was rejected") }
+                } else {
+                    guard case .http(401) = safe else { return XCTFail("Oversized body was classified") }
+                }
+            }
+            XCTAssertEqual(fixture.requestCount, 1)
+            if !finish { await fulfillment(of: [stopped], timeout: 3) }
+        }
+    }
+
+    @available(iOS 15.0, macOS 12.0, *)
+    func testNeverEndingJSONErrorBodyTimesOutAndCancelsTheSession() async throws {
+        let stopped = expectation(description: "Never-ending JSON error request stopped")
+        let completed = expectation(description: "HTTP error delivered within two seconds")
+        // Even a complete JSON prefix cannot be trusted before EOF.
+        let fixture = NativeModelURLFixture(status: 401, body: Data("{\"type\":\"unauthorized_client_error\"}".utf8),
+                                            finish: false, stopped: stopped, contentType: "application/json")
+        let (client, modelRequest, host) = stubbed(fixture)
+        defer { NativeModelTestURLProtocol.unregister(host: host) }
+        let consumer = Task { () -> Bool in
+            defer { completed.fulfill() }
+            do {
+                for try await _ in client.stream(request: modelRequest) { XCTFail("HTTP error emitted an event") }
+            } catch {
+                guard let safe = error as? NativeModelClientError, case .http(401) = safe else { return false }
+                return true
+            }
+            return false
+        }
+        await fulfillment(of: [completed, stopped], timeout: 2)
+        consumer.cancel()
+        let receivedHTTPError = await consumer.value
+        XCTAssertTrue(receivedHTTPError, "Timeout must retain HTTP status, not become a transport error")
+        XCTAssertEqual(fixture.requestCount, 1)
+    }
+
+    @available(iOS 15.0, macOS 12.0, *)
+    func testConsumerCancellationDuringJSONErrorReadStopsTheSessionPromptly() async throws {
+        let started = expectation(description: "JSON error headers delivered")
+        let stopped = expectation(description: "Error body cancelled before its deadline")
+        let completed = expectation(description: "Cancelled consumer returned promptly")
+        let fixture = NativeModelURLFixture(status: 401, body: Data("{".utf8), finish: false,
+                                            started: started, stopped: stopped, contentType: "application/json")
+        let (client, modelRequest, host) = stubbed(fixture)
+        defer { NativeModelTestURLProtocol.unregister(host: host) }
+        let consumer = Task { () -> Bool in
+            defer { completed.fulfill() }
+            do {
+                for try await _ in client.stream(request: modelRequest) { XCTFail("HTTP error emitted an event") }
+            } catch { }
+            return Task.isCancelled
+        }
+        await fulfillment(of: [started], timeout: 3)
+        try await Task.sleep(nanoseconds: 50_000_000)
+        consumer.cancel()
+        await fulfillment(of: [completed, stopped], timeout: 0.75)
+        let wasCancelled = await consumer.value
+        XCTAssertTrue(wasCancelled)
+        XCTAssertEqual(fixture.requestCount, 1)
+    }
+
+    @available(iOS 15.0, macOS 12.0, *)
+    func testTransportFailureMapsCodesWithoutEchoingUnderlyingError() async throws {
+        for code in [-1003, -1200, -1202, -1001, -9999] {
+            let underlying = NSError(domain: NSURLErrorDomain, code: code, userInfo: [
+                NSLocalizedDescriptionKey: "Bearer secret-test-key https://provider.example/?key=secret%2Dtest%2Dkey",
+                NSURLErrorFailingURLErrorKey: URL(string: "https://provider.example/?key=secret-test-key")!
+            ])
+            let fixture = NativeModelURLFixture(body: Data(), failure: underlying)
+            let (client, modelRequest, host) = stubbed(fixture)
+            defer { NativeModelTestURLProtocol.unregister(host: host) }
+            do {
+                for try await _ in client.stream(request: modelRequest) { XCTFail("Transport failure emitted an event") }
+                XCTFail("Expected transport failure")
+            } catch {
+                guard let safe = error as? NativeModelClientError,
+                      case .transport(let actualCode) = safe else { return XCTFail("Transport error was not preserved") }
+                XCTAssertEqual(actualCode, code)
+                XCTAssertEqual(error.localizedDescription, NativeModelClientError.transport(code).localizedDescription)
+                for secret in [modelRequest.apiKey, "provider.example", "secret%2Dtest%2Dkey", "Bearer"] {
+                    XCTAssertFalse(error.localizedDescription.contains(secret))
+                }
+            }
+            XCTAssertEqual(fixture.requestCount, 1)
+        }
     }
 
     @available(iOS 15.0, macOS 12.0, *)
@@ -848,16 +1091,23 @@ private final class NativeModelURLFixture {
     let status: Int
     let body: Data
     let finish: Bool
+    let contentType: String
+    let expectedLength: Int64?
+    let failure: NSError?
     let started: XCTestExpectation?
     let stopped: XCTestExpectation?
     private let lock = NSLock()
     private var count = 0
 
     init(status: Int = 200, body: Data, finish: Bool = true,
-         started: XCTestExpectation? = nil, stopped: XCTestExpectation? = nil) {
+         started: XCTestExpectation? = nil, stopped: XCTestExpectation? = nil,
+         contentType: String = "text/event-stream", expectedLength: Int64? = nil, failure: NSError? = nil) {
         self.status = status
         self.body = body
         self.finish = finish
+        self.contentType = contentType
+        self.expectedLength = expectedLength
+        self.failure = failure
         self.started = started
         self.stopped = stopped
     }
@@ -900,9 +1150,17 @@ private final class NativeModelTestURLProtocol: URLProtocol {
         let fixture = Self.fixtures[request.url?.host ?? ""]
         self.fixture = fixture
         Self.lock.unlock()
+        if let failure = fixture?.failure {
+            fixture?.recordRequest()
+            client?.urlProtocol(self, didFailWithError: failure)
+            fixture?.started?.fulfill()
+            return
+        }
+        var headers = ["Content-Type": fixture?.contentType ?? ""]
+        if let length = fixture?.expectedLength { headers["Content-Length"] = String(length) }
         guard let fixture, let url = request.url,
               let response = HTTPURLResponse(url: url, statusCode: fixture.status,
-                                             httpVersion: "HTTP/1.1", headerFields: ["Content-Type": "text/event-stream"]) else {
+                                             httpVersion: "HTTP/1.1", headerFields: headers) else {
             client?.urlProtocol(self, didFailWithError: URLError(.badServerResponse))
             return
         }

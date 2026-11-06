@@ -223,7 +223,17 @@ public final class JSBridge: NSObject, WKScriptMessageHandler {
         request.httpMethod = "GET"
         request.cachePolicy = .reloadIgnoringLocalCacheData
         request.setValue("application/json", forHTTPHeaderField: "Accept")
-        if !key.isEmpty { request.setValue("Bearer \(key)", forHTTPHeaderField: "Authorization") }
+        if key.isEmpty, let providerID = data["providerID"] as? String, !providerID.isEmpty {
+            let savedRequest = try await backend.modelCatalogRequest(providerID: providerID)
+            // A saved key must never follow a newly edited URL before that configuration
+            // is saved. The backend owns the credential and its configured destination.
+            guard savedRequest.url == request.url else {
+                throw BridgeError("The provider URL changed. Enter its key explicitly or save the new configuration before fetching models.")
+            }
+            request = savedRequest
+        } else if !key.isEmpty {
+            request.setValue("Bearer \(key)", forHTTPHeaderField: "Authorization")
+        }
 
         let configuration = URLSessionConfiguration.ephemeral
         configuration.timeoutIntervalForRequest = 30
@@ -241,7 +251,13 @@ public final class JSBridge: NSObject, WKScriptMessageHandler {
                 throw BridgeError("Provider model catalog redirects are not allowed.")
             }
             guard (200..<300).contains(response.statusCode) else {
-                throw BridgeError("Provider model catalog request failed (HTTP \(response.statusCode)).")
+                let mime = response.mimeType?.lowercased() ?? ""
+                let content = mime == "application/json" || mime.hasSuffix("+json")
+                    ? await NativeProviderHTTPDiagnostic.readBody(bytes, expectedLength: response.expectedContentLength, session: session)
+                    : nil
+                let message = NativeProviderHTTPDiagnostic.description(status: response.statusCode, data: content)
+                NSLog("[provider] model catalog: %@", message)
+                throw BridgeError("Model list unavailable: \(message)")
             }
             guard response.expectedContentLength <= Int64(maxBytes) else {
                 throw BridgeError("Provider model catalog exceeds the 2 MB limit.")
@@ -262,8 +278,9 @@ public final class JSBridge: NSObject, WKScriptMessageHandler {
         } catch let error as BridgeError {
             throw error
         } catch {
-            // URLSession errors may contain the provider URL; never forward them or response bodies.
-            throw BridgeError("Provider model catalog request failed. Check connectivity and provider settings, or enter model IDs manually.")
+            let message = NativeModelClientError.transport((error as NSError).code).localizedDescription
+            NSLog("[provider] model catalog: %@", message)
+            throw BridgeError("Model list unavailable: \(message)")
         }
     }
 

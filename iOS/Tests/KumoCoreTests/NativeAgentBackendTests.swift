@@ -833,6 +833,82 @@ final class NativeAgentBackendTests: XCTestCase {
         await backend.shutdown()
     }
 
+    func testNativeModelClientFailuresPersistExactSafeDiagnosesWithoutLeakingCredential() async throws {
+        let cases: [(NativeModelClientError, String)] = [
+            (.http(401), "Model provider returned HTTP 401; response details withheld."),
+            (.http(400), "Model provider returned HTTP 400; response details withheld."),
+            (.transport(-1003), "Model provider transport failed (code -1003); details withheld."),
+            (.truncatedStream, "Model event stream ended without its successful terminal event."),
+            (.malformedStream("event is not a JSON object"), "Invalid model event stream: event is not a JSON object.")
+        ]
+        for (failure, expected) in cases {
+            let root = try temporaryRoot()
+            let model = ScriptedModel([[.text("partial")]])
+            model.failure = failure
+            let credentials = Credentials()
+            let backend = try backend(root, model, credentials)
+            let events = Events()
+            await backend.setEventHandler(events.receive)
+            try await configure(backend)
+            let secret = try XCTUnwrap(credentials.values["test"])
+            let id = try await session(backend, root)
+            try await prompt(backend, id)
+            try await waitIdle(backend, id)
+
+            let saved = try await messages(backend, id)
+            let info = try XCTUnwrap(saved.last?["info"] as? [String: Any])
+            let error = try XCTUnwrap(info["error"] as? [String: Any])
+            XCTAssertEqual((error["data"] as? [String: Any])?["message"] as? String, expected)
+            XCTAssertNotNil((info["time"] as? [String: Any])?["completed"])
+            let event = try XCTUnwrap(events.values.first { $0["type"] as? String == "session.error" })
+            let properties = try XCTUnwrap(event["properties"] as? [String: Any])
+            let eventError = try XCTUnwrap(properties["error"] as? [String: Any])
+            XCTAssertEqual((eventError["data"] as? [String: Any])?["message"] as? String, expected)
+            XCTAssertFalse(String(decoding: try JSONSerialization.data(withJSONObject: events.values), as: UTF8.self).contains(secret))
+
+            let disk = try Data(contentsOf: root.appendingPathComponent("native-agent/state.json"))
+            XCTAssertFalse(String(decoding: disk, as: UTF8.self).contains(secret))
+            let state = try JSONSerialization.jsonObject(with: disk) as! [String: Any]
+            let persisted = try XCTUnwrap((state["messages"] as? [String: [[String: Any]]])?[id])
+            let persistedInfo = try XCTUnwrap(persisted.last?["info"] as? [String: Any])
+            let persistedError = try XCTUnwrap(persistedInfo["error"] as? [String: Any])
+            XCTAssertEqual((persistedError["data"] as? [String: Any])?["message"] as? String, expected)
+
+            await backend.shutdown()
+            let reopened = try self.backend(root, model, credentials)
+            let restored = try await messages(reopened, id)
+            let restoredInfo = try XCTUnwrap(restored.last?["info"] as? [String: Any])
+            let restoredError = try XCTUnwrap(restoredInfo["error"] as? [String: Any])
+            XCTAssertEqual((restoredError["data"] as? [String: Any])?["message"] as? String, expected)
+            XCTAssertEqual(model.requests.count, 1, "Failed turns must not be retried or replayed on reopen")
+            await reopened.shutdown()
+        }
+    }
+
+    func testNativeModelClientFailureStillCleansKnownCredential() async throws {
+        let root = try temporaryRoot()
+        let model = ScriptedModel()
+        let credentials = Credentials()
+        let backend = try backend(root, model, credentials)
+        let events = Events()
+        await backend.setEventHandler(events.receive)
+        try await configure(backend)
+        let secret = try XCTUnwrap(credentials.values["test"])
+        model.failure = NativeModelClientError.malformedStream("prefix-\(secret)-suffix")
+        let id = try await session(backend, root)
+        try await prompt(backend, id)
+        try await waitIdle(backend, id)
+        let saved = try await messages(backend, id)
+        let info = try XCTUnwrap(saved.last?["info"] as? [String: Any])
+        let error = try XCTUnwrap(info["error"] as? [String: Any])
+        XCTAssertEqual((error["data"] as? [String: Any])?["message"] as? String,
+                       "Invalid model event stream: prefix-[REDACTED]-suffix.")
+        XCTAssertFalse(String(decoding: try JSONSerialization.data(withJSONObject: events.values), as: UTF8.self).contains(secret))
+        let disk = try Data(contentsOf: root.appendingPathComponent("native-agent/state.json"))
+        XCTAssertFalse(String(decoding: disk, as: UTF8.self).contains(secret))
+        await backend.shutdown()
+    }
+
     func testFailedStreamPersistsErrorAndIdleWithoutLeakingCredential() async throws {
         let root = try temporaryRoot()
         let model = ScriptedModel([[.text("partial")]])
@@ -847,7 +923,10 @@ final class NativeAgentBackendTests: XCTestCase {
         try await prompt(backend, id)
         try await waitIdle(backend, id)
         let saved = try await messages(backend, id)
-        XCTAssertNotNil((saved.last?["info"] as? [String: Any])?["error"])
+        let info = try XCTUnwrap(saved.last?["info"] as? [String: Any])
+        let error = try XCTUnwrap(info["error"] as? [String: Any])
+        XCTAssertEqual((error["data"] as? [String: Any])?["message"] as? String,
+                       "Model stream failed. Check provider connectivity and credentials; the turn was not retried.")
         XCTAssertTrue(events.values.contains { $0["type"] as? String == "session.error" })
         let json = try JSONSerialization.data(withJSONObject: events.values)
         XCTAssertFalse(String(decoding: json, as: UTF8.self).contains(secret))
@@ -892,6 +971,121 @@ final class NativeAgentBackendTests: XCTestCase {
         XCTAssertNil(paths["/event"])
         let questions = try await request(backend, "GET", "/question") as! [Any]
         XCTAssertTrue(questions.isEmpty)
+        await backend.shutdown()
+    }
+
+    func testModelCatalogRequestUsesExactStoredCredentialAcrossReloadWithoutGeneration() async throws {
+        let root = try temporaryRoot()
+        let model = ScriptedModel()
+        let credentials = Credentials()
+        let backend = try backend(root, model, credentials)
+        try await configure(backend)
+        let secret = try XCTUnwrap(credentials.values["test"])
+        credentials.values["other"] = UUID().uuidString
+        let snapshot = root.appendingPathComponent("native-agent/state.json")
+        let before = try Data(contentsOf: snapshot)
+
+        let catalog = try await backend.modelCatalogRequest(providerID: "test")
+        XCTAssertEqual(catalog.url?.absoluteString, "https://example.invalid/v1/models")
+        XCTAssertEqual(catalog.httpMethod, "GET")
+        XCTAssertEqual(catalog.value(forHTTPHeaderField: "Authorization"), "Bearer " + secret)
+        XCTAssertEqual(catalog.value(forHTTPHeaderField: "Accept"), "application/json")
+        XCTAssertEqual(catalog.cachePolicy, .reloadIgnoringLocalCacheData)
+        XCTAssertNil(catalog.httpBody)
+        let config = try await request(backend, "GET", "/config")
+        XCTAssertFalse(String(decoding: try JSONSerialization.data(withJSONObject: config), as: UTF8.self).contains(secret))
+        XCTAssertEqual(try Data(contentsOf: snapshot), before, "Building a catalog request must not mutate the snapshot")
+        XCTAssertTrue(model.requests.isEmpty)
+
+        await backend.shutdown()
+        let reopened = try self.backend(root, model, credentials)
+        let restored = try await reopened.modelCatalogRequest(providerID: "test")
+        XCTAssertEqual(restored.url, catalog.url)
+        XCTAssertEqual(restored.value(forHTTPHeaderField: "Authorization"), "Bearer " + secret)
+        XCTAssertEqual(restored.value(forHTTPHeaderField: "Accept"), "application/json")
+        XCTAssertEqual(restored.httpMethod, "GET")
+        XCTAssertEqual(restored.cachePolicy, .reloadIgnoringLocalCacheData)
+        let restoredConfig = try await request(reopened, "GET", "/config")
+        XCTAssertFalse(String(decoding: try JSONSerialization.data(withJSONObject: restoredConfig), as: UTF8.self).contains(secret))
+        XCTAssertFalse(String(decoding: try Data(contentsOf: snapshot), as: UTF8.self).contains(secret))
+        XCTAssertEqual(try Data(contentsOf: snapshot), before)
+        XCTAssertTrue(model.requests.isEmpty)
+
+        _ = try await request(reopened, "PATCH", "/global/config", body: ["provider": ["test": ["name": "prefix-\(secret)-suffix"]]])
+        let redacted = try await request(reopened, "GET", "/config") as! [String: Any]
+        let provider = try XCTUnwrap((redacted["provider"] as? [String: [String: Any]])?["test"])
+        XCTAssertEqual(provider["name"] as? String, "prefix-[REDACTED]-suffix", "Catalog credential reads must register the secret for cleaning after reload")
+        XCTAssertFalse(String(decoding: try Data(contentsOf: snapshot), as: UTF8.self).contains(secret))
+        await reopened.shutdown()
+    }
+
+    func testModelCatalogRequestRejectsInvalidUnknownAndMissingCredentials() async throws {
+        let root = try temporaryRoot()
+        let model = ScriptedModel()
+        let credentials = Credentials()
+        let backend = try backend(root, model, credentials)
+        try await configure(backend)
+        credentials.values["unknown"] = UUID().uuidString
+        for id in ["", "test/other", "__proto__", "unknown"] {
+            do {
+                _ = try await backend.modelCatalogRequest(providerID: id)
+                XCTFail("Invalid or unconfigured provider accepted")
+            } catch {
+                XCTAssertTrue(error.localizedDescription.contains("provider"))
+            }
+        }
+        for missing: String? in [nil, ""] {
+            credentials.values["test"] = missing
+            do {
+                _ = try await backend.modelCatalogRequest(providerID: "test")
+                XCTFail("Catalog request accepted without a stored credential")
+            } catch {
+                XCTAssertEqual(error.localizedDescription, "Save an API key for the selected provider before fetching models.")
+            }
+        }
+        XCTAssertTrue(model.requests.isEmpty)
+        await backend.shutdown()
+    }
+
+    func testModelCatalogRequestRejectsStoredCredentialCRLFWithoutLeakingIt() async throws {
+        let root = try temporaryRoot()
+        let model = ScriptedModel()
+        let credentials = Credentials()
+        let backend = try backend(root, model, credentials)
+        try await configure(backend)
+        for separator in ["\r", "\n", "\r\n"] {
+            let secret = UUID().uuidString + separator + "injected-header"
+            credentials.values["test"] = secret
+            do {
+                _ = try await backend.modelCatalogRequest(providerID: "test")
+                XCTFail("Stored credential with CR or LF accepted")
+            } catch {
+                XCTAssertEqual(error.localizedDescription, "Stored provider API key must not contain CR or LF.")
+                XCTAssertFalse(error.localizedDescription.contains(secret))
+            }
+        }
+        XCTAssertTrue(model.requests.isEmpty)
+        await backend.shutdown()
+    }
+
+    func testModelCatalogRequestWithholdsRawCredentialReadFailures() async throws {
+        let root = try temporaryRoot()
+        let model = ScriptedModel()
+        let secret = UUID().uuidString
+        let backend = try NativeAgentBackend(root: root, modelClient: model,
+                                             credentialRead: { _ in
+                                                 throw NSError(domain: "Mock", code: 1, userInfo: [NSLocalizedDescriptionKey: "Authorization: Bearer \(secret)"])
+                                             }, credentialWrite: { _, _ in })
+        addTeardownBlock { await backend.shutdown() }
+        try await configure(backend)
+        do {
+            _ = try await backend.modelCatalogRequest(providerID: "test")
+            XCTFail("Credential read failure accepted")
+        } catch {
+            XCTAssertEqual(error.localizedDescription, "Could not prepare the native model catalog request. Check provider configuration and stored credentials.")
+            XCTAssertFalse(error.localizedDescription.contains(secret))
+        }
+        XCTAssertTrue(model.requests.isEmpty)
         await backend.shutdown()
     }
 

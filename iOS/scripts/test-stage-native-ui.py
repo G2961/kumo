@@ -51,7 +51,7 @@ class StageTests(unittest.TestCase):
 
     def test_manual_models_and_honest_capabilities(self):
         form = section(self.html, "async function providerForm(", "/* ---------- SSH")
-        self.assertIn("nativeCall('providerModels',{baseURL:url,key})", form)
+        self.assertIn("nativeCall('providerModels',{baseURL:url,key,providerID:existing||undefined})", form)
         self.assertIn('id="pmManual" ${window.KumoNativeBackend?', form)
         self.assertNotIn("Anthropic", form)
         self.assertIn("Keys stay in Keychain", form)
@@ -64,6 +64,13 @@ class StageTests(unittest.TestCase):
         self.assertIn("Native backend", self.html)
         self.assertIn("not supported", self.html)
         self.assertIn("Project files and change history remain available", self.html)
+
+    def test_provider_api_format_is_untouched(self):
+        for start, end in (
+            ('<label class="fld" for="pf">', '</select>'),
+            (" $('#providerPreset').onchange=", " $('#sheet').onclick="),
+        ):
+            self.assertEqual(section(self.html, start, end), section(self.source, start, end))
 
     def test_native_context_field_and_search_menu(self):
         form = section(self.html, "async function providerForm(", "/* ---------- SSH")
@@ -88,7 +95,7 @@ class StageTests(unittest.TestCase):
         self.assertNotIn("x-native-capabilities", self.html)
 
     def test_exact_patches_fail_closed(self):
-        for old in ("async function api(path,o={}){", "function connectSSE(){", "await (await fetch('/doc')).json()", 'id="pmManual" hidden'):
+        for old in ("async function api(path,o={}){", "function connectSSE(){", "await (await fetch('/doc')).json()", 'id="pmManual" hidden', "let fetched=await fetchProviderModels(url.href,key);"):
             with self.subTest(old=old), self.assertRaisesRegex(ValueError, "patch"):
                 self.stage.patch_html(self.source.replace(old, old + " changed", 1))
         with self.assertRaises(ValueError):
@@ -169,7 +176,7 @@ class Events {
  dispatchEvent(e){for(const fn of [...(this.listeners.get(e.type)||[])])fn(e)}
  count(name){return this.listeners.get(name)?.size||0}
 }
-const window=new Events(),document=new Events(),elements=new Map(),calls=[],seen=[],pending=[];
+const window=new Events(),document=new Events(),elements=new Map(),calls=[],seen=[],pending=[],logs=[];
 window.KumoNativeBackend=true;document.hidden=false;
 const S={dir:'/workspace',sid:'session',live:false,view:0,provs:[],sessions:[],projects:[],errors:[],efforts:{},agent:'build',webSearch:false};
 let reply=()=>null,syncs=0,renders=0,interval,browserFetches=0,eventSources=0;
@@ -180,7 +187,7 @@ window.webkit={messageHandlers:{codexNative:{postMessage:r=>{
  try{const result=reply(r);Promise.resolve(result).then(value=>window.codexNativeResult(r.id,value),e=>window.codexNativeResult(r.id,{error:e}))}
  catch(e){window.codexNativeResult(r.id,{error:e})}
 }}}};
-const context=vm.createContext({window,document,S,console,URL,location:{origin:'null'},crypto:require('node:crypto').webcrypto,
+const context=vm.createContext({window,document,S,console:{log:(...args)=>logs.push(args.join(' ')),warn:(...args)=>logs.push(args.join(' ')),error:(...args)=>logs.push(args.join(' '))},URL,location:{origin:'null'},crypto:require('node:crypto').webcrypto,
  setTimeout,clearTimeout,setInterval:fn=>{interval=fn},
  fetch:()=>{browserFetches++;throw Error('Unexpected browser fetch')},EventSource:class{constructor(){eventSources++;throw Error('Unexpected EventSource')}},
  err:s=>S.errors.push(s),onEvent:e=>seen.push(e),syncSession:()=>{syncs++;return Promise.resolve()},
@@ -316,20 +323,118 @@ function settle(index,value){window.codexNativeResult(pending[index].id,value)}
  element('#plus').onclick();assert.match(element('#sheet').innerHTML,/<button class="opt" id="attachSearch" >Web search<span class="m">On/);
  window.KumoNativeBackend=true;
  // Test the actual nested helper independently with returned model shapes and failure.
- const helper=input.pieces.providers.match(/ async function fetchProviderModels\(url,key\)\{[\s\S]*?\n \}/)[0];run(helper);
+ const helper=input.pieces.providers.match(/ async function fetchProviderModels\(url,key\)\{[\s\S]*?\n \}/)[0];
+ run('const fetchProviderModels=(function(existing){'+helper+';return fetchProviderModels})()');
  for(const value of [{data:[{id:'model',context_length:8192}]},{models:['model']},['model']]){
   reply=()=>value;const models=await run("fetchProviderModels('https://provider.example/v1','sk-test-secret')");assert.equal(models[0].id,'model');
  }
  reply=()=>({data:[{id:'model',limit:{context:32768,output:4096}}]});
  const metadata=await run("fetchProviderModels('https://provider.example/v1','')");
  assert.equal(metadata[0].context,32768);assert.equal(metadata[0].output,4096);
- for(const value of [null,{data:[]},{error:{message:'failed'}},{data:[{}]}]){
+ for(const value of [null,{data:[]},{data:[{}]}]){
   reply=()=>value;assert.equal(await run("fetchProviderModels('https://provider.example/v1','sk-test-secret')"),null);
  }
+ reply=()=>({error:{message:'failed'}});
+ await assert.rejects(run("fetchProviderModels('https://provider.example/v1','sk-test-secret')"),e=>e.message==='failed');
+
  // HTTPS validation happens before any providerModels action.
  await run('providerForm()');element('#pu').value='http://provider.example/v1';
  const count=calls.filter(c=>c.action==='providerModels').length;await element('#sheet').onclick({target:{id:'ps'}});
  assert.equal(calls.filter(c=>c.action==='providerModels').length,count);assert.match(element('#pe').textContent,/HTTPS/);
+ // Save failures expose the native reason, keep the exact entered key, and never
+ // leave Fetching… behind. The same failed discovery can still save manual IDs.
+ const enteredKey='  sk-test-secret  ',format='@ai-sdk/openai-compatible';
+ const providerErrors=[
+  'HTTP 401: The API key was rejected by the provider.',
+  {message:'HTTP 404: Model discovery endpoint /v1/models was not found.'},
+  {data:{message:'NSURLErrorDomain (-1003): A server with the specified hostname could not be found.'}}
+ ];
+ function fillProvider(manual=''){
+  element('#pi').value='agentrouter';element('#pnn').value='AgentRouter';element('#pu').value='https://agentrouter.org/v1';
+  element('#pf').value=format;element('#pk').value=enteredKey;element('#pm').value=manual;element('#pContext').value='32768';
+ }
+ function assertNoKeyShown(){
+  for(const text of [element('#pe').textContent,element('#pmStatus').textContent,...S.errors,...logs])assert.ok(!text.includes('sk-test-secret'),text);
+ }
+ for(const nativeError of providerErrors){
+  const message=typeof nativeError==='string'?nativeError:nativeError.data?.message||nativeError.message;
+  reply=r=>r.action==='providerModels'?{error:nativeError}:r.data.path==='/provider'?{all:[],connected:[],default:{}}:{};
+  run('providerCatalog=null;providerMeta={}');await run('providerForm()');fillProvider();
+  const before=writes();await element('#sheet').onclick({target:{id:'ps'}});
+  assert.equal(writes(),before);assert.equal(element('#pe').textContent,message);
+  assert.equal(element('#pmStatus').textContent,'Model list unavailable: '+message+'. Manual IDs can still be used.');
+  assert.equal(element('#pk').value,enteredKey);assert.equal(element('#ps').disabled,false);assert.equal(element('#pf').value,format);assertNoKeyShown();
+  element('#pm').value='manual-only';await element('#sheet').onclick({target:{id:'ps'}});
+  assert.equal(writes(),before+2);
+  const provider=calls.findLast(c=>c.data.path==='/global/config'&&c.data.method==='PATCH').data.body.provider.agentrouter;
+  assert.deepEqual(Object.keys(provider.models),['manual-only']);assert.equal(provider.models['manual-only'].limit.context,32768);assert.equal(provider.npm,format);
+  assert.equal(element('#pk').value,'');assert.match(element('#pmStatus').textContent,/Manual IDs can still be used/);assertNoKeyShown();
+  settle(pending.length-1,{subscribed:true});await tick();
+ }
+ for(const result of [null,{data:[]},{error:{message:'HTTP 401: Authorization: Bearer sk-test-secret rejected'}}]){
+  reply=r=>r.action==='providerModels'?result:r.data.path==='/provider'?{all:[],connected:[],default:{}}:{};
+  run('providerCatalog=null');await run('providerForm()');fillProvider();
+  const before=writes();await element('#sheet').onclick({target:{id:'ps'}});
+  assert.equal(writes(),before);assert.equal(element('#pk').value,enteredKey);assert.equal(element('#ps').disabled,false);
+  assert.doesNotMatch(element('#pe').textContent,/Check the key/);assert.match(element('#pmStatus').textContent,/^Model list unavailable: .* Manual IDs can still be used\.$/);assertNoKeyShown();
+ }
+ // Manual IDs win even when discovery succeeds, retaining fetched metadata only
+ // for selected IDs. A retry must not retain the previous modelFetchError.
+ reply=r=>r.action==='providerModels'?{data:[{id:'manual-only',context:96000,output:4096},{id:'not-selected',context:64000}]}:{};
+ fillProvider('manual-only, undiscovered');await element('#sheet').onclick({target:{id:'ps'}});
+ const manualProvider=calls.findLast(c=>c.data.path==='/global/config'&&c.data.method==='PATCH').data.body.provider.agentrouter;
+ assert.deepEqual(Object.keys(manualProvider.models),['manual-only','undiscovered']);assert.deepEqual(manualProvider.models['manual-only'].limit,{context:96000,output:4096});
+ assert.equal(manualProvider.models.undiscovered.limit.context,32768);assert.equal(manualProvider.npm,format);
+ assert.doesNotMatch(element('#pmStatus').textContent,/unavailable|Fetching/);settle(pending.length-1,{subscribed:true});await tick();
+ // Configured IDs need neither /models nor a catalog entry when saved limits exist.
+ const configuredModel={limit:{context:64000,output:4096}};
+ reply=r=>r.action==='providerModels'?{error:providerErrors[0]}:r.data.path==='/provider'?{all:[],connected:[],default:{}}:r.data.path==='/global/config'&&r.data.method==='GET'?{provider:{agentrouter:{models:{configured:configuredModel}}}}:{};
+ run('providerCatalog=null');await run('providerForm()');fillProvider();element('#pContext').value='';
+ await element('#sheet').onclick({target:{id:'ps'}});
+ const configuredProvider=calls.findLast(c=>c.data.path==='/global/config'&&c.data.method==='PATCH').data.body.provider.agentrouter;
+ assert.deepEqual(Object.keys(configuredProvider.models),['configured']);assert.deepEqual(configuredProvider.models.configured.limit,configuredModel.limit);
+ settle(pending.length-1,{subscribed:true});await tick();
+ // Config route details are backend-sanitized, but the UI still redacts auth tokens.
+ const validation='Validation failed: provider.agentrouter.models.manual-only.limit.context must be positive.';
+ for(const path of ['/config','/global/config'])for(const method of ['GET','PATCH']){
+  reply=()=>({error:{data:{message:validation+' Authorization: Bearer sk-test-secret'}}});
+  await assert.rejects(run('api('+JSON.stringify(path)+',{method:'+JSON.stringify(method)+'})'),e=>e.message===method+' '+path+' -> '+validation+' Authorization: [redacted]');
+ }
+ for(const failingMethod of ['GET','PATCH']){
+  reply=r=>r.action==='providerModels'?{data:[{id:'manual-only',context:32768}]}:r.data.path==='/global/config'&&r.data.method===failingMethod?{error:{message:validation+' Authorization: Bearer sk-test-secret'}}:{};
+  await run('providerForm()');fillProvider('manual-only');await element('#sheet').onclick({target:{id:'ps'}});
+  assert.equal(element('#pe').textContent,failingMethod+' /global/config -> '+validation+' Authorization: [redacted]');
+  assert.equal(element('#pk').value,enteredKey);assert.equal(element('#ps').disabled,false);assert.equal(element('#pf').value,format);assertNoKeyShown();
+ }
+ // Validation before discovery must not clear an entered key either.
+ fillProvider();element('#pu').value='http://agentrouter.org/v1';await element('#sheet').onclick({target:{id:'ps'}});
+ assert.match(element('#pe').textContent,/HTTPS/);assert.equal(element('#pk').value,enteredKey);assertNoKeyShown();
+ // Saved credentials are requested only by an edit's original provider ID; a
+ // matching ID typed into a new form must not opt into saved-key discovery.
+ run("providerMeta={agentrouter:{baseURL:'https://agentrouter.org/v1',models:[]}};providerCatalog=null");
+ reply=r=>r.action==='providerModels'?{data:[{id:'discovered',context:32768}]}:r.data.path==='/provider'?{all:[],connected:[],default:{}}:{};
+ await run('providerForm()');fillProvider();element('#pk').value='';
+ await element('#sheet').onclick({target:{id:'ps'}});
+ settle(pending.length-1,{subscribed:true});await tick();
+ assert.deepEqual(calls.findLast(c=>c.action==='providerModels').data,{baseURL:'https://agentrouter.org/v1',key:''});
+ await run("providerForm('agentrouter')");fillProvider();element('#pk').value='';element('#pi').value='renamed';
+ const beforeEdit=writes();await element('#sheet').onclick({target:{id:'ps'}});
+ settle(pending.length-1,{subscribed:true});await tick();
+ assert.deepEqual(calls.findLast(c=>c.action==='providerModels').data,{baseURL:'https://agentrouter.org/v1',key:'',providerID:'agentrouter'});
+ assert.equal(writes(),beforeEdit+1);assert.equal(element('#pk').value,'');
+ for(const nativeError of providerErrors){
+  reply=r=>r.action==='providerModels'?{error:nativeError}:r.data.path==='/provider'?{all:[],connected:[],default:{}}:{};
+  await run("providerForm('agentrouter')");fillProvider();element('#pk').value='';
+  const before=writes();await element('#sheet').onclick({target:{id:'ps'}});
+  const message=typeof nativeError==='string'?nativeError:nativeError.data?.message||nativeError.message;
+  assert.equal(writes(),before);assert.equal(element('#pe').textContent,message);assert.equal(element('#pk').value,'');
+  assert.deepEqual(calls.findLast(c=>c.action==='providerModels').data,{baseURL:'https://agentrouter.org/v1',key:'',providerID:'agentrouter'});
+  element('#pm').value='manual-only';await element('#sheet').onclick({target:{id:'ps'}});
+  assert.equal(writes(),before+1);
+  const provider=calls.findLast(c=>c.data.path==='/global/config'&&c.data.method==='PATCH').data.body.provider.agentrouter;
+  assert.deepEqual(Object.keys(provider.models),['manual-only']);assert.match(element('#pmStatus').textContent,/Manual IDs can still be used/);assertNoKeyShown();
+  settle(pending.length-1,{subscribed:true});await tick();
+ }
  window.dispatchEvent({type:'pagehide'});
  // A missing or throwing transport fails immediately, not after the bridge timeout.
  const transport=window.CodexNative;

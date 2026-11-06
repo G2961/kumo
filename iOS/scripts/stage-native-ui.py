@@ -54,7 +54,7 @@ API_NEW = """async function api(path,o={}){
  const dir=o.directory===undefined?S.dir:o.directory;
  if(window.KumoNativeBackend){
   try{return await nativeCall('backendRequest',{path,method:o.method||'GET',directory:dir,body:o.body})}
-  catch(e){throw new Error((o.method||'GET')+' '+path+' -> '+(path.startsWith('/auth/')||path==='/config'||path==='/global/config'?'native backend error':nativeErrorMessage(e)))}
+  catch(e){throw new Error((o.method||'GET')+' '+path+' -> '+(path.startsWith('/auth/')?'native backend error':nativeErrorMessage(e)))}
  }
  const u=new URL(path,location.origin);
  if(dir&&!path.startsWith('/auth/')&&!path.startsWith('/global/')&&!path.startsWith('/experimental/'))u.searchParams.set('directory',dir);
@@ -110,7 +110,7 @@ PROVIDER_OLD = r""" async function fetchProviderModels(url,key){
 PROVIDER_NEW = r""" async function fetchProviderModels(url,key){
   try{
    let j;
-   if(window.KumoNativeBackend)j=await nativeCall('providerModels',{baseURL:url,key});
+   if(window.KumoNativeBackend)j=await nativeCall('providerModels',{baseURL:url,key,providerID:existing||undefined});
    else{
     const r=await fetch(url.replace(/\/$/,'')+'/models',{headers:key?{Authorization:'Bearer '+key}:{}});
     if(!r.ok)throw new Error('HTTP '+r.status);
@@ -119,8 +119,34 @@ PROVIDER_NEW = r""" async function fetchProviderModels(url,key){
    const arr=Array.isArray(j)?j:(j?.data||j?.models||[]);
    const ids=arr.map(m=>typeof m==='string'?{id:m}:m).filter(m=>m&&typeof m.id==='string'&&m.id.trim()).map(m=>({id:m.id,context:m.limit?.context??m.context??m.context_length??m.max_context_length??m.context_window,output:m.limit?.output??m.output??m.max_output_tokens}));
    return ids.length?ids:null;
-  }catch(e){return null}
+  }catch(e){if(window.KumoNativeBackend)throw e;return null}
  }"""
+PROVIDER_FETCH_OLD = r"""   let fetched=await fetchProviderModels(url.href,key);
+   if(!fetched){
+    const manual=$('#pm')&&$('#pmManual')&&!$('#pmManual').hidden?$('#pm').value.split(/[,\n]/).map(v=>v.trim()).filter(Boolean):[];
+    const known=list.find(p=>p.id===id);
+    fetched=(known?Object.keys(known.models||{}):[]).map(mid=>({id:mid}));
+    if(!fetched.length&&manual.length)fetched=manual.map(mid=>({id:mid}));
+    if(!fetched.length)throw new Error('Could not fetch models from the provider. Check the key and URL, or enter model IDs manually.');
+    $('#pmStatus').textContent='Provider did not return models. Using the opencode catalog.';
+   }else{$('#pmStatus').textContent='Found '+fetched.length+' models.'}"""
+PROVIDER_FETCH_NEW = r"""   let fetched=null,modelFetchError=null;
+   try{fetched=await fetchProviderModels(url.href,key)}catch(e){modelFetchError=nativeErrorMessage(e)}
+   const manual=$('#pm')&&$('#pmManual')&&!$('#pmManual').hidden?$('#pm').value.split(/[,\n]/).map(v=>v.trim()).filter(Boolean):[];
+   if(!fetched){
+    if(window.KumoNativeBackend)$('#pmStatus').textContent='Model list unavailable: '+(modelFetchError||'Provider did not return models')+'. Manual IDs can still be used.';
+    const known=list.find(p=>p.id===id);
+    const configured=known?Object.keys(known.models||{}):[];
+    fetched=(window.KumoNativeBackend?[...new Set([...Object.keys(savedModels),...configured])]:configured).map(mid=>({id:mid}));
+    if(manual.length&&(window.KumoNativeBackend||!fetched.length))fetched=manual.map(mid=>({id:mid}));
+    if(!fetched.length)throw new Error(modelFetchError||(window.KumoNativeBackend?'Provider did not return models. Enter model IDs manually.':'Could not fetch models from the provider. Check the key and URL, or enter model IDs manually.'));
+    if(!window.KumoNativeBackend)$('#pmStatus').textContent='Provider did not return models. Using manually entered or configured model IDs.';
+   }else{
+    if(window.KumoNativeBackend&&manual.length){
+     fetched=manual.map(mid=>fetched.find(m=>m.id===mid)||{id:mid});
+     $('#pmStatus').textContent='Using manually entered model IDs.';
+    }else{$('#pmStatus').textContent='Found '+fetched.length+' models.'}
+   }"""
 NATIVE_LIMITS = r""" function nativeProviderLimits(modelID,saved,fetched,fallback){
   const limit={...(saved||{})};
   if(limit.context==null&&fetched?.context!=null)limit.context=fetched.context;
@@ -169,6 +195,9 @@ def patch_html(html):
          "function nativeErrorMessage(error){const message=typeof error==='string'?error:error?.data?.message||error?.message;return redact(typeof message==='string'&&message?message:'Native request failed.')}\nwindow.codexNativeResult=(id,result)=>{const p=nativePending.get(id);if(!p)return;clearTimeout(p.timer);nativePending.delete(id);result?.error?p.reject(new Error(nativeErrorMessage(result.error))):p.resolve(result)};", "bridge result errors"),
         ("This feature is available in the Android app.", "This feature requires the native app bridge.", "missing bridge"),
         (PROVIDER_OLD, NATIVE_LIMITS + PROVIDER_NEW, "provider models"),
+        (PROVIDER_FETCH_OLD, PROVIDER_FETCH_NEW, "provider fetch errors and manual IDs"),
+        ("}catch(x){if($('#pk'))$('#pk').value=key;error.textContent=redact(x.message);save.disabled=false}",
+         "}catch(x){if(!window.KumoNativeBackend&&$('#pk'))$('#pk').value=key;error.textContent=redact(x.message);save.disabled=false}", "preserve entered native key"),
         (' <p class="note" id="pmStatus">Models are fetched from the provider automatically on save.</p>',
          ' <p class="note" id="pmStatus">Models are fetched from the provider automatically on save.</p>\n ${window.KumoNativeBackend?`<label class="fld" for="pContext">Context window for models without metadata</label><input class="in" id="pContext" type="text" inputmode="numeric" autocomplete="off" spellcheck="false" aria-describedby="pContextNote"><p class="note" id="pContextNote">Enter the actual context window in tokens from your provider documentation. This explicit value applies only to models missing saved or fetched context metadata; existing per-model limits are preserved. No default is assumed. Use this shared value only when those models have the same context window; configure different limits separately for heterogeneous models.</p>`:\'\'}', "native context field"),
         ("   const list=await catalog(),models={};", "   const list=await catalog(),models={};\n   const savedModels=window.KumoNativeBackend?(await api('/global/config')).provider?.[id]?.models||{}:{};", "saved model limits"),
@@ -178,9 +207,6 @@ def patch_html(html):
         ("Keys stay in opencode.", "Keys stay in Keychain.", "key storage wording"),
         ("if(!['https:','http:'].includes(url.protocol)||url.username||url.password||url.search||url.hash)throw new Error('Enter an API URL without credentials.');",
          "if(!(window.KumoNativeBackend?url.protocol==='https:':['https:','http:'].includes(url.protocol))||url.username||url.password||url.search||url.hash)throw new Error(window.KumoNativeBackend?'Enter an HTTPS API URL without credentials.':'Enter an API URL without credentials.');", "native provider HTTPS"),
-        ("if(!fetched.length&&manual.length)fetched=manual.map(mid=>({id:mid}));",
-         "if(manual.length&&(window.KumoNativeBackend||!fetched.length))fetched=manual.map(mid=>({id:mid}));", "manual model fallback"),
-        ("Provider did not return models. Using the opencode catalog.", "Provider did not return models. Using manually entered or configured model IDs.", "catalog wording"),
         (SYSTEM_OLD, SYSTEM_NEW, "native system capabilities"),
         ("<span>Server</span>", "<span>Native backend</span>", "settings backend"),
         ("${S.live?'SSE live':'offline'}", "${S.live?'events live':'offline'}", "settings events"),

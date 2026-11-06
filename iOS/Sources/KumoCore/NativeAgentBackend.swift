@@ -150,6 +150,33 @@ public actor NativeAgentBackend {
         catch { throw safeError(error, fallback: "Native file history operation failed.") }
     }
 
+    /// Native bridge only: this request contains a credential and must never be serialized to JavaScript or logged.
+    public func modelCatalogRequest(providerID: String) throws -> URLRequest {
+        guard !closed else { throw Self.failure("Native backend is shut down.") }
+        do {
+            guard Self.validProviderID(providerID) else { throw Self.failure("Invalid provider ID.") }
+            guard let provider = (config["provider"] as? [String: [String: Any]])?[providerID] else {
+                throw Self.failure("Configure the selected provider before fetching models.")
+            }
+            let baseURL = try Self.providerURL(provider)
+            guard let key = try credentialRead(providerID), !key.isEmpty else {
+                throw Self.failure("Save an API key for the selected provider before fetching models.")
+            }
+            knownSecrets.insert(key)
+            guard !key.unicodeScalars.contains(where: { $0.value == 10 || $0.value == 13 }) else {
+                throw Self.failure("Stored provider API key must not contain CR or LF.")
+            }
+            var request = URLRequest(url: baseURL.appendingPathComponent("models"))
+            request.httpMethod = "GET"
+            request.cachePolicy = .reloadIgnoringLocalCacheData
+            request.setValue("Bearer " + key, forHTTPHeaderField: "Authorization")
+            request.setValue("application/json", forHTTPHeaderField: "Accept")
+            return request
+        } catch {
+            throw safeError(error, fallback: "Could not prepare the native model catalog request. Check provider configuration and stored credentials.")
+        }
+    }
+
     public func request(method: String, path: String, directory: String?, body: [String: Any]?) async throws -> Any {
         guard !closed else { throw Self.failure("Native backend is shut down.") }
         do {
@@ -464,6 +491,7 @@ public actor NativeAgentBackend {
         } catch {
             guard runs[sid]?.token == token else { return }
             let message = error is CancellationError ? "Stopped by the user." : safeError(error, fallback: "Model stream failed. Check provider connectivity and credentials; the turn was not retried.").localizedDescription
+            NSLog("[provider] %@", message)
             try? finish(sid, token: token, error: message)
         }
     }
@@ -1232,6 +1260,7 @@ public actor NativeAgentBackend {
         let ns = error as NSError
         let message: String
         if ns.domain == Self.errorDomain { message = ns.localizedDescription }
+        else if let modelError = error as? NativeModelClientError { message = modelError.localizedDescription }
         else {
             // File-tool errors may include file paths or user data: expose only fixed diagnoses.
             let detail = ns.localizedDescription.lowercased()

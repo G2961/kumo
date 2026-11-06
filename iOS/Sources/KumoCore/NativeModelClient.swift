@@ -75,11 +75,104 @@ public protocol NativeModelClient {
     func stream(request: NativeModelRequest) -> AsyncThrowingStream<NativeModelEvent, Error>
 }
 
+enum NativeProviderHTTPReason: Equatable, Sendable {
+    case unauthorizedClient, invalidCredential, unsupportedModel, rateLimited, invalidRequest
+
+    fileprivate static func classify(_ code: String) -> Self? {
+        switch code {
+        case "unauthorized_client_error": return .unauthorizedClient
+        case "invalid_api_key", "invalid_api_key_error": return .invalidCredential
+        case "model_not_found", "unsupported_model": return .unsupportedModel
+        case "rate_limit_exceeded", "rate_limit_error": return .rateLimited
+        case "unsupported_parameter", "invalid_request_error": return .invalidRequest
+        default: return nil
+        }
+    }
+
+    fileprivate var description: String {
+        switch self {
+        case .unauthorizedClient: return "provider rejected this client; contact provider support."
+        case .invalidCredential: return "provider rejected the API credential; check the configured key."
+        case .unsupportedModel: return "requested model is unavailable or unsupported; check the selected model."
+        case .rateLimited: return "provider rate limit reached; wait before trying again."
+        case .invalidRequest: return "provider rejected the request or a parameter; check model settings."
+        }
+    }
+}
+
+/// Shared, redacted HTTP diagnostics for model streaming and provider model catalogs.
+public enum NativeProviderHTTPDiagnostic {
+    private static let maximumBodyBytes = 8 * 1024
+
+    /// Returns only fixed diagnoses and the HTTP status, never provider messages or URLs.
+    /// Unknown, malformed, missing, or oversized bodies retain the generic HTTP diagnosis.
+    public static func description(status: Int, data: Data?) -> String {
+        error(status: status, data: data).localizedDescription
+    }
+
+    static func error(status: Int, data: Data?) -> NativeModelClientError {
+        guard let data, !data.isEmpty, data.count <= maximumBodyBytes,
+              let body = (try? JSONSerialization.jsonObject(with: data)) as? [String: Any] else {
+            return .http(status)
+        }
+        let nested = body["error"] as? [String: Any]
+        // Specific codes precede generic types; only these four fields are inspected.
+        let codes = [nested?["code"], nested?["type"], body["code"], body["type"]]
+        for value in codes {
+            if let code = value as? String, let reason = NativeProviderHTTPReason.classify(code) {
+                return .httpReason(status: status, reason: reason)
+            }
+        }
+        return .http(status)
+    }
+
+    /// Read only known JSON error responses, using a session dedicated to that request.
+    /// This invalidates the entire session on completion, limits the body to 8 KiB and
+    /// waits at most one second for EOF. Partial or failed reads return nil.
+    @available(iOS 15.0, macOS 12.0, *)
+    public static func readBody(_ bytes: URLSession.AsyncBytes, expectedLength: Int64,
+                                session: URLSession) async -> Data? {
+        defer { session.invalidateAndCancel() }
+        guard expectedLength != 0, expectedLength <= Int64(maximumBodyBytes), !Task.isCancelled else { return nil }
+        return await withTaskCancellationHandler(operation: {
+            await withTaskGroup(of: Data?.self) { group in
+                group.addTask {
+                    do {
+                        var data = Data()
+                        for try await byte in bytes {
+                            try Task.checkCancellation()
+                            guard data.count < maximumBodyBytes else { return nil }
+                            data.append(byte)
+                        }
+                        try Task.checkCancellation()
+                        guard expectedLength < 0 || data.count == Int(expectedLength) else { return nil }
+                        return data
+                    } catch { return nil }
+                }
+                group.addTask {
+                    do { try await Task.sleep(nanoseconds: 1_000_000_000) }
+                    catch { return nil }
+                    return nil
+                }
+                let data = await group.next() ?? nil
+                // Cancellation alone may not unblock AsyncBytes. Cancel the reader
+                // and abort the request before the group waits for its tasks to exit.
+                group.cancelAll()
+                session.invalidateAndCancel()
+                return data
+            }
+        }, onCancel: {
+            session.invalidateAndCancel()
+        })
+    }
+}
+
 // Never put provider-controlled bodies, URLs, headers, or underlying error descriptions
 // in errors: any of those can echo credentials, including encoded versions of the key.
 enum NativeModelClientError: Error, LocalizedError {
     case invalidRequest(String)
     case http(Int)
+    case httpReason(status: Int, reason: NativeProviderHTTPReason)
     case invalidResponse
     case malformedStream(String)
     case truncatedStream
@@ -92,13 +185,23 @@ enum NativeModelClientError: Error, LocalizedError {
         switch self {
         case .invalidRequest(let detail): return "Invalid native model request: \(detail)."
         case .http(let status): return "Model provider returned HTTP \(status); response details withheld."
+        case .httpReason(let status, let reason): return "Model provider returned HTTP \(status); \(reason.description)"
         case .invalidResponse: return "Model provider did not return an HTTP event stream."
         case .malformedStream(let detail): return "Invalid model event stream: \(detail)."
         case .truncatedStream: return "Model event stream ended without its successful terminal event."
         case .providerFailure: return "Model provider reported a failed or incomplete response."
         case .limitExceeded: return "Model stream exceeded the bounded output or tool argument limit."
         case .slowConsumer: return "Model stream consumer fell behind; events were not silently discarded."
-        case .transport(let code): return "Model provider transport failed (code \(code)); details withheld."
+        case .transport(let code):
+            let detail: String
+            switch code {
+            case -1003: detail = "provider hostname could not be resolved; check DNS and connectivity."
+            case -1200: detail = "secure connection failed; check TLS compatibility."
+            case -1202: detail = "provider certificate is not trusted; check the certificate chain."
+            case -1001: detail = "request timed out; check provider connectivity."
+            default: detail = "details withheld."
+            }
+            return "Model provider transport failed (code \(code)); \(detail)"
         }
     }
 }
@@ -752,9 +855,14 @@ public final class URLSessionNativeModelClient: NativeModelClient {
                             throw NativeModelClientError.invalidResponse
                         }
                         guard (200..<300).contains(http.statusCode) else {
-                            // No error-body read: bounded, fully redacted, and cancellation
-                            // stops even a malicious never-ending HTTP error body.
-                            throw NativeModelClientError.http(http.statusCode)
+                            let mimeType = http.mimeType?.lowercased() ?? ""
+                            let isJSON = mimeType == "application/json"
+                                || (mimeType.hasPrefix("application/") && mimeType.hasSuffix("+json"))
+                            let data = isJSON ? await NativeProviderHTTPDiagnostic.readBody(
+                                bytes, expectedLength: http.expectedContentLength, session: session
+                            ) : nil
+                            try Task.checkCancellation()
+                            throw NativeProviderHTTPDiagnostic.error(status: http.statusCode, data: data)
                         }
                         guard http.mimeType?.lowercased() == "text/event-stream" else {
                             throw NativeModelClientError.invalidResponse
