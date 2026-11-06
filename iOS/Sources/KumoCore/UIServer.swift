@@ -44,6 +44,10 @@ public final class UIServer: NSObject, URLSessionDataDelegate {
             port = nl.port?.rawValue ?? 0
             running = true
             nl.newConnectionHandler = { [weak self] conn in self?.handle(conn) }
+            var nwError: Error?
+            nl.stateUpdateHandler = { st in
+                if case .failed(let e) = st { nwError = e }
+            }
             nl.start(queue: queue)
             // NWListener.start is async: the port is assigned after the listener becomes ready.
             // Without this poll the caller reads port=0 and the WebView gets a broken URL.
@@ -52,7 +56,9 @@ public final class UIServer: NSObject, URLSessionDataDelegate {
                 Thread.sleep(forTimeInterval: 0.02)
             }
             if port != 0 { return }
-            lastError = NSError(domain: "UIServer", code: 2,
+            // Surface the real NWError (EACCES vs port-busy vs something else) instead of a
+            // generic "did not start" — it is shown on the failure screen.
+            lastError = nwError ?? NSError(domain: "UIServer", code: 2,
                 userInfo: [NSLocalizedDescriptionKey: "listener did not start on \(candidate)"])
             nl.cancel(); self.listener = nil; running = false; port = 0
         }
