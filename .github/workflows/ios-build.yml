@@ -51,7 +51,7 @@ jobs:
           GOOS=darwin GOARCH=arm64 CGO_ENABLED=0 go build -o ../../Sources/AppHarness-Resources/opencode .
           ls -la ../../Sources/AppHarness-Resources/opencode
 
-      - name: Stage web UI assets (single source: Android assets)
+      - name: "Stage web UI assets (single source: Android assets)"
         run: |
           set -e
           R=iOS/Sources/AppHarness-Resources
