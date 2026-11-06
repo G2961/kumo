@@ -10,8 +10,10 @@ import Glibc
 final class NativeAgentBackendTests: XCTestCase {
     private final class Credentials {
         var values: [String: String] = [:]
-        func read(_ id: String) throws -> String? { values[id] }
-        func write(_ id: String, _ value: String?) throws { values[id] = value }
+        var reads: [String] = []
+        var writes: [String] = []
+        func read(_ id: String) throws -> String? { reads.append(id); return values[id] }
+        func write(_ id: String, _ value: String?) throws { writes.append(id); values[id] = value }
     }
 
     private final class ScriptedModel: NativeModelClient {
@@ -972,6 +974,168 @@ final class NativeAgentBackendTests: XCTestCase {
         let questions = try await request(backend, "GET", "/question") as! [Any]
         XCTAssertTrue(questions.isEmpty)
         await backend.shutdown()
+    }
+
+    private func keychainBackend(_ root: URL, _ model: ScriptedModel, _ credentials: Credentials) throws -> NativeAgentBackend {
+        let backend = try NativeAgentBackend(root: root, modelClient: model,
+                                             credentialRead: { try NativeAgentKeychain.read(root: root, id: $0,
+                                                                                           readAccount: credentials.read, writeAccount: credentials.write) },
+                                             credentialWrite: { try NativeAgentKeychain.write(root: root, id: $0, key: $1,
+                                                                                             writeAccount: credentials.write) })
+        addTeardownBlock { await backend.shutdown() }
+        return backend
+    }
+
+    func testLegacyKeychainAccountsValidateMarkerAndDeduplicateRoots() {
+        let root = URL(fileURLWithPath: "/var/mobile/Containers/Data/Application/new/Library/Application Support")
+        let oldPath = "/var/mobile/Containers/Data/Application/old/Library/Application Support"
+        let current = root.standardizedFileURL.path + ":test"
+        XCTAssertEqual(NativeAgentKeychain.legacyAccounts(root: root, id: "test", marker: Data(oldPath.utf8)),
+                       [current, oldPath + ":test"])
+        XCTAssertEqual(NativeAgentKeychain.legacyAccounts(root: root, id: "test", marker: Data(root.path.utf8)), [current])
+        for marker in [Data(), Data("relative/path".utf8), Data((oldPath + "\n").utf8),
+                       Data((oldPath + "\r").utf8), Data((oldPath + "\0").utf8), Data([0xff]),
+                       Data(("/" + String(repeating: "a", count: 4096)).utf8),
+                       Data(("/" + String(repeating: "é", count: 2048)).utf8)] {
+            XCTAssertEqual(NativeAgentKeychain.legacyAccounts(root: root, id: "test", marker: marker), [current])
+        }
+        let maxPath = "/" + String(repeating: "a", count: 4095)
+        XCTAssertEqual(NativeAgentKeychain.legacyAccounts(root: root, id: "test", marker: Data(maxPath.utf8)),
+                       [current, maxPath + ":test"])
+    }
+
+    func testKeychainReadsStableFirstAndMigratesCurrentLegacyAccount() throws {
+        let root = try temporaryRoot()
+        let legacy = root.standardizedFileURL.path + ":test"
+        let credentials = Credentials()
+        let stableKey = UUID().uuidString
+        let legacyKey = UUID().uuidString
+        let storage = root.appendingPathComponent("native-agent", isDirectory: true)
+        try FileManager.default.createDirectory(at: storage, withIntermediateDirectories: true)
+        let oldPath = "/var/mobile/Containers/Data/Application/old/Library/Application Support"
+        let marker = storage.appendingPathComponent("legacy-keychain-root.txt")
+        try Data(oldPath.utf8).write(to: marker)
+        credentials.values = ["test": stableKey, legacy: legacyKey, oldPath + ":test": UUID().uuidString]
+        XCTAssertTrue(try NativeAgentKeychain.read(root: root, id: "test", readAccount: credentials.read,
+                                                   writeAccount: credentials.write) == stableKey)
+        XCTAssertEqual(credentials.reads, ["test"])
+        XCTAssertTrue(credentials.writes.isEmpty)
+
+        credentials.values["test"] = nil
+        credentials.reads = []
+        XCTAssertTrue(try NativeAgentKeychain.read(root: root, id: "test", readAccount: credentials.read,
+                                                   writeAccount: credentials.write) == legacyKey)
+        XCTAssertEqual(credentials.reads, ["test", legacy])
+        XCTAssertEqual(credentials.writes, ["test"])
+        XCTAssertTrue(credentials.values["test"] == legacyKey)
+
+        for invalid in [Data((oldPath + "\n").utf8), Data((oldPath + String(repeating: "a", count: 4097)).utf8)] {
+            try invalid.write(to: marker)
+            credentials.values["test"] = nil
+            credentials.values[legacy] = nil
+            credentials.reads = []
+            credentials.writes = []
+            XCTAssertNil(try NativeAgentKeychain.read(root: root, id: "test", readAccount: credentials.read,
+                                                     writeAccount: credentials.write))
+            XCTAssertEqual(credentials.reads, ["test", legacy])
+            XCTAssertTrue(credentials.writes.isEmpty)
+        }
+    }
+
+    func testKeychainReadErrorsAndFailedMigrationDoNotFallBackOrLoseLegacy() throws {
+        let root = try temporaryRoot()
+        let legacy = root.standardizedFileURL.path + ":test"
+        let credentials = Credentials()
+        let secret = UUID().uuidString
+        credentials.values[legacy] = secret
+        let failure = NSError(domain: "MockKeychain", code: 1)
+        XCTAssertThrowsError(try NativeAgentKeychain.read(root: root, id: "test", readAccount: { _ in throw failure },
+                                                          writeAccount: credentials.write))
+        XCTAssertTrue(credentials.writes.isEmpty)
+        XCTAssertThrowsError(try NativeAgentKeychain.read(root: root, id: "test", readAccount: credentials.read,
+                                                          writeAccount: { _, _ in throw failure }))
+        XCTAssertNil(credentials.values["test"])
+        XCTAssertTrue(credentials.values[legacy] == secret)
+    }
+
+    func testKeychainStableWritesAndDeletionRemoveOnlySupportedLegacyAccounts() throws {
+        let root = try temporaryRoot()
+        let storage = root.appendingPathComponent("native-agent", isDirectory: true)
+        try FileManager.default.createDirectory(at: storage, withIntermediateDirectories: true)
+        let oldPath = "/var/mobile/Containers/Data/Application/old/Library/Application Support"
+        try Data(oldPath.utf8).write(to: storage.appendingPathComponent("legacy-keychain-root.txt"))
+        let legacy = root.standardizedFileURL.path + ":test"
+        let oldLegacy = oldPath + ":test"
+        let credentials = Credentials()
+        let key = UUID().uuidString
+        credentials.values = [legacy: UUID().uuidString, oldLegacy: UUID().uuidString, "other": UUID().uuidString]
+        try NativeAgentKeychain.write(root: root, id: "test", key: key, writeAccount: credentials.write)
+        XCTAssertEqual(credentials.writes, ["test"])
+        XCTAssertTrue(credentials.values["test"] == key)
+        XCTAssertThrowsError(try NativeAgentKeychain.write(root: root, id: "test", key: nil, writeAccount: { account, value in
+            if account == oldLegacy { throw NSError(domain: "MockKeychain", code: 1) }
+            try credentials.write(account, value)
+        }))
+        XCTAssertTrue(credentials.values["test"] == key, "Failed legacy cleanup must keep stable auth intact")
+
+        credentials.writes = []
+        try NativeAgentKeychain.write(root: root, id: "test", key: nil, writeAccount: credentials.write)
+        XCTAssertEqual(credentials.writes, [legacy, oldLegacy, "test"])
+        XCTAssertNotNil(credentials.values["other"])
+        XCTAssertNil(try NativeAgentKeychain.read(root: root, id: "test", readAccount: credentials.read,
+                                                 writeAccount: credentials.write))
+        try NativeAgentKeychain.write(root: root, id: "test", key: nil, writeAccount: credentials.write)
+        XCTAssertEqual(Set(credentials.values.keys), ["other"])
+    }
+
+    func testMovedContainerPreservesAuthAndCatalogRereadsStableAccountWithoutExportingKey() async throws {
+        let oldRoot = try temporaryRoot()
+        let newRoot = try temporaryRoot()
+        let model = ScriptedModel()
+        let credentials = Credentials()
+        let original = try keychainBackend(oldRoot, model, credentials)
+        try await configure(original)
+        let secret = try XCTUnwrap(credentials.values["test"])
+        let sid = try await session(original, oldRoot)
+        await original.shutdown()
+        credentials.values[oldRoot.standardizedFileURL.path + ":test"] = secret
+        credentials.values["test"] = nil
+        let storage = newRoot.appendingPathComponent("native-agent", isDirectory: true)
+        try FileManager.default.copyItem(at: oldRoot.appendingPathComponent("native-agent"), to: storage)
+        let marker = storage.appendingPathComponent("legacy-keychain-root.txt")
+        try Data(oldRoot.standardizedFileURL.path.utf8).write(to: marker)
+        let snapshot = storage.appendingPathComponent("state.json")
+        let before = try Data(contentsOf: snapshot)
+        let restored = try keychainBackend(newRoot, model, credentials)
+        credentials.reads = []
+        credentials.writes = []
+
+        let catalog = try await restored.modelCatalogRequest(providerID: "test")
+        XCTAssertTrue(catalog.value(forHTTPHeaderField: "Authorization") == "Bearer " + secret)
+        XCTAssertEqual(credentials.reads, ["test", newRoot.standardizedFileURL.path + ":test", oldRoot.standardizedFileURL.path + ":test"])
+        XCTAssertEqual(credentials.writes, ["test"])
+        XCTAssertTrue(credentials.values["test"] == secret)
+        let providers = try await request(restored, "GET", "/provider") as! [String: Any]
+        XCTAssertEqual(providers["connected"] as? [String], ["test"])
+        let sessions = try await request(restored, "GET", "/experimental/session") as! [[String: Any]]
+        XCTAssertTrue(sessions.contains { $0["id"] as? String == sid })
+        let config = try await request(restored, "GET", "/config")
+        XCTAssertFalse(String(decoding: try JSONSerialization.data(withJSONObject: [providers, config, sessions]), as: UTF8.self).contains(secret))
+        XCTAssertEqual(try Data(contentsOf: snapshot), before)
+        XCTAssertFalse(String(decoding: before, as: UTF8.self).contains(secret))
+        XCTAssertFalse(String(decoding: try Data(contentsOf: marker), as: UTF8.self).contains(secret))
+
+        let replacement = UUID().uuidString
+        credentials.values["test"] = replacement
+        try FileManager.default.removeItem(at: marker)
+        credentials.reads = []
+        let reread = try await restored.modelCatalogRequest(providerID: "test")
+        XCTAssertTrue(reread.value(forHTTPHeaderField: "Authorization") == "Bearer " + replacement)
+        XCTAssertEqual(credentials.reads, ["test"])
+        XCTAssertEqual(credentials.writes, ["test"])
+        XCTAssertTrue(model.requests.isEmpty)
+        XCTAssertEqual(try Data(contentsOf: snapshot), before)
+        await restored.shutdown()
     }
 
     func testModelCatalogRequestUsesExactStoredCredentialAcrossReloadWithoutGeneration() async throws {

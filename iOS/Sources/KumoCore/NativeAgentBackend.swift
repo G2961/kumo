@@ -1351,14 +1351,64 @@ public actor NativeAgentBackend {
     }
 }
 
-private enum NativeAgentKeychain {
-    private static func query(root: URL, id: String) -> [String: Any] {
+enum NativeAgentKeychain {
+    private static func query(account: String) -> [String: Any] {
         [kSecClass as String: kSecClassGenericPassword, kSecAttrService as String: "kumo.native.provider",
-         kSecAttrAccount as String: root.standardizedFileURL.path + ":" + id]
+         kSecAttrAccount as String: account]
+    }
+
+    /// The marker contains only the previous storage path, never a credential or a Keychain service.
+    static func legacyAccounts(root: URL, id: String, marker: Data?) -> [String] {
+        let current = root.standardizedFileURL.path + ":" + id
+        guard let marker = marker, marker.count <= 4096,
+              let path = String(data: marker, encoding: .utf8), path.hasPrefix("/"),
+              !marker.contains(where: { $0 == 0 || $0 == 10 || $0 == 13 }) else { return [current] }
+        let legacy = URL(fileURLWithPath: path).standardizedFileURL.path + ":" + id
+        return legacy == current ? [current] : [current, legacy]
+    }
+
+    private static func legacyAccounts(root: URL, id: String) -> [String] {
+        let markerURL = root.appendingPathComponent("native-agent/legacy-keychain-root.txt")
+        guard let file = try? FileHandle(forReadingFrom: markerURL) else {
+            return legacyAccounts(root: root, id: id, marker: nil)
+        }
+        defer { try? file.close() }
+        let marker = try? file.read(upToCount: 4097)
+        return legacyAccounts(root: root, id: id, marker: marker)
     }
 
     static func read(root: URL, id: String) throws -> String? {
-        var query = query(root: root, id: id)
+        try read(root: root, id: id, readAccount: readAccount, writeAccount: writeAccount)
+    }
+
+    /// Account-level injection keeps migration tests out of the real Keychain.
+    static func read(root: URL, id: String,
+                     readAccount: NativeAgentBackend.CredentialRead,
+                     writeAccount: NativeAgentBackend.CredentialWrite) throws -> String? {
+        if let key = try readAccount(id) { return key }
+        for account in legacyAccounts(root: root, id: id) {
+            if let key = try readAccount(account) {
+                try writeAccount(id, key)
+                return key
+            }
+        }
+        return nil
+    }
+
+    static func write(root: URL, id: String, key: String?) throws {
+        try write(root: root, id: id, key: key, writeAccount: writeAccount)
+    }
+
+    static func write(root: URL, id: String, key: String?, writeAccount: NativeAgentBackend.CredentialWrite) throws {
+        if key == nil {
+            // Keep stable auth intact if legacy cleanup fails; a successful delete cannot resurrect a fallback.
+            for account in legacyAccounts(root: root, id: id) { try writeAccount(account, nil) }
+        }
+        try writeAccount(id, key)
+    }
+
+    private static func readAccount(_ account: String) throws -> String? {
+        var query = query(account: account)
         query[kSecReturnData as String] = true
         query[kSecMatchLimit as String] = kSecMatchLimitOne
         var result: CFTypeRef?
@@ -1370,8 +1420,8 @@ private enum NativeAgentKeychain {
         return key
     }
 
-    static func write(root: URL, id: String, key: String?) throws {
-        let query = query(root: root, id: id)
+    private static func writeAccount(_ account: String, _ key: String?) throws {
+        let query = query(account: account)
         if let key = key {
             let attributes: [String: Any] = [kSecValueData as String: Data(key.utf8),
                                             kSecAttrAccessible as String: kSecAttrAccessibleAfterFirstUnlockThisDeviceOnly]
