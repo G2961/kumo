@@ -25,9 +25,21 @@ public final class KumoProcess {
     public init() {}
 
     public func run() throws {
-        guard let execPath = executableURL?.path else {
+        guard let originalPath = executableURL?.path else {
             throw NSError(domain: "KumoProcess", code: 1,
                           userInfo: [NSLocalizedDescriptionKey: "no executable set"])
+        }
+
+        // posix_spawn_file_actions_addchdir_np is macOS-only, so when a working directory
+        // is set the child is spawned through sh: cd into it, then exec the real binary.
+        var execPath = originalPath
+        var args = arguments
+        var env = environment ?? ProcessInfo.processInfo.environment
+        if let dir = currentDirectoryURL?.path {
+            env["KUMO_CWD"] = dir
+            env["KUMO_BIN"] = originalPath
+            args = ["-c", "cd \"$KUMO_CWD\" && exec \"$KUMO_BIN\" \"$@\"", originalPath] + args
+            execPath = "/bin/sh"
         }
 
         // stdout/stderr pipes: child gets the write ends, we keep the read ends.
@@ -46,16 +58,13 @@ public final class KumoProcess {
         posix_spawn_file_actions_addclose(fa, standardInput.fileHandleForWriting.fileDescriptor)
         posix_spawn_file_actions_addclose(fa, standardOutput.fileHandleForReading.fileDescriptor)
         posix_spawn_file_actions_addclose(fa, standardError.fileHandleForReading.fileDescriptor)
-        if let dir = currentDirectoryURL?.path {
-            posix_spawn_file_actions_addchdir_np(fa, dir)
-        }
 
-        var argv = [execPath] + arguments
+        var argv = [execPath] + args
         var argvPtr: [UnsafeMutablePointer<CChar>?] = argv.map { strdup($0)! }
         argvPtr.append(nil)
 
         var envp: [UnsafeMutablePointer<CChar>?] = []
-        for (k, v) in environment ?? ProcessInfo.processInfo.environment {
+        for (k, v) in env {
             envp.append(strdup("\(k)=\(v)"))
         }
         envp.append(nil)
