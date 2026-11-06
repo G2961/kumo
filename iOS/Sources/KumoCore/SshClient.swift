@@ -96,7 +96,7 @@ public enum SshClient {
     }
 
     private static func knownHostsFingerprint(host: String, port: Int) -> String? {
-        let home = FileManager.default.homeDirectoryForCurrentUser.path
+        let home = NSHomeDirectory()
         let known = "\(home)/.ssh/known_hosts"
         guard let data = try? String(contentsOfFile: known, encoding: .utf8) else { return nil }
         let prefix = port == 22 ? host : "[\(host)]:\(port)"
@@ -169,7 +169,7 @@ public enum SshClient {
                              command: redact(command, conn),
                              stdout: redact(stdout, conn),
                              stderr: redact(stderr, conn),
-                             exitCode: exit)
+                             exitCode: Int(exit))
     }
 
     private static func buildCwdPrefix(_ directory: String) -> String {
@@ -316,16 +316,15 @@ public enum SshClient {
     }
 
     private static func runWithCap(_ path: String, args: [String], stdin: Data?, timeout: Int) -> (Data, Data, Int32) {
-        let p = Process()
+        let p = KumoProcess()
         p.executableURL = URL(fileURLWithPath: path)
         p.arguments = args
-        p.standardInput = Pipe()
-        p.standardOutput = Pipe()
-        p.standardError = Pipe()
         if let stdin {
-            (p.standardInput as? Pipe)?.fileHandleForWriting.write(stdin)
+            p.standardInput.fileHandleForWriting.write(stdin)
+            p.standardInput.fileHandleForWriting.closeFile()
+        } else {
+            p.standardInput.fileHandleForWriting.closeFile()
         }
-        (p.standardInput as? Pipe)?.fileHandleForWriting.closeFile()
 
         do {
             try p.run()
@@ -333,8 +332,8 @@ public enum SshClient {
             return (Data(), Data(), -1)
         }
         var out = Data(), err = Data()
-        let outPipe = p.standardOutput as! Pipe
-        let errPipe = p.standardError as! Pipe
+        let outPipe = p.standardOutput
+        let errPipe = p.standardError
         let sem = DispatchSemaphore(value: 0)
         outPipe.fileHandleForReading.readabilityHandler = { h in out.append(h.availableData) }
         errPipe.fileHandleForReading.readabilityHandler = { h in err.append(h.availableData) }

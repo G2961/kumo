@@ -43,7 +43,7 @@ public final class LocalRuntime {
     public private(set) var sshMcp: SshMcpServer?
     private var secureStore = SshConnectionStore()
 
-    private var process: Process?
+    private var process: KumoProcess?
     private var settings: Settings
     private let lock = NSLock()
     private var stopping = false
@@ -140,7 +140,7 @@ public final class LocalRuntime {
         }
     }
 
-    private func spawn() -> Process? {
+    private func spawn() -> KumoProcess? {
         guard FileManager.default.fileExists(atPath: settings.executablePath) else {
             setState(.failed, "opencode binary not found at \(settings.executablePath)")
             return nil
@@ -176,21 +176,17 @@ public final class LocalRuntime {
         }
     }
 
-    private func readOutput(_ p: Process) {
-        if let stdout = p.standardOutput as? Pipe {
-            stdout.fileHandleForReading.readabilityHandler = { [weak self] handle in
-                let data = handle.availableData
-                if let s = String(data: data, encoding: .utf8), !s.isEmpty {
-                    self?.log(s)
-                }
+    private func readOutput(_ p: KumoProcess) {
+        p.standardOutput.fileHandleForReading.readabilityHandler = { [weak self] handle in
+            let data = handle.availableData
+            if let s = String(data: data, encoding: .utf8), !s.isEmpty {
+                self?.log(s)
             }
         }
-        if let stderr = p.standardError as? Pipe {
-            stderr.fileHandleForReading.readabilityHandler = { [weak self] handle in
-                let data = handle.availableData
-                if let s = String(data: data, encoding: .utf8), !s.isEmpty {
-                    self?.log(s)
-                }
+        p.standardError.fileHandleForReading.readabilityHandler = { [weak self] handle in
+            let data = handle.availableData
+            if let s = String(data: data, encoding: .utf8), !s.isEmpty {
+                self?.log(s)
             }
         }
         p.terminationHandler = { [weak self] proc in

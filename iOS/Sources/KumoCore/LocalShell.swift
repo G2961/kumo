@@ -5,11 +5,11 @@ import Foundation
 public final class LocalShell {
     public struct Task {
         public let run: String
-        public let process: Process
+        public let process: KumoProcess
         public let cwd: String
     }
 
-    private var tasks: [String: Process] = [:]
+    private var tasks: [String: KumoProcess] = [:]
     private let lock = NSLock()
     private static let shellPath = "/bin/sh"
 
@@ -20,7 +20,7 @@ public final class LocalShell {
                      onDelta: @escaping (String, String) -> Void,
                      onEnd: @escaping (String, Int32, String) -> Void) -> String {
         let run = "t" + UUID().uuidString.replacingOccurrences(of: "-", with: "").prefix(8)
-        let p = Process()
+        let p = KumoProcess()
         p.executableURL = URL(fileURLWithPath: Self.shellPath)
         p.arguments = ["-c", "{ \(command); } ; printf '\n__KWD__%s' \"$(pwd)\""]
         let dir = URL(fileURLWithPath: cwd)

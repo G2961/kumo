@@ -61,7 +61,7 @@ public final class STTEngine: NSObject {
                 let scaled = max(-1, min(1, v))
                 ints[i] = Int16(Int(scaled * 32768))
             }
-            let raw = Data(bytes: ints, bytesCount: ints.count * MemoryLayout<Int16>.size)
+            let raw = Data(bytes: ints, count: ints.count * MemoryLayout<Int16>.size)
             pcm.append(raw)
         }
 

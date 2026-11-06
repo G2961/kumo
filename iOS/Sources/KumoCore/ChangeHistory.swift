@@ -23,6 +23,7 @@ public final class ChangeHistory {
 
     private struct GitError: Error, LocalizedError {
         let message: String
+        init(_ message: String) { self.message = message }
         var errorDescription: String? { message }
     }
 
@@ -32,7 +33,7 @@ public final class ChangeHistory {
     }
 
     private func git(_ args: [String], in dir: URL) throws -> String {
-        let p = Process()
+        let p = KumoProcess()
         p.executableURL = URL(fileURLWithPath: gitPath)
         p.arguments = ["-c", "user.name=\(Self.identityName)",
                        "-c", "user.email=\(Self.identityEmail)"] + args
@@ -344,6 +345,10 @@ public final class ChangeHistory {
         c.metadata["id"] as? String ?? ""
     }
 
+    private func manifestID(_ meta: [String: Any]) -> String {
+        meta["id"] as? String ?? ""
+    }
+
     private func manifestForCommit(_ root: URL, commit: String) -> [String: Any] {
         let json = blobAt(root, commit: commit, path: "turn.json")
         guard let data = json.data(using: .utf8),
@@ -435,7 +440,7 @@ public final class ChangeHistory {
     }
 
     private func hashStdin(_ root: URL, content: String, tmpIndex: String) throws -> String {
-        let p = Process()
+        let p = KumoProcess()
         p.executableURL = URL(fileURLWithPath: gitPath)
         p.arguments = ["--git-dir=\(root.appendingPathComponent(".git").path)",
                        "hash-object", "-w", "--stdin"]
@@ -464,7 +469,7 @@ public final class ChangeHistory {
             }
         }
         let input = lines.joined(separator: "\n") + "\n"
-        let p = Process()
+        let p = KumoProcess()
         p.executableURL = URL(fileURLWithPath: gitPath)
         p.arguments = ["--git-dir=\(root.appendingPathComponent(".git").path)", "mktree", "--missing"]
         p.currentDirectoryURL = root

@@ -9,7 +9,7 @@ public final class JSBridge: NSObject, WKScriptMessageHandler {
 
     public var evaluate: ((String) -> Void)?
     public var log: ((String) -> Void) = { _ in }
-    public weak var uiMediator: UIMediator?
+    public var uiMediator: UIMediator?
 
     private let queue = DispatchQueue(label: "kumo.bridge", qos: .userInitiated)
     private let runtime: LocalRuntime
@@ -157,7 +157,7 @@ public final class JSBridge: NSObject, WKScriptMessageHandler {
             } else {
                 try? token.write(to: file, atomically: true, encoding: .utf8)
             }
-            log?("github: token \(token.isEmpty ? "cleared" : "saved")")
+            log("github: token \(token.isEmpty ? "cleared" : "saved")")
             return ["saved": true]
 
         case "logs":
@@ -220,7 +220,7 @@ public final class JSBridge: NSObject, WKScriptMessageHandler {
             let url = URL(fileURLWithPath: path)
             try? content.write(to: url, atomically: true, encoding: .utf8)
             let size = (try? FileManager.default.attributesOfItem(atPath: url.path)[.size]) as? Int ?? 0
-            log?("files: wrote \(url.lastPathComponent)")
+            log("files: wrote \(url.lastPathComponent)")
             return ["saved": true, "size": size]
 
         case "fsMkdir":
@@ -241,7 +241,7 @@ public final class JSBridge: NSObject, WKScriptMessageHandler {
             } catch {
                 throw BridgeError("Не удалилось")
             }
-            log?("files: deleted \(url.lastPathComponent)")
+            log("files: deleted \(url.lastPathComponent)")
             return ["deleted": true]
 
         case "saveExport":
@@ -251,7 +251,7 @@ public final class JSBridge: NSObject, WKScriptMessageHandler {
             try? FileManager.default.createDirectory(at: exportsDir, withIntermediateDirectories: true)
             let f = exportsDir.appendingPathComponent(name.isEmpty ? "export.md" : name)
             try? content.write(to: f, atomically: true, encoding: .utf8)
-            log?("export: \(f.path)")
+            log("export: \(f.path)")
             return ["path": f.path]
 
         // ---- Terminal ----
@@ -323,7 +323,7 @@ public final class JSBridge: NSObject, WKScriptMessageHandler {
             if !model.isEmpty { cfg.model = model }
             cfg.baseURL = ((data["base"] as? String ?? "").trimmingCharacters(in: .whitespaces))
             stt.config = cfg
-            log?("voice: stt mode=\(cfg.mode.rawValue)")
+            log("voice: stt mode=\(cfg.mode.rawValue)")
             return ["saved": true]
 
         case "sttGet":

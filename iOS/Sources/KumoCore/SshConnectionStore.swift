@@ -58,7 +58,7 @@ public final class SshConnectionStore {
     // MARK: - Public store API
 
     public func list() -> [[String: Any]] {
-        getBucket().map { $0.publicInfo() }
+        bucket.map { $0.publicInfo() }
     }
 
     public func get(_ id: String) -> Connection? {
