@@ -43,6 +43,14 @@ public final class UIServer: NSObject, URLSessionDataDelegate {
         running = true
         listener.newConnectionHandler = { [weak self] conn in self?.handle(conn) }
         listener.start(queue: queue)
+        // NWListener.start is async: the port is assigned after the listener becomes ready.
+        // Without this poll the caller reads port=0 and the WebView gets a broken URL.
+        let deadline = Date().addingTimeInterval(3)
+        while (port == 0 || listener.state == .setup) && Date() < deadline {
+            Thread.sleep(forTimeInterval: 0.02)
+        }
+        if port == 0 { throw NSError(domain: "UIServer", code: 2,
+            userInfo: [NSLocalizedDescriptionKey: "listener did not start"]) }
     }
 
     public func stop() {
