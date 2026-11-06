@@ -131,7 +131,7 @@ jobs:
           comm = index('community')
 
           pkgs = [('community','npm'), ('main','git'), ('main','libcurl'),
-                  ('main','libpcre2-8'), ('main','libpcre2-16'), ('main','libpcre2-32'),
+                  ('main','libpcre2-32'), ('main','pcre2'),
                   ('main','libexpat'), ('main','zlib'), ('main','ca-certificates-bundle'),
                   ('main','curl'), ('main','libssl3'), ('main','libcrypto3'),
                   ('main','brotli-libs'), ('main','libidn2'), ('main','libunistring'),
