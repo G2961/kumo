@@ -224,10 +224,9 @@ struct ReplayDiagnostic {
             guard let http = response as? HTTPURLResponse else { throw Failure.invalidHTTP }
             status = http.statusCode
             guard (200..<300).contains(http.statusCode) else {
-                let mime = http.mimeType?.lowercased() ?? ""
-                let data = mime == "application/json" || mime.hasSuffix("+json")
-                    ? await readBody(bytes, expectedLength: http.expectedContentLength, session: session) : nil
+                let data = await readBody(bytes, expectedLength: http.expectedContentLength, session: session)
                 var report = sanitizedError(data)
+                report["jsonMimeType"] = (http.mimeType?.lowercased() ?? "").contains("json")
                 report["status"] = "http_error"
                 report["httpStatus"] = http.statusCode
                 emit(report)
@@ -340,6 +339,7 @@ struct ReplayDiagnostic {
             }
         }
         if let object { collect(object) }
+        else if let data, let plain = String(data: data, encoding: .utf8) { texts.append(plain.lowercased()) }
         let message = texts.joined(separator: " ")
         report["bodyBytes"] = data?.count ?? 0
         report["jsonObjectAvailable"] = object != nil
