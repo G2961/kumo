@@ -28,7 +28,12 @@ struct KumoMain: App {
     /// Resolves the bundled opencode binary from the main bundle's resources.
     static func binaryPath() -> String {
         // Sideloading tools (Sideloadly/AltStore) re-sign everything under Frameworks/ but
-        // leave plain resource folders untouched, so a copy there is preferred.
+        // leave plain resource folders untouched, so a copy there is preferred. The file
+        // is named opencode.dylib so the resigner treats it as a binary; the kernel execs
+        // it by its Mach-O type, not by the name.
+        if let p = Bundle.main.path(forResource: "opencode.dylib", ofType: nil, inDirectory: "Frameworks") {
+            return p
+        }
         if let p = Bundle.main.path(forResource: "opencode", ofType: nil, inDirectory: "Frameworks") {
             return p
         }
