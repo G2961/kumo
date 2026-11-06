@@ -89,6 +89,28 @@ optimized diagnostic execution produced an empty false report and was discarded.
 The exact cause of that optimizer/runtime behavior is not established; product
 Release code is separately compiled and covered by core tests.
 
+## Files browser follow-up
+
+A user then verified actual file creation/read in the app, but the Files screen
+was blank. On-device inspection confirmed both `default/test.txt` and
+`Test/test.txt` existed with the expected content and completed tool records.
+That was not evidence of failed writing: the UI browser path had been missing
+from the original acceptance fixture.
+
+The original screen rendered neither Loading nor errors before/after a failed
+`fsList`; it only requested a toast. Native `fsList` also swallowed enumeration
+errors as an empty array. Native staging now displays Loading, project breadcrumbs,
+inline Files/Read errors and Retry; it rejects stale responses after navigation.
+NativeFileBrowser performs bounded UTF-8 reads and truthful directory enumeration,
+including aliases/symlinks, without an Android storage root.
+
+Validation: CI `42283843122` passed **193 XCTest, 20 browser UI scenarios and 9
+staging tests**. Updated IPA was installed; nine user sessions, both providers,
+both `test.txt` files and two native patch records were preserved. Final physical
+WKWebView browsing could not be run because the iPad was locked. Startup smoke
+now also requests the real `fsList` through the page's native bridge and logs only
+counts/errors, not file contents.
+
 ## Scope and remaining limits
 
 The device probe shares the app's source-level native core and real provider, but
