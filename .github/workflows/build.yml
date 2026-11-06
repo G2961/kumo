@@ -40,11 +40,18 @@ jobs:
           path: jni/arm64-v8a
           key: native-${{ env.OPENCODE_VERSION }}-${{ env.ALPINE_VERSION }}-${{ env.RG_VERSION }}-${{ env.BUN_VERSION }}
 
+      - name: Cache npm+git rootfs
+        id: npmfs-cache
+        uses: actions/cache@v4
+        with:
+          path: app/src/main/assets/rootfs.tgz
+          key: npmfs-${{ env.ALPINE_VERSION }}-v1
+
       - name: Download opencode binary (arm64 musl)
         if: steps.native-cache.outputs.cache-hit != 'true'
         run: |
           mkdir -p jni/arm64-v8a
-          curl -sSL "https://registry.npmjs.org/opencode-linux-arm64-musl/-/opencode-linux-arm64-musl-${OPENCODE_VERSION}.tgz" -o /tmp/opencode.tgz
+          curl -fsSL --retry 5 --retry-all-errors "https://registry.npmjs.org/opencode-linux-arm64-musl/-/opencode-linux-arm64-musl-${OPENCODE_VERSION}.tgz" -o /tmp/opencode.tgz
           mkdir -p /tmp/opencode-pkg
           tar -xzf /tmp/opencode.tgz -C /tmp/opencode-pkg
           cp /tmp/opencode-pkg/package/bin/opencode jni/arm64-v8a/libopencode.so
@@ -60,16 +67,16 @@ jobs:
           MAIN="https://dl-cdn.alpinelinux.org/alpine/v${ALPINE_VERSION%.*}/main/aarch64"
 
           mkdir -p /tmp/alpine && cd /tmp/alpine
-          curl -sSL "$MINI" -o mini.tgz
+          curl -fsSL --retry 5 --retry-all-errors "$MINI" -o mini.tgz
           mkdir mini && tar -xzf mini.tgz -C mini
           cp -L mini/lib/ld-musl-aarch64.so.1 "$GITHUB_WORKSPACE/jni/arm64-v8a/libldmusl.so"
 
           fetch_apk() {
             local base="$1" pattern="$2" src="$3" out="$4"
             local pkg
-            pkg=$(curl -sSL "$base/" | grep -oE "${pattern}" | sort -V | tail -1)
+            pkg=$(curl -fsSL --retry 5 --retry-all-errors "$base/" | grep -oE "${pattern}" | sort -V | tail -1)
             if [ -z "$pkg" ]; then echo "package not found: $pattern at $base" >&2; exit 1; fi
-            curl -sSL "$base/$pkg" -o pkg.apk
+            curl -fsSL --retry 5 --retry-all-errors "$base/$pkg" -o pkg.apk
             rm -rf ex && mkdir -p ex && tar -xzf pkg.apk -C ex
             cp -L "ex/$src" "$GITHUB_WORKSPACE/jni/arm64-v8a/$out"
             rm -rf ex pkg.apk
@@ -85,7 +92,7 @@ jobs:
         run: |
           set -e
           mkdir -p /tmp/bun jni/arm64-v8a
-          curl -sSL "https://github.com/oven-sh/bun/releases/download/bun-v${BUN_VERSION}/bun-linux-aarch64-musl.zip" -o /tmp/bun/bun.zip
+          curl -fsSL --retry 5 --retry-all-errors "https://github.com/oven-sh/bun/releases/download/bun-v${BUN_VERSION}/bun-linux-aarch64-musl.zip" -o /tmp/bun/bun.zip
           python3 - <<'EOF'
           import zipfile
           z = zipfile.ZipFile('/tmp/bun/bun.zip')
@@ -94,21 +101,22 @@ jobs:
           print('libbun.so:', len(z.read(name)), 'bytes')
           EOF
 
-      - name: Pack npm+git into assets rootfs (always)
+      - name: Pack npm+git into assets rootfs
+        if: steps.npmfs-cache.outputs.cache-hit != 'true'
         run: |
           set -e
           mkdir -p /tmp/npmfs app/src/main/assets
           ALPINE_MAIN="https://dl-cdn.alpinelinux.org/alpine/v${ALPINE_VERSION%.*}/main/aarch64"
-          NPM_PKG=$(curl -sSL "https://dl-cdn.alpinelinux.org/alpine/v${ALPINE_VERSION%.*}/community/aarch64/" | grep -oE 'npm-[0-9][^"]*\.apk' | sort -V | tail -1)
+          NPM_PKG=$(curl -fsSL --retry 5 --retry-all-errors "https://dl-cdn.alpinelinux.org/alpine/v${ALPINE_VERSION%.*}/community/aarch64/" | grep -oE 'npm-[0-9][^"]*\.apk' | sort -V | tail -1)
           [ -n "$NPM_PKG" ] || { echo "npm package not found" >&2; exit 1; }
           echo "npm package: $NPM_PKG"
-          curl -sSL "https://dl-cdn.alpinelinux.org/alpine/v${ALPINE_VERSION%.*}/community/aarch64/$NPM_PKG" -o /tmp/npmfs/npm.apk
+          curl -fsSL --retry 5 --retry-all-errors "https://dl-cdn.alpinelinux.org/alpine/v${ALPINE_VERSION%.*}/community/aarch64/$NPM_PKG" -o /tmp/npmfs/npm.apk
           GIT_PKGS=""
           for p in git libcurl pcre2 libexpat zlib ca-certificates-bundle curl libssl3 libcrypto3 brotli-libs libidn2 libunistring libpsl nghttp2-libs c-ares zstd-libs; do
-            PKG=$(curl -sSL "$ALPINE_MAIN/" | grep -oE "${p}-[0-9][^\"]*\.apk" | sort -V | tail -1)
+            PKG=$(curl -fsSL --retry 5 --retry-all-errors "$ALPINE_MAIN/" | grep -oE "${p}-[0-9][^\"]*\.apk" | sort -V | tail -1)
             [ -n "$PKG" ] || { echo "$p package not found" >&2; exit 1; }
             echo "$p: $PKG"
-            curl -sSL "$ALPINE_MAIN/$PKG" -o "/tmp/npmfs/${p}.apk"
+            curl -fsSL --retry 5 --retry-all-errors "$ALPINE_MAIN/$PKG" -o "/tmp/npmfs/${p}.apk"
             GIT_PKGS="$GIT_PKGS /tmp/npmfs/${p}.apk"
           done
           python3 - <<'EOF'
@@ -187,7 +195,7 @@ jobs:
           rustup target add aarch64-unknown-linux-musl
           pip3 install -q ziglang
           cargo install -q cargo-zigbuild
-          curl -sSL "https://github.com/BurntSushi/ripgrep/archive/refs/tags/${RG_VERSION}.tar.gz" -o /tmp/rg.tgz
+          curl -fsSL --retry 5 --retry-all-errors "https://github.com/BurntSushi/ripgrep/archive/refs/tags/${RG_VERSION}.tar.gz" -o /tmp/rg.tgz
           mkdir -p /tmp/rg && tar -xzf /tmp/rg.tgz -C /tmp/rg --strip-components=1
           cd /tmp/rg
           cargo zigbuild --release --target aarch64-unknown-linux-musl
