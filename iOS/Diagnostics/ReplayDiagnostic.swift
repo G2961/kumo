@@ -18,6 +18,7 @@ struct ReplayDiagnostic {
         case skipEmpty = "skip-empty"
         case noReasoning = "no-reasoning"
         case firstWithoutReasoning = "first-without-reasoning"
+        case portable = "portable"
     }
 
     private enum Failure: String, Error {
@@ -76,7 +77,7 @@ struct ReplayDiagnostic {
             // The failed turn's user is already stored. Do not append another user turn.
             if droppedPlaceholder { history.removeLast() }
             guard history.contains(where: { $0.role == "user" }) else { throw Failure.transcript }
-            if mode == .firstContinuation || mode == .firstWithoutReasoning {
+            if mode == .firstContinuation || mode == .firstWithoutReasoning || mode == .portable {
                 if let index = history.indices.dropFirst().first(where: { history[$0].role == "user" }) {
                     history = Array(history.prefix(index + 1))
                 }
@@ -88,7 +89,7 @@ struct ReplayDiagnostic {
                 history.removeAll(where: isEmptyAssistant)
                 removedEmpty = before - history.count
             }
-            if mode == .noReasoning || mode == .firstWithoutReasoning {
+            if mode == .noReasoning || mode == .firstWithoutReasoning || mode == .portable {
                 for index in history.indices {
                     let before = history[index].replayItems.count
                     history[index].replayItems.removeAll { $0["type"] as? String == "reasoning" }
@@ -96,6 +97,10 @@ struct ReplayDiagnostic {
                 }
             }
 
+            if mode == .portable {
+                for index in history.indices { history[index].replayItems = [] }
+                history.removeAll(where: isEmptyAssistant)
+            }
             let definitions = try toolDefinitions()
             let visibleRows = (state["messages"] as? [String: [[String: Any]]])?[args[3]] ?? []
             let lastUserInfo = visibleRows.reversed().compactMap { $0["info"] as? [String: Any] }
@@ -126,7 +131,7 @@ struct ReplayDiagnostic {
                   "promptReconstructed": true, "effortRecovered": false,
                   "sourceReplay": sourceReplayStats(stored),
                   "input": inputStats(input), "tools": definitions.count])
-            return await perform(urlRequest)
+            return await perform(urlRequest, secret: key)
         } catch let failure as Failure {
             emit(["status": "local_error", "classification": failure.rawValue])
         } catch is NativeModelClientError {
@@ -207,7 +212,7 @@ struct ReplayDiagnostic {
         return nil
     }
 
-    private static func perform(_ request: URLRequest) async -> Int32 {
+    private static func perform(_ request: URLRequest, secret: String) async -> Int32 {
         let configuration = URLSessionConfiguration.ephemeral
         configuration.timeoutIntervalForRequest = 30
         configuration.timeoutIntervalForResource = 30
@@ -233,6 +238,13 @@ struct ReplayDiagnostic {
             guard (200..<300).contains(http.statusCode) else {
                 let data = await readBody(bytes, expectedLength: http.expectedContentLength, session: session)
                 var report = sanitizedError(data)
+                if let data, let object = (try? JSONSerialization.jsonObject(with: data)) as? [String: Any],
+                   let error = object["error"] as? [String: Any], let text = error["message"] as? String {
+                    // Show only words from the fixed diagnosis vocabulary; unknown strings,
+                    // identifiers, user content and the credential stay withheld.
+                    let vocabulary: Set<String> = ["the","a","an","was","is","are","has","have","been","not","no","this","that","with","without","in","on","of","to","from","by","for","and","or","at","as","same","different","use","using","must","please","try","again","request","response","responses","bad","invalid","error","id","ids","item","items","message","messages","conversation","conversations","session","sessions","account","accounts","client","clients","api","key","keys","organization","project","endpoint","route","routing","channel","upstream","server","backend","worker","instance","cache","cached","prompt","prefix","previous","original","created","generated","issued","signed","processed","bound","associated","belongs","sent","received","stored","returned","call","tool","function","result","fingerprint","token","encrypted","content","reasoning","verification","verified","failed","found","missing","required","replay","pool","connection","continuation","continue","load","balancer","provider","model","current","initial","new","cannot","could","does","do","did","match","corresponding","supported","format","protocol","input","output","recognized","recognised","detected","metadata","identity","state","device","signature","invalidated","credential","authorization","authentication","user","assistant","multiple","batch","request_id","response_id","session_id","store","false","true","include","phase"]
+                    report["diagnosisWords"] = text.replacingOccurrences(of: secret, with: "?").lowercased().split(whereSeparator: { !$0.isLetter && $0 != "_" }).map(String.init).map { vocabulary.contains($0) ? $0 : "?" }.prefix(120).joined(separator: " ")
+                }
                 report["jsonMimeType"] = (http.mimeType?.lowercased() ?? "").contains("json")
                 report["status"] = "http_error"
                 report["httpStatus"] = http.statusCode
