@@ -52,12 +52,41 @@ jobs:
           tar -xzf /tmp/oc.tgz -C /tmp/oc-pkg
           cp /tmp/oc-pkg/package/bin/opencode $R/opencode
           chmod +x $R/opencode
-          # The npm binary is a Bun-compiled macOS binary with no LC_BUILD_VERSION; its
-          # signature says platform=macOS, which dyld refuses on iOS ("wrong platform").
-          # Retarget to iOS and re-sign ad-hoc.
-          xcrun vtool -arch arm64 -set-build-version ios 16.0 16.0 $R/opencode -o $R/opencode
-          codesign -f -s - --all-architectures $R/opencode
-          codesign -dvv $R/opencode 2>&1 | head -n 4 || true
+          # The npm binary is a Bun-compiled macOS binary with NO LC_BUILD_VERSION; its
+          # signature says platform=macOS, which dyld refuses on iOS ("wrong platform"),
+          # and stock iOS keeps system libraries only in the shared cache, so exec fails
+          # with ENOENT. vtool only updates an existing build-version command and silently
+          # does nothing here, so we splice the LC_BUILD_VERSION into the header padding
+          # (no file offsets move) and let TrollStore re-sign on install.
+          python3 - <<'EOF'
+          import struct
+          path = 'iOS/Sources/AppHarness-Resources/opencode'
+          data = bytearray(open(path, 'rb').read())
+          ncmds, = struct.unpack_from('<I', data, 16)
+          sizeofcmds, = struct.unpack_from('<I', data, 20)
+          off = 32
+          end = 32
+          first_data = None
+          for _ in range(ncmds):
+              cmd, size = struct.unpack_from('<II', data, off)
+              if cmd == 0x19:  # LC_SEGMENT_64: first section offset bounds the header zone
+                  nsects = struct.unpack_from('<I', data, off + 64)[0]
+                  so = off + 72
+                  for _ in range(nsects):
+                      offset, = struct.unpack_from('<I', data, so + 48)
+                      if offset and (first_data is None or offset < first_data):
+                          first_data = offset
+                      so += 80
+              off += size
+              end = off
+          assert end + 32 <= first_data, f'no header padding: end={end} first_data={first_data}'
+          lc = struct.pack('<IIIIII', 0x25, 32, 2, 0x00100000, 0x00100000, 0)  # platform=2 (iOS), minos/sdk=16.0
+          data[end:end + 32] = lc
+          struct.pack_into('<I', data, 16, ncmds + 1)
+          struct.pack_into('<I', data, 20, sizeofcmds + 32)
+          open(path, 'wb').write(data)
+          print('LC_BUILD_VERSION spliced: ncmds', ncmds, '->', ncmds + 1)
+          EOF
           ls -la $R/opencode
 
       - name: "Stage web UI assets (single source: Android assets)"
