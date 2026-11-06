@@ -32,15 +32,20 @@ public final class KumoProcess {
 
         // posix_spawn_file_actions_addchdir_np is macOS-only, so when a working directory
         // is set the child is spawned through sh: cd into it, then exec the real binary.
-        var execPath = originalPath
-        var args = arguments
-        var env = environment ?? ProcessInfo.processInfo.environment
+        let execPath = originalPath
+        let args = arguments
+        let env = environment ?? ProcessInfo.processInfo.environment
+        // posix_spawn_file_actions_addchdir_np is macOS-only, and a shell wrapper does not
+        // work: stock iOS has no /bin/sh and /var/jb is outside the app sandbox. Instead,
+        // chdir in the parent around the spawn and restore afterwards.
+        let previousCwd = FileManager.default.currentDirectoryPath
         if let dir = currentDirectoryURL?.path {
-            env["KUMO_CWD"] = dir
-            env["KUMO_BIN"] = originalPath
-            // Stock iOS has no /bin/sh; on a jailbreak the shell lives in /var/jb.
-            execPath = FileManager.default.fileExists(atPath: "/bin/sh") ? "/bin/sh" : "/var/jb/usr/bin/sh"
-            args = ["-c", "cd \"$KUMO_CWD\" && exec \"$KUMO_BIN\" \"$@\"", originalPath] + args
+            FileManager.default.changeCurrentDirectoryPath(dir)
+        }
+        defer {
+            if currentDirectoryURL != nil {
+                FileManager.default.changeCurrentDirectoryPath(previousCwd)
+            }
         }
 
         // stdout/stderr pipes: child gets the write ends, we keep the read ends.
