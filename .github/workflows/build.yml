@@ -108,9 +108,9 @@ jobs:
           mkdir -p /tmp/npmfs app/src/main/assets
           # Resolve exact package versions from APKINDEX (the CDN HTML listing mixes in
           # stale/foreign names like zlib-2.3.3 that sort -V happily picks and 404s).
-          python3 - <<'EOF'
+          AV="${ALPINE_VERSION%.*}" python3 - <<'EOF'
           import tarfile, os, urllib.request
-          BASE = 'https://dl-cdn.alpinelinux.org/alpine/v${ALPINE_VERSION%.*}'
+          BASE = 'https://dl-cdn.alpinelinux.org/alpine/v' + os.environ['AV']
           out = '/tmp/npmfs/rootfs'
           os.makedirs(out, exist_ok=True)
 
