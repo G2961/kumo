@@ -215,8 +215,10 @@ public struct KumoWebView: UIViewRepresentable {
             const health = await api('/global/health');
             const sessions = await api('/session');
             const providers = await api('/config/providers');
+            const listing = await nativeCall('fsList', {path: S.dir});
             return {backend: health.backend, sessions: sessions.length,
-              providers: providers.providers.length, mainChildren: document.getElementById('main').children.length};
+              providers: providers.providers.length, mainChildren: document.getElementById('main').children.length,
+              files: listing.files.length};
             """, arguments: [:], in: nil, in: .page) { result in
                 switch result {
                 case .success(let value):
@@ -224,10 +226,11 @@ public struct KumoWebView: UIViewRepresentable {
                         NSLog("[web] native bridge smoke returned unexpected data")
                         return
                     }
-                    NSLog("[web] native bridge smoke OK sessions=%@ providers=%@ mainChildren=%@",
+                    NSLog("[web] native bridge smoke OK sessions=%@ providers=%@ mainChildren=%@ files=%@",
                           String(describing: info["sessions"] ?? 0),
                           String(describing: info["providers"] ?? 0),
-                          String(describing: info["mainChildren"] ?? 0))
+                          String(describing: info["mainChildren"] ?? 0),
+                          String(describing: info["files"] ?? 0))
                 case .failure(let error):
                     NSLog("[web] native bridge smoke failed domain=%@ code=%ld", (error as NSError).domain, (error as NSError).code)
                 }

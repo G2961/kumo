@@ -210,6 +210,159 @@ PERMISSION_NEW = r"""function permCard(p){
 }"""
 
 
+FILE_MANAGER_OLD = r"""/* ---------- file manager ---------- */
+{
+ const scr=document.getElementById('fmScreen'),list=document.getElementById('fmList'),crumb=document.getElementById('fmCrumb'),
+       title=document.getElementById('fmTitle'),view=document.getElementById('fmView'),viewName=document.getElementById('fmViewName'),
+       text=document.getElementById('fmText'),editBtn=document.getElementById('fmEdit'),delBtn=document.getElementById('fmDel');
+ let fmCwd=null,fmFile=null,fmEditing=false;
+ const baseName=p=>p?(p.replace(/\\/g,'/').split('/').filter(Boolean).pop()||p):'';
+ const fmtSize=n=>n<1024?n+' Б':n<1048576?(n/1024).toFixed(1)+' КБ':(n/1048576).toFixed(1)+' МБ';
+ function toastNative(msg){if(window.CodexNative)try{CodexNative.request(JSON.stringify({action:'toast',data:{msg}}))}catch(e){}}
+ function crumbRender(){
+  const root='/storage/emulated/0';
+  const btns=[{n:'🌐 sdcard',p:root}];
+  if(fmCwd&&fmCwd!==root)btns.push({n:baseName(fmCwd)||'/',p:fmCwd});
+  crumb.innerHTML=btns.map(b=>`<button data-crumb="${esc(b.p)}" class="${b.p===fmCwd?'on':''}">${esc(b.n)}</button>`).join('');
+ }
+ window.fmOpen=async function(path){
+  try{
+   const r=await nativeCall('fsList',{path});
+   fmCwd=r.path;view.hidden=true;text.value='';title.textContent='Files';
+   crumbRender();
+   let h='';
+   (r.dirs||[]).forEach(d=>{h+=`<button class="fm-row" data-fm-dir="${esc(d)}"><svg viewBox="0 0 24 24"><path d="M3 7a2 2 0 0 1 2-2h4l2 2h8a2 2 0 0 1 2 2v8a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2z"/></svg><span class="n">${esc(d)}</span></button>`});
+   (r.files||[]).forEach(f=>{h+=`<button class="fm-row" data-fm-file="${esc(f.name)}"><svg viewBox="0 0 24 24"><path d="M14 3H7a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h10a2 2 0 0 0 2-2V8z"/><path d="M14 3v5h5"/></svg><span class="n">${esc(f.name)}</span><span class="s">${fmtSize(f.size||0)}</span></button>`});
+   list.innerHTML=h||'<div class="note" style="padding:16px">Empty</div>';
+  }catch(x){toastNative('Files: '+x.message)}
+ };
+ window.fmOpenFile=async function(path){
+  try{
+   const r=await nativeCall('fsRead',{path});
+   fmFile=path;fmEditing=false;
+   view.hidden=false;viewName.textContent=baseName(path);title.textContent=baseName(path);
+   text.value=r.content||'';text.readOnly=true;editBtn.style.color='';
+  }catch(x){toastNative('Read: '+x.message)}
+ };
+ editBtn.onclick=async()=>{
+  if(!fmFile)return;
+  if(!fmEditing){fmEditing=true;text.readOnly=false;text.focus();editBtn.style.color='var(--accent)';return}
+  try{await nativeCall('fsWrite',{path:fmFile,content:text.value});fmEditing=false;text.readOnly=true;editBtn.style.color='';toastNative('Saved')}
+  catch(x){toastNative('Write: '+x.message)}
+ };
+ delBtn.onclick=()=>{
+  if(!fmFile)return;
+  const nm=baseName(fmFile);
+  sheet('<h3>Delete '+esc(nm)+'?</h3><p class="note">This cannot be undone.</p><div class="btns"><button class="btn" id="fmDelNo">Cancel</button><button class="btn" style="color:var(--err)" id="fmDelYes">Delete</button></div>');
+  $('#sheet').onclick=e=>{
+   if(e.target.id==='fmDelNo')closeSheet();
+   else if(e.target.id==='fmDelYes'){closeSheet();nativeCall('fsDelete',{path:fmFile}).then(()=>{view.hidden=true;fmFile=null;fmOpen(fmCwd)}).catch(x=>toastNative('Delete: '+x.message))}
+  };
+ };
+ document.getElementById('fmNew').onclick=()=>{
+  sheet('<h3>New folder</h3><label class="fld" for="fmNewName">Folder name</label><input class="in" id="fmNewName" placeholder="notes" autocapitalize="none" spellcheck="false"><div class="btns"><button class="btn" id="fmNewNo">Cancel</button><button class="btn p" id="fmNewOk">Create</button></div>');
+  $('#sheet').onclick=e=>{
+   if(e.target.id==='fmNewNo')closeSheet();
+   else if(e.target.id==='fmNewOk'){
+    const nm=($('#fmNewName').value||'').trim();if(!nm)return;
+    closeSheet();
+    nativeCall('fsMkdir',{path:fmCwd+'/'+nm}).then(()=>fmOpen(fmCwd)).catch(x=>toastNative('Folder: '+x.message));
+   }
+  };
+  const i=$('#fmNewName');if(i)setTimeout(()=>i.focus(),150);
+ };
+ document.getElementById('fmBack').onclick=()=>{
+  if(!view.hidden){view.hidden=true;fmEditing=false;fmFile=null;text.readOnly=true;editBtn.style.color='';return}
+  scr.hidden=true;
+ };
+ list.onclick=e=>{
+  const d=e.target.closest('[data-fm-dir]');
+  if(d){fmOpen(fmCwd+'/'+d.dataset.fmDir);return}
+  const f=e.target.closest('[data-fm-file]');
+  if(f)window.fmOpenFile(fmCwd+'/'+f.dataset.fmFile);
+ };
+ crumb.onclick=e=>{const b=e.target.closest('[data-crumb]');if(b)fmOpen(b.dataset.crumb)};
+ window.openFiles=function(path){closeAll();scr.hidden=false;view.hidden=true;fmOpen(path||S.dir||'/storage/emulated/0/Documents/Kumo')};
+}"""
+
+
+def native_file_manager():
+    # Patch the whole canonical block exactly, retaining its Android branch and handlers.
+    patches = [
+        (" let fmCwd=null,fmFile=null,fmEditing=false;", r""" let fmCwd=null,fmFile=null,fmEditing=false,fmRoot=null,fmRequest=0;
+ const nativeFiles=!!window.KumoNativeBackend;
+ let readStatus=null;
+ if(nativeFiles){
+  // Keep the Files header/Back reachable: the canonical absolute viewer covers it.
+  Object.assign(view.style,{position:'relative',inset:'auto',flex:'1',minHeight:'0'});
+  readStatus=document.createElement('div');readStatus.hidden=true;readStatus.style.padding='16px';
+  text.before(readStatus);
+ }
+ function fileReset(){fmFile=null;fmEditing=false;text.readOnly=true;editBtn.style.color=''}
+ function statusHTML(message,retry){return `<div class="note" role="${retry?'alert':'status'}">${esc(message)}</div>${retry?'<button class="btn" data-fm-retry>Retry</button>':''}`}
+ function readState(message,path){
+  readStatus.hidden=false;readStatus.innerHTML=statusHTML(message,!!path);
+  readStatus.onclick=e=>{if(e.target.closest('[data-fm-retry]'))fmOpenFile(path)};
+  text.hidden=true;editBtn.disabled=true;delBtn.disabled=true;
+ }
+ function currentRequest(request,directory){return request===fmRequest&&directory===S.dir&&!scr.hidden}"""),
+        ("  const root='/storage/emulated/0';\n  const btns=[{n:'🌐 sdcard',p:root}];\n  if(fmCwd&&fmCwd!==root)btns.push({n:baseName(fmCwd)||'/',p:fmCwd});", r"""  const root=nativeFiles?fmRoot:'/storage/emulated/0';
+  const btns=root?[{n:nativeFiles?(baseName(root)||'Project'):'🌐 sdcard',p:root}]:[];
+  if(nativeFiles&&root&&fmCwd?.startsWith(root+'/')){
+   let path=root;
+   for(const name of fmCwd.slice(root.length+1).split('/').filter(Boolean)){path+='/'+name;btns.push({n:name,p:path})}
+  }else if(fmCwd&&fmCwd!==root)btns.push({n:baseName(fmCwd)||'/',p:fmCwd});
+  if(nativeFiles&&!btns.length){crumb.textContent='Project';return}"""),
+        (" window.fmOpen=async function(path){\n  try{", r""" window.fmOpen=async function(path){
+  const request=nativeFiles?++fmRequest:0,directory=S.dir;
+  if(nativeFiles){
+   fmCwd=path||null;fileReset();view.hidden=true;list.hidden=false;title.textContent='Files';
+   crumbRender();list.innerHTML='<div class="note" role="status" style="padding:16px">Loading…</div>';
+  }
+  try{"""),
+        ("   const r=await nativeCall('fsList',{path});", r"""   const r=await nativeCall('fsList',{path});
+   if(nativeFiles){if(!currentRequest(request,directory))return;if(!fmRoot)fmRoot=r.path}"""),
+        ("  }catch(x){toastNative('Files: '+x.message)}", r"""  }catch(x){
+   if(!nativeFiles){toastNative('Files: '+x.message);return}
+   if(!currentRequest(request,directory))return;
+   list.innerHTML='<div style="padding:16px">'+statusHTML('Files: '+nativeErrorMessage(x),true)+'</div>';
+  }"""),
+        (" window.fmOpenFile=async function(path){\n  try{", r""" window.fmOpenFile=async function(path){
+  const request=nativeFiles?++fmRequest:0,directory=S.dir;
+  if(nativeFiles){
+   fileReset();view.hidden=false;list.hidden=true;viewName.textContent=baseName(path);title.textContent=baseName(path);
+   readState('Loading…');
+  }
+  try{"""),
+        ("   const r=await nativeCall('fsRead',{path});", r"""   const r=await nativeCall('fsRead',{path});
+   if(nativeFiles){
+    if(!currentRequest(request,directory)||view.hidden)return;
+    readStatus.hidden=true;text.hidden=false;editBtn.disabled=false;delBtn.disabled=false;
+   }"""),
+        ("  }catch(x){toastNative('Read: '+x.message)}", r"""  }catch(x){
+   if(!nativeFiles){toastNative('Read: '+x.message);return}
+   if(!currentRequest(request,directory)||view.hidden)return;
+   readState('Read: '+nativeErrorMessage(x),path);
+  }"""),
+        (" document.getElementById('fmBack').onclick=()=>{", r""" document.getElementById('fmBack').onclick=()=>{
+  if(nativeFiles){++fmRequest;list.hidden=false;title.textContent='Files';fileReset()}"""),
+        (" list.onclick=e=>{", r""" list.onclick=e=>{
+  if(nativeFiles&&e.target.closest('[data-fm-retry]')){fmOpen(fmCwd||undefined);return}"""),
+        (" window.openFiles=function(path){closeAll();scr.hidden=false;view.hidden=true;fmOpen(path||S.dir||'/storage/emulated/0/Documents/Kumo')};", r""" window.openFiles=function(path){
+  closeAll();scr.hidden=false;view.hidden=true;
+  if(nativeFiles){fmRoot=path||S.dir||null;fmOpen(fmRoot||undefined)}
+  else fmOpen(path||S.dir||'/storage/emulated/0/Documents/Kumo');
+ };"""),
+    ]
+    html = FILE_MANAGER_OLD
+    for old, new in patches:
+        html = replace_exact(html, old, new, 'file manager')
+    return html
+
+
+FILE_MANAGER_NEW = native_file_manager()
+
+
 def patch_html(html):
     """Pure, fail-closed canonical-source transform; never patch the staged output."""
     patches = [
@@ -218,6 +371,9 @@ def patch_html(html):
         (" ['get','/event'],['get','/config/providers']", " ['get','/config/providers']", "mandatory routes"),
         (EVENTS_OLD, EVENTS_NEW, "event subscription"),
         (PERMISSION_OLD, PERMISSION_NEW, "native permission diff"),
+        (FILE_MANAGER_OLD, FILE_MANAGER_NEW, "native file manager"),
+        (" if(!document.getElementById('fmScreen').hidden){\n  if(!document.getElementById('fmView').hidden)",
+         " if(!document.getElementById('fmScreen').hidden){\n  if(window.KumoNativeBackend){document.getElementById('fmBack').click();return true}\n  if(!document.getElementById('fmView').hidden)", "native Files back"),
         ("if(S.live&&lastEv&&Date.now()-lastEv>15000)recycleSSE();", "if(!window.KumoNativeBackend&&S.live&&lastEv&&Date.now()-lastEv>15000)recycleSSE();", "HTTP heartbeat"),
         (" if(document.hidden||!S.sid)return;\n if(!S.es||!S.live||(lastEv&&Date.now()-lastEv>15000))recycleSSE();",
          " if(document.hidden)return;\n if(window.KumoNativeBackend){if(!S.es||!S.live)recycleSSE();if(S.sid)syncSession();return}\n if(!S.sid)return;\n if(!S.es||!S.live||(lastEv&&Date.now()-lastEv>15000))recycleSSE();", "subscription resume"),

@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Behavioral staged iOS UI proof; backend/ledger responses are UI-only fixtures.
+"""Behavioral staged iOS UI proof; backend/ledger/filesystem responses are UI-only fixtures.
 
 Run: python iOS/scripts/test-native-file-agent-ui.py [--case NAME] [--output DIR]
 Uses tests/requirements.txt's existing Playwright (or ../.local/api-test-venv)
@@ -51,6 +51,14 @@ TOKEN = 'native:11111111-1111-4111-8111-111111111111'
 KEY = '22222222-2222-4222-8222-222222222222'
 NEXT_KEY = '33333333-3333-4333-8333-333333333333'
 NEXT_PATCH = '--- ' + FILE + '\n+++ ' + FILE + '\n@@ -2 +2 @@\n-second_old\n+second_new\n'
+NESTED = DIRECTORY + '/nested <safe>'
+DEEP = NESTED + '/deep'
+EMPTY = DIRECTORY + '/empty'
+LATER = DIRECTORY + '/later'
+NESTED_FILE = NESTED + '/child.txt'
+DEEP_FILE = DEEP + '/deep.txt'
+LATER_FILE = LATER + '/later.txt'
+STALE_DIRECTORY = DIRECTORY.replace('UI-FIXTURE', 'OLD-UI-FIXTURE')
 SESSION = {'id': SID, 'directory': DIRECTORY, 'title': 'Native file UI fixture',
            'permission': [], 'time': {'created': 1000, 'updated': 2000}}
 # NativeAgentBackend.documentation route shapes; /event and /question are absent.
@@ -118,6 +126,14 @@ class NativeFixture:
         self.permissions = []
         self.trace, self.unexpected = [], []
         self.reply_gate = None
+        # Exact JSBridge fsList/fsRead/fsWrite payloads; no filesystem or UI functions mocked.
+        self.fs_dirs = {DIRECTORY: ['nested <safe>', 'empty', 'later'],
+                        NESTED: ['deep'], DEEP: [], EMPTY: [], LATER: []}
+        self.fs_contents = {FILE: AFTER, NESTED_FILE: 'CHILD_CONTENT\n',
+                            DEEP_FILE: 'DEEP_CONTENT\n', LATER_FILE: 'LATER_CONTENT\n'}
+        self.fs_errors, self.fs_gates, self.fs_completed = {}, {}, []
+        # The session can retain an obsolete container while native's current project exists.
+        self.session_directory = DIRECTORY
         # Ledger IDs deliberately differ from messageID:callID; no fake Git hashes.
         self.files = [
             {'key': KEY, 'file': FILE, 'source': 'local', 'connectionID': '',
@@ -161,6 +177,33 @@ class NativeFixture:
             return {'mode': 'native', 'hasKey': False}, []
         if action in ('appearance', 'turnDone'):
             return {}, []
+        if action == 'toast':
+            require(set(data) == {'msg'}, 'Unexpected toast payload')
+            return {}, []
+        if action in ('fsList', 'fsRead', 'fsWrite'):
+            require(set(data) <= ({'path', 'content'} if action == 'fsWrite' else {'path'}),
+                    'Unexpected filesystem payload: ' + repr(data))
+            path = data.get('path', DIRECTORY)
+            require(path in self.fs_dirs or path in self.fs_contents or path == STALE_DIRECTORY,
+                    'Unexpected filesystem path: ' + repr(path))
+            key = (action, path)
+            if key in self.fs_gates:
+                await asyncio.wait_for(self.fs_gates[key].wait(), 10)
+            self.fs_completed.append(key)
+            if key in self.fs_errors:
+                return {'error': self.fs_errors[key]}, []
+            if action == 'fsList':
+                require(path in self.fs_dirs, 'fsList expected fixture directory')
+                files = [{'name': p.rsplit('/', 1)[1], 'size': len(content.encode('utf-8'))}
+                         for p, content in self.fs_contents.items() if p.rsplit('/', 1)[0] == path]
+                return {'path': path, 'dirs': self.fs_dirs[path], 'files': files}, []
+            require(path in self.fs_contents, 'fsRead/fsWrite expected fixture file')
+            if action == 'fsWrite':
+                require(isinstance(data.get('content'), str), 'fsWrite content must be text')
+                self.fs_contents[path] = data['content']
+                return {'saved': True, 'size': len(data['content'].encode('utf-8'))}, []
+            content = self.fs_contents[path]
+            return {'content': content, 'size': len(content.encode('utf-8'))}, []
         if action.startswith('history'):
             require(data.get('directory') == DIRECTORY, 'history directory mismatch')
             require(data.get('sessionID') == SID, 'history session mismatch')
@@ -177,12 +220,13 @@ class NativeFixture:
                 return {'historyKind': 'native-patch', 'files': self.files}, []
         require(action == 'backendRequest', 'Unexpected native action: ' + action)
         method, path = data.get('method'), data.get('path')
-        require(data.get('directory') == DIRECTORY, 'backendRequest directory mismatch: ' + str(data))
+        require(data.get('directory') == self.session_directory, 'backendRequest directory mismatch: ' + str(data))
+        session = dict(SESSION, directory=self.session_directory)
         if method == 'GET':
             values = {'/doc': DOC, '/global/health': {'healthy': True, 'version': 'ui-only-fixture'},
                       '/config/providers': {'providers': [], 'default': {}}, '/config': {},
                       '/path': {'directory': DIRECTORY}, '/project': [{'worktree': DIRECTORY}],
-                      '/session': [SESSION], '/experimental/session': [SESSION], '/session/' + SID: SESSION,
+                      '/session': [session], '/experimental/session': [session], '/session/' + SID: session,
                       '/session/' + SID + '/message': self.messages,
                       '/session/status': {SID: {'type': self.status}}, '/permission': self.permissions,
                       # The canonical sync probes this unsupported native route via allSettled.
@@ -535,7 +579,256 @@ async def foreign_session(page, fixture, expect):
     require(not fixture.calls('historyHint'), 'Foreign permission leaked a native history hint')
 
 
-CASES = {'permission_diff': permission_diff, 'permission_fallback': permission_fallback,
+async def open_files(page, fixture, entry='drawer'):
+    require(await page.evaluate('S.sid') == SID, 'Files must open from the selected session')
+    if entry == 'drawer':
+        await page.locator('#menu').click()
+        await page.locator('#drawer [data-a="files"]').click()
+    else:
+        await page.locator('#plus').click()
+        await page.locator('#attachFiles2').click()
+    await page.locator('#fmScreen').wait_for(state='visible')
+    await wait_calls(page, fixture, 'fsList')
+
+
+def fm_dir(page, name):
+    return page.locator('#fmList [data-fm-dir=' + json.dumps(name) + ']')
+
+
+def fm_file(page, path):
+    return page.locator('#fmList [data-fm-file=' + json.dumps(path.rsplit('/', 1)[1]) + ']')
+
+
+def fm_crumb(page, path):
+    return page.locator('#fmCrumb [data-crumb=' + json.dumps(path) + ']')
+
+
+async def files_browser(page, fixture, expect):
+    await open_files(page, fixture)
+    require(fixture.calls('fsList')[0]['data'] == {'path': DIRECTORY},
+            'Drawer Files did not use the selected session directory')
+    await expect(fm_crumb(page, DIRECTORY)).to_have_text('File Agent')
+    await expect(page.locator('#fmCrumb')).not_to_contain_text('sdcard')
+    await expect(fm_file(page, FILE)).to_be_visible()
+    await expect(fm_dir(page, 'nested <safe>')).to_be_visible()
+    await fm_file(page, FILE).click()
+    await expect(page.locator('#fmText')).to_have_value(AFTER)
+    await expect(page.locator('#fmViewName')).to_have_text(FILE.rsplit('/', 1)[1])
+    require(fixture.calls('fsRead')[-1]['data'] == {'path': FILE}, 'File click read wrong path')
+    require(not await page.evaluate('window.diffInjected'), 'File content was interpreted as HTML')
+    await page.locator('#fmBack').click()
+    await expect(page.locator('#fmView')).to_be_hidden()
+    await fm_dir(page, 'nested <safe>').click()
+    await expect(fm_file(page, NESTED_FILE)).to_be_visible()
+    await fm_dir(page, 'deep').click()
+    await expect(fm_file(page, DEEP_FILE)).to_be_visible()
+    await expect(fm_crumb(page, NESTED)).to_be_visible()
+    await fm_crumb(page, NESTED).click()
+    await expect(fm_file(page, NESTED_FILE)).to_be_visible()
+    await fm_file(page, NESTED_FILE).click()
+    await expect(page.locator('#fmText')).to_have_value('CHILD_CONTENT\n')
+    await page.locator('#fmBack').click()
+    await fm_crumb(page, DIRECTORY).click()
+    await expect(fm_file(page, FILE)).to_be_visible()
+    await fm_dir(page, 'empty').click()
+    await expect(page.locator('#fmList')).to_have_text('Empty')
+    await fm_crumb(page, DIRECTORY).click()
+    await expect(fm_file(page, FILE)).to_be_visible()
+    await page.locator('#fmBack').click()
+    await expect(page.locator('#fmScreen')).to_be_hidden()
+    await open_files(page, fixture, 'plus')
+    await expect(fm_file(page, FILE)).to_be_visible()
+    require(fixture.calls('fsList')[-1]['data'] == {'path': DIRECTORY},
+            'Plus Files did not reopen the selected project')
+
+
+async def files_loading(page, fixture, expect):
+    fixture.fs_gates[('fsList', DIRECTORY)] = asyncio.Event()
+    await open_files(page, fixture, 'plus')
+    await expect(page.locator('#fmList [role="status"]')).to_have_text('Loading…')
+    await expect(fm_crumb(page, DIRECTORY)).to_be_visible()
+    fixture.fs_gates[('fsList', DIRECTORY)].set()
+    await expect(fm_file(page, FILE)).to_be_visible()
+    fixture.fs_gates[('fsRead', FILE)] = asyncio.Event()
+    await fm_file(page, FILE).click()
+    await wait_calls(page, fixture, 'fsRead')
+    await expect(page.locator('#fmView [role="status"]')).to_have_text('Loading…')
+    await expect(page.locator('#fmText')).to_be_hidden()
+    await expect(page.locator('#fmEdit')).to_be_disabled()
+    await expect(page.locator('#fmDel')).to_be_disabled()
+    fixture.fs_gates[('fsRead', FILE)].set()
+    await expect(page.locator('#fmText')).to_be_visible()
+    await expect(page.locator('#fmText')).to_have_value(AFTER)
+    await expect(page.locator('#fmEdit')).to_be_enabled()
+
+
+async def files_failure(page, fixture, expect):
+    failure = 'Папка недоступна: ' + DIRECTORY + ' <denied>'
+    fixture.fs_errors[('fsList', DIRECTORY)] = {'message': failure}
+    await open_files(page, fixture)
+    await expect(page.locator('#fmList [role="alert"]')).to_have_text('Files: ' + failure)
+    await expect(fm_crumb(page, DIRECTORY)).to_be_visible()
+    await expect(page.locator('#fmList')).not_to_contain_text('Empty')
+    await expect(page.locator('#fmView')).to_be_hidden()
+    del fixture.fs_errors[('fsList', DIRECTORY)]
+    await page.locator('#fmList').get_by_role('button', name='Retry', exact=True).click()
+    await expect(fm_file(page, FILE)).to_be_visible()
+    require(len(fixture.calls('fsList', DIRECTORY)) == 2, 'Retry changed the failed directory')
+    await fm_dir(page, 'nested <safe>').click()
+    await expect(fm_file(page, NESTED_FILE)).to_be_visible()
+    fixture.fs_errors[('fsList', DIRECTORY)] = failure
+    await fm_crumb(page, DIRECTORY).click()
+    await expect(page.locator('#fmList [role="alert"]')).to_have_text('Files: ' + failure)
+    await expect(fm_file(page, NESTED_FILE)).to_have_count(0)
+    del fixture.fs_errors[('fsList', DIRECTORY)]
+    await page.locator('#fmList').get_by_role('button', name='Retry', exact=True).click()
+    await expect(fm_file(page, FILE)).to_be_visible()
+
+
+async def files_read_failure(page, fixture, expect):
+    await open_files(page, fixture)
+    await fm_file(page, FILE).click()
+    await expect(page.locator('#fmText')).to_have_value(AFTER)
+    await page.locator('#fmBack').click()
+    await fm_dir(page, 'nested <safe>').click()
+    await expect(fm_file(page, NESTED_FILE)).to_be_visible()
+    fixture.fs_errors[('fsRead', NESTED_FILE)] = 'Файл не найден <read denied>'
+    await fm_file(page, NESTED_FILE).click()
+    await expect(page.locator('#fmView [role="alert"]')).to_have_text('Read: Файл не найден <read denied>')
+    await expect(page.locator('#fmViewName')).to_have_text('child.txt')
+    await expect(page.locator('#fmText')).to_be_hidden()
+    await expect(page.locator('#fmEdit')).to_be_disabled()
+    await expect(page.locator('#fmDel')).to_be_disabled()
+    del fixture.fs_errors[('fsRead', NESTED_FILE)]
+    await page.locator('#fmView').get_by_role('button', name='Retry', exact=True).click()
+    await expect(page.locator('#fmText')).to_have_value('CHILD_CONTENT\n')
+    await expect(page.locator('#fmText')).to_be_visible()
+    require(len(fixture.calls('fsRead', NESTED_FILE)) == 2, 'Read Retry used another file')
+    await page.locator('#fmBack').click()
+    await expect(fm_file(page, NESTED_FILE)).to_be_visible()
+
+
+async def files_stale_navigation(page, fixture, expect):
+    await open_files(page, fixture)
+    await expect(fm_file(page, FILE)).to_be_visible()
+    for stale_error in (False, True):
+        gate = fixture.fs_gates[('fsList', NESTED)] = asyncio.Event()
+        if stale_error:
+            fixture.fs_errors[('fsList', NESTED)] = 'Late denied response'
+        await fm_dir(page, 'nested <safe>').click()
+        await wait_calls(page, fixture, 'fsList', NESTED, count=2 if stale_error else 1)
+        # Real breadcrumb click while the first directory request is pending.
+        await fm_crumb(page, DIRECTORY).click()
+        await expect(fm_file(page, FILE)).to_be_visible()
+        await fm_dir(page, 'later').click()
+        await expect(fm_file(page, LATER_FILE)).to_be_visible()
+        gate.set()
+        for _ in range(80):
+            if fixture.fs_completed.count(('fsList', NESTED)) >= (2 if stale_error else 1):
+                break
+            await page.wait_for_timeout(25)
+        require(fixture.fs_completed.count(('fsList', NESTED)) >= (2 if stale_error else 1),
+                'Delayed filesystem response was not delivered')
+        await frames(page)
+        await expect(fm_file(page, LATER_FILE)).to_be_visible()
+        await expect(fm_crumb(page, LATER)).to_have_class('on')
+        await expect(fm_file(page, NESTED_FILE)).to_have_count(0)
+        await expect(page.locator('#fmList [role="alert"]')).to_have_count(0)
+        await fm_file(page, LATER_FILE).click()
+        await expect(page.locator('#fmText')).to_have_value('LATER_CONTENT\n')
+        require(fixture.calls('fsRead')[-1]['data'] == {'path': LATER_FILE}, 'Stale response changed click path')
+        await page.locator('#fmBack').click()
+        await fm_crumb(page, DIRECTORY).click()
+        await expect(fm_file(page, FILE)).to_be_visible()
+
+
+async def files_saved_refresh(page, fixture, expect):
+    await open_files(page, fixture, 'plus')
+    await fm_file(page, FILE).click()
+    await expect(page.locator('#fmText')).to_have_value(AFTER)
+    await page.locator('#fmEdit').click()
+    saved = 'SAVED_FROM_REAL_EDITOR <safe>\n'
+    await page.locator('#fmText').fill(saved)
+    await page.locator('#fmEdit').click()
+    await wait_calls(page, fixture, 'fsWrite', FILE)
+    await expect(page.locator('#fmText')).to_have_attribute('readonly', '')
+    require(fixture.calls('fsWrite')[-1]['data'] == {'path': FILE, 'content': saved}, 'Save sent wrong contents/path')
+    await page.locator('#fmBack').click()
+    await page.locator('#fmBack').click()
+    await open_files(page, fixture)
+    await expect(fm_file(page, FILE).locator('.s')).to_have_text(str(len(saved.encode('utf-8'))) + ' Б')
+    await fm_file(page, FILE).click()
+    await expect(page.locator('#fmText')).to_have_value(saved)
+    require(len(fixture.calls('fsRead', FILE)) == 2, 'Reopened file was not reread')
+    await page.locator('#fmBack').click()
+    await page.locator('#fmBack').click()
+    # An agent/native write between openings must also be observed, not UI-cached.
+    fixture.fs_contents[FILE] = 'UPDATED_BY_NATIVE_AGENT\n'
+    added = DIRECTORY + '/test.txt'
+    fixture.fs_contents[added] = 'AGENT_CREATED_TEST\n'
+    await open_files(page, fixture, 'plus')
+    await expect(fm_file(page, added)).to_be_visible()
+    await fm_file(page, added).click()
+    await expect(page.locator('#fmText')).to_have_value('AGENT_CREATED_TEST\n')
+    await page.locator('#fmBack').click()
+    await fm_file(page, FILE).click()
+    await expect(page.locator('#fmText')).to_have_value('UPDATED_BY_NATIVE_AGENT\n')
+
+
+async def files_stale_session(page, fixture, expect):
+    fixture.fs_errors[('fsList', STALE_DIRECTORY)] = 'Папка недоступна: ' + STALE_DIRECTORY
+    await open_files(page, fixture)
+    await expect(page.locator('#fmList [role="alert"]')).to_have_text('Files: Папка недоступна: ' + STALE_DIRECTORY)
+    await expect(fm_crumb(page, STALE_DIRECTORY)).to_be_visible()
+    await page.locator('#fmList').get_by_role('button', name='Retry', exact=True).click()
+    await wait_calls(page, fixture, 'fsList', STALE_DIRECTORY, count=2)
+    require(all(q['data'] == {'path': STALE_DIRECTORY} for q in fixture.calls('fsList')),
+            'Stale session silently recovered into another workspace')
+    require(not fixture.calls('fsRead'), 'Stale workspace read an unrelated file')
+
+
+async def files_native_back(page, fixture, expect):
+    await open_files(page, fixture)
+    await fm_file(page, FILE).click()
+    await expect(page.locator('#fmText')).to_have_value(AFTER)
+    # Actual app entry point used by native back/gestures, not a replaced UI function.
+    require(await page.evaluate('window.__appBack()'), 'Native Back did not handle the Files reader')
+    await expect(page.locator('#fmView')).to_be_hidden()
+    await expect(fm_file(page, FILE)).to_be_visible()
+    fixture.fs_gates[('fsRead', FILE)] = asyncio.Event()
+    await fm_file(page, FILE).click()
+    await wait_calls(page, fixture, 'fsRead', FILE, count=2)
+    require(await page.evaluate('window.__appBack()'), 'Native Back did not cancel the pending reader')
+    await expect(fm_file(page, FILE)).to_be_visible()
+    fixture.fs_gates[('fsRead', FILE)].set()
+    for _ in range(80):
+        if fixture.fs_completed.count(('fsRead', FILE)) == 2:
+            break
+        await page.wait_for_timeout(25)
+    require(fixture.fs_completed.count(('fsRead', FILE)) == 2, 'Delayed read was not delivered')
+    await frames(page)
+    await expect(page.locator('#fmView')).to_be_hidden()
+    await expect(fm_file(page, FILE)).to_be_visible()
+    require(await page.evaluate('window.__appBack()'), 'Native Back did not close Files')
+    await expect(page.locator('#fmScreen')).to_be_hidden()
+
+
+async def files_native_default(page, fixture, expect):
+    # Empty selection is a UI boundary condition; let native fsList choose its own default.
+    await page.evaluate("S.dir = ''")
+    await open_files(page, fixture, 'plus')
+    require(fixture.calls('fsList')[0]['data'] == {}, 'Empty directory must not send an Android fallback')
+    await expect(fm_file(page, FILE)).to_be_visible()
+    await expect(fm_crumb(page, DIRECTORY)).to_have_text('File Agent')
+    require(not await page.evaluate('S.dir'), 'Files browser changed the session workspace')
+
+
+CASES = {'files_browser': files_browser, 'files_loading': files_loading,
+         'files_failure': files_failure, 'files_read_failure': files_read_failure,
+         'files_stale_navigation': files_stale_navigation, 'files_saved_refresh': files_saved_refresh,
+         'files_stale_session': files_stale_session, 'files_native_default': files_native_default,
+                  'files_native_back': files_native_back,
+         'permission_diff': permission_diff, 'permission_fallback': permission_fallback,
          'permission_types': permission_types, 'permission_prepared': permission_prepared,
          'permission_bounded': permission_bounded, 'allow': allow, 'reject': reject, 'stop': stop,
          'history': history, 'restore_chronology': chronology, 'foreign_session': foreign_session}
@@ -543,6 +836,8 @@ CASES = {'permission_diff': permission_diff, 'permission_fallback': permission_f
 
 async def run_case(browser, origin, name, output, expect):
     fixture, errors, external = NativeFixture(), [], []
+    if name == 'files_stale_session':
+        fixture.session_directory = STALE_DIRECTORY
     if name.startswith('permission_') or name in ('allow', 'reject', 'stop'):
         fixture.messages, fixture.status = snapshots(False), 'busy'
     context = await browser.new_context(viewport={'width': 820, 'height': 1180},
@@ -554,7 +849,7 @@ async def run_case(browser, origin, name, output, expect):
         page.set_default_navigation_timeout(10000)
         page.on('pageerror', lambda error: errors.append(str(error)))
         await page.expose_binding('__nativeFixture', fixture.request)
-        await page.add_init_script('(' + BRIDGE + ')(' + json.dumps(DIRECTORY) + ')')
+        await page.add_init_script('(' + BRIDGE + ')(' + json.dumps(fixture.session_directory) + ')')
 
         async def local_only(route):
             if route.request.url.startswith(origin + '/'):
@@ -588,6 +883,8 @@ async def run_case(browser, origin, name, output, expect):
         finally:
             if fixture.reply_gate:
                 fixture.reply_gate.set()
+            for gate in fixture.fs_gates.values():
+                gate.set()
             result.update(requests=fixture.trace, unexpected=fixture.unexpected, pageErrors=errors, external=external)
             await page.screenshot(path=str(output / (name + '.png')), timeout=3000)
             if result['status'] == 'FAIL':
@@ -604,7 +901,7 @@ async def run_browser(args, output, staged):
     playwright = importlib.import_module('playwright.async_api')
     expect = playwright.expect
     expect.set_options(timeout=3000)
-    report = {'scope': 'UI-only backend/ledger fixture; no real model, Swift, Git, writes or WKWebView',
+    report = {'scope': 'UI-only backend/ledger/filesystem fixture; no real model, Swift, Git, writes or WKWebView',
               'restore': 'syncSession snapshot restore, not file undo', 'cases': [],
               'stagedSHA256': hashlib.sha256(staged.read_bytes()).hexdigest()}
     with asset_server(staged) as (origin, requests):
@@ -638,7 +935,7 @@ def main():
         require(venv.is_file() and venv.resolve() != Path(sys.executable).resolve(),
                 'Playwright unavailable; use the existing tests/requirements.txt environment')
         return subprocess.run([str(venv), '-B', str(Path(__file__).resolve()), *sys.argv[1:]],
-                              check=False, timeout=210).returncode
+                              check=False, timeout=330).returncode
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument('--case', choices=CASES, action='append', help='Run specific cases (default: all)')
     parser.add_argument('--output', type=Path, help='Evidence directory; must be inside workspace .local')
@@ -661,18 +958,19 @@ def main():
     module = importlib.util.module_from_spec(spec)
     spec.loader.exec_module(module)
     canonical = SOURCE.read_bytes().decode('utf-8').replace('\r\n', '\n')
-    require(canonical.count(module.PERMISSION_OLD) == 1, 'Permission patch is not an exact canonical function')
-    for changed in (canonical.replace(module.PERMISSION_OLD, module.PERMISSION_OLD + '\n' + module.PERMISSION_OLD),
-                    canonical.replace(module.PERMISSION_OLD, module.PERMISSION_OLD.replace('Approve?', 'Changed?'))):
-        try:
-            module.patch_html(changed)
-        except module.PatchError:
-            pass
-        else:
-            raise AssertionError('Permission patch did not fail closed on changed/duplicate canonical function')
+    for label, old in (('permission', module.PERMISSION_OLD), ('file manager', module.FILE_MANAGER_OLD)):
+        require(canonical.count(old) == 1, label + ' patch is not an exact canonical block')
+        for changed in (canonical.replace(old, old + '\n' + old),
+                        canonical.replace(old, old.replace('function ', 'function changed_', 1))):
+            try:
+                module.patch_html(changed)
+            except module.PatchError:
+                pass
+            else:
+                raise AssertionError(label + ' patch did not fail closed on changed/duplicate canonical block')
     require((RESOURCES / 'codex.html').read_bytes() == module.patch_html(canonical).encode('utf-8'),
             'Generated iOS HTML is stale; run stage-native-ui.py first')
-    print('PASS exact permission patch fails closed; generated iOS HTML matches staging', flush=True)
+    print('PASS exact permission/file manager patches fail closed; generated iOS HTML matches staging', flush=True)
     assets = output / 'assets'
     assets.mkdir(exist_ok=True)
     staged, _ = module.stage(SOURCE, assets)

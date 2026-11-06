@@ -358,34 +358,20 @@ public final class JSBridge: NSObject, WKScriptMessageHandler {
         // ---- Filesystem ----
         case "fsList":
             let path = data["path"] as? String ?? ProjectManager.currentDir().path
-            let url = URL(fileURLWithPath: path)
-            var isDir: ObjCBool = false
-            guard FileManager.default.fileExists(atPath: url.path, isDirectory: &isDir) else {
-                throw BridgeError("Папка недоступна: \(path)")
+            do {
+                let result = try NativeFileBrowser.list(path: path)
+                NSLog("[files] list OK directories=%ld files=%ld", (result["dirs"] as? [String])?.count ?? 0,
+                      (result["files"] as? [[String: Any]])?.count ?? 0)
+                return result
+            } catch {
+                NSLog("[files] list failed domain=%@ code=%ld", (error as NSError).domain, (error as NSError).code)
+                throw error
             }
-            let fm = FileManager.default
-            let entries = (try? fm.contentsOfDirectory(at: url, includingPropertiesForKeys: [.isDirectoryKey])) ?? []
-            var dirs: [String] = []
-            var files: [[String: Any]] = []
-            for e in entries.sorted(by: { $0.lastPathComponent < $1.lastPathComponent }) {
-                var d: ObjCBool = false
-                _ = fm.fileExists(atPath: e.path, isDirectory: &d)
-                if d.boolValue {
-                    dirs.append(e.lastPathComponent)
-                } else {
-                    let size = (try? fm.attributesOfItem(atPath: e.path)[.size]) as? Int ?? 0
-                    files.append(["name": e.lastPathComponent, "size": size])
-                }
-            }
-            return ["path": url.path, "dirs": dirs, "files": files]
 
         case "fsRead":
-            let path = data["path"] as? String ?? ""
-            let url = URL(fileURLWithPath: path)
-            guard let dataRead = try? Data(contentsOf: url) else { throw BridgeError("Файл не найден") }
-            guard dataRead.count <= 512 * 1024 else { throw BridgeError("Файл больше 512 КБ") }
-            guard !dataRead.contains(0) else { throw BridgeError("Бинарный файл — вьюер не для него") }
-            return ["content": String(data: dataRead, encoding: .utf8) ?? "", "size": dataRead.count]
+            let result = try NativeFileBrowser.read(path: data["path"] as? String ?? "")
+            NSLog("[files] read OK bytes=%ld", result["size"] as? Int ?? 0)
+            return result
 
         case "fsWrite":
             let path = data["path"] as? String ?? ""
