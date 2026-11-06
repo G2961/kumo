@@ -36,6 +36,10 @@ struct ProviderDiagnostic {
                 request.timeoutInterval = 20
                 request.setValue("Bearer " + key, forHTTPHeaderField: "Authorization")
                 request.setValue("application/json", forHTTPHeaderField: "Accept")
+                print("DIAGNOSTIC_CREDENTIAL_HAS_BEARER_PREFIX=\(key.lowercased().hasPrefix("bearer ")) WHITESPACE=\(key.unicodeScalars.contains(where: { CharacterSet.whitespacesAndNewlines.contains($0) }))")
+                if args.count > 4 && args[4] == "desktop-profile" {
+                    for (name, value) in Self.desktopProfile { request.setValue(value, forHTTPHeaderField: name) }
+                }
                 let (bytes, response) = try await session.bytes(for: request)
                 guard let http = response as? HTTPURLResponse else { print("DIAGNOSTIC_INVALID_HTTP"); return }
                 if !(200..<300).contains(http.statusCode) {
@@ -62,7 +66,10 @@ struct ProviderDiagnostic {
                     tools: [], maxOutputTokens: 512)
                 var textBytes = 0
                 var finished = false
-                for try await event in URLSessionNativeModelClient().stream(request: request) {
+                let client = args.count > 4 && args[4] == "desktop-profile"
+                    ? URLSessionNativeModelClient(configuration: Self.desktopConfiguration())
+                    : URLSessionNativeModelClient()
+                for try await event in client.stream(request: request) {
                     switch event {
                     case .text(let delta): textBytes += delta.utf8.count
                     case .finished: finished = true
@@ -78,6 +85,21 @@ struct ProviderDiagnostic {
             // Do not print NSError descriptions; they can embed the URL or request.
             print("DIAGNOSTIC_ERROR domain=\(ns.domain) code=\(ns.code) details withheld")
         }
+    }
+
+    // Explicit A/B profile copied from the owner's working desktop gateway. Not a
+    // production default, and never applied to a different provider.
+    private static var desktopProfile: [String: String] {
+        ["User-Agent": "codex_cli_rs/0.46.0 (Ubuntu 22.4.0; x86_64) xterm-256color",
+         "originator": "codex_cli_rs", "version": "0.46.0", "session_id": UUID().uuidString]
+    }
+
+    private static func desktopConfiguration() -> URLSessionConfiguration {
+        let configuration = URLSessionConfiguration.ephemeral
+        configuration.httpAdditionalHeaders = desktopProfile
+        configuration.timeoutIntervalForRequest = 30
+        configuration.timeoutIntervalForResource = 60
+        return configuration
     }
 
     private static func readKey(root: URL, id: String) throws -> String? {
