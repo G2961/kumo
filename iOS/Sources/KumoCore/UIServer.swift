@@ -48,7 +48,7 @@ public final class UIServer: NSObject, URLSessionDataDelegate {
             // NWListener.start is async: the port is assigned after the listener becomes ready.
             // Without this poll the caller reads port=0 and the WebView gets a broken URL.
             let deadline = Date().addingTimeInterval(2)
-            while (port == 0 || listener.state == .setup) && Date() < deadline {
+            while (port == 0 || nl.state == .setup) && Date() < deadline {
                 Thread.sleep(forTimeInterval: 0.02)
             }
             if port != 0 { return }
