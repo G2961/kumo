@@ -21,7 +21,7 @@ jobs:
           codesign -s - -f --identifier space.g2961.kumo.diagnostic iOS/.build/Diagnostics/KumoProviderDiagnostic
       - name: Build live file-agent acceptance harness
         run: |
-          xcrun --sdk iphoneos swiftc -O \
+          xcrun --sdk iphoneos swiftc -Onone \
             -target arm64-apple-ios16.0 \
             -parse-as-library \
             iOS/Sources/KumoCore/NativeProviderCompatibility.swift \
