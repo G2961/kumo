@@ -31,6 +31,12 @@ public struct KumoWebView: UIViewRepresentable {
         NSLog("[web] creation begin nativePID=%d", ProcessInfo.processInfo.processIdentifier)
         let config = WKWebViewConfiguration()
         config.websiteDataStore = .default()
+        config.setURLSchemeHandler(KumoAssetSchemeHandler(), forURLScheme: "kumo")
+        config.userContentController.addUserScript(WKUserScript(
+            source: "window.KumoNativeBackend = true;",
+            injectionTime: .atDocumentStart,
+            forMainFrameOnly: true
+        ))
         config.userContentController.add(context.coordinator.bridge, name: "codexNative")
         config.userContentController.add(context.coordinator, name: "kumoDiagnostics")
         config.userContentController.addUserScript(WKUserScript(
@@ -278,7 +284,7 @@ public struct KumoWebView: UIViewRepresentable {
                 decisionHandler(.cancel)
                 return
             }
-            if url.host == "127.0.0.1" || url.host == "localhost" {
+            if url.scheme == "kumo", url.host == "app" {
                 decisionHandler(.allow)
             } else if url.scheme == "http" || url.scheme == "https" {
                 #if canImport(UIKit)
@@ -288,7 +294,7 @@ public struct KumoWebView: UIViewRepresentable {
                 #endif
                 decisionHandler(.cancel)
             } else {
-                decisionHandler(.allow)
+                decisionHandler(.cancel)
             }
         }
     }

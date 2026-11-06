@@ -81,9 +81,9 @@ extension DefaultMediator: PHPickerViewControllerDelegate {
 
 extension DefaultMediator: UIDocumentPickerDelegate {
     public func documentPicker(_ controller: UIDocumentPickerViewController,
-                               didPickDocumentAt url: URL) {
+                               didPickDocumentsAt urls: [URL]) {
         controller.dismiss(animated: true)
-        folderCompletion?(url)
+        folderCompletion?(urls.first)
         folderCompletion = nil
     }
 

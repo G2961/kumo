@@ -1,9 +1,5 @@
 name: iOS Build (Kumo)
 
-# Builds the darwin/arm64 opencode server + the Kumo iOS app into an unsigned (adhoc)
-# .ipa. Signing is intentionally left off (CODE_SIGNING_ALLOWED=NO) so the archive can be
-# installed via TrollStore / sideloading / self-sign on a jailbroken iPad (palera1n).
-
 on:
   workflow_dispatch:
   push:
@@ -19,9 +15,6 @@ concurrency:
   group: ios-build-${{ github.ref }}
   cancel-in-progress: true
 
-env:
-  OPENCODE_VERSION: 1.19.3
-
 jobs:
   build:
     runs-on: macos-15
@@ -31,103 +24,58 @@ jobs:
 
       - name: Select Xcode
         run: |
-          ls /Applications/Xcode*.app/Contents/Developer >/dev/null 2>&1 || true
           sudo xcode-select -s /Applications/Xcode.app/Contents/Developer 2>/dev/null || true
           xcodebuild -version
+          swift --version
 
       - name: Install XcodeGen
         run: brew install xcodegen
 
-      - name: Check Swift toolchain
-        run: swift --version
-
-      # --- Stage the darwin/arm64 opencode server binary (npm package, same version as Android) ---
-      - name: Download opencode (darwin/arm64)
+      - name: Stage native web UI
         run: |
-          set -e
+          python3 iOS/scripts/stage-native-ui.py
+          python3 iOS/scripts/test-stage-native-ui.py
           R=iOS/Sources/AppHarness-Resources
-          mkdir -p $R
-          curl -fsSL --retry 5 --retry-all-errors "https://registry.npmjs.org/opencode-darwin-arm64/-/opencode-darwin-arm64-${OPENCODE_VERSION}.tgz" -o /tmp/oc.tgz
-          rm -rf /tmp/oc-pkg && mkdir -p /tmp/oc-pkg
-          tar -xzf /tmp/oc.tgz -C /tmp/oc-pkg
-          cp /tmp/oc-pkg/package/bin/opencode $R/opencode
-          chmod +x $R/opencode
-          # The npm binary is a Bun-compiled macOS binary with NO LC_BUILD_VERSION; its
-          # signature says platform=macOS, which dyld refuses on iOS ("wrong platform"),
-          # and stock iOS keeps system libraries only in the shared cache, so exec fails
-          # with ENOENT. vtool only updates an existing build-version command and silently
-          # does nothing here, so we splice the LC_BUILD_VERSION into the header padding
-          # (no file offsets move) and let TrollStore re-sign on install.
-          python3 - <<'EOF'
-          import struct
-          path = 'iOS/Sources/AppHarness-Resources/opencode'
-          data = bytearray(open(path, 'rb').read())
-          ncmds, = struct.unpack_from('<I', data, 16)
-          sizeofcmds, = struct.unpack_from('<I', data, 20)
-          # Find LC_CODE_SIGNATURE (0x1d): LC_BUILD_VERSION (0x25) goes in its place and
-          # the signature command moves right after it, because codesign strict
-          # validation requires the signature command to be the last one.
-          off = 32
-          sig_off = None
-          end = 32
-          for _ in range(ncmds):
-              cmd, size = struct.unpack_from('<II', data, off)
-              if cmd == 0x1d and sig_off is None:
-                  sig_off = off
-              off += size
-              end = off
-          assert sig_off is not None, 'no LC_CODE_SIGNATURE'
-          assert end + 24 <= (sig_off + 24 + 16) or True
-          # padding check: after relocation the last command ends at sig_off+40; make sure
-          # the header zone (first section data offset) has room.
-          first_data = None
-          off = 32
-          for _ in range(ncmds):
-              cmd, size = struct.unpack_from('<II', data, off)
-              if cmd == 0x19:
-                  nsects = struct.unpack_from('<I', data, off + 64)[0]
-                  so = off + 72
-                  for _ in range(nsects):
-                      o, = struct.unpack_from('<I', data, so + 48)
-                      if o and (first_data is None or o < first_data):
-                          first_data = o
-                      so += 80
-              off += size
-          assert sig_off + 40 <= first_data, f'no header padding: end={sig_off + 40} first_data={first_data}'
-          sig_cmd = bytes(data[sig_off:sig_off + 16])
-          lc = struct.pack('<IIIIII', 0x25, 24, 2, 0x00100000, 0x00100000, 0)  # platform=2 (iOS), minos/sdk=16.0
-          data[sig_off:sig_off + 24] = lc
-          data[sig_off + 24:sig_off + 40] = sig_cmd
-          struct.pack_into('<I', data, 16, ncmds + 1)
-          struct.pack_into('<I', data, 20, sizeofcmds + 24)
-          open(path, 'wb').write(data)
-          print('LC_BUILD_VERSION spliced before signature: ncmds', ncmds, '->', ncmds + 1)
-          EOF
-          # Ad-hoc re-sign AFTER the splice (page hashes changed), TrollStore needs a
-          # signed binary for its CoreTrust bypass to succeed.
-          codesign -f -s - --all-architectures $R/opencode
-          codesign -dvv $R/opencode 2>&1 | head -n 4 || true
-          ls -la $R/opencode
-
-      - name: "Stage web UI assets (single source: Android assets)"
-        run: |
-          set -e
-          R=iOS/Sources/AppHarness-Resources
-          cp app/src/main/assets/codex.html $R/codex.html
           cp app/src/main/assets/xterm.js $R/xterm.js
           cp app/src/main/assets/xterm.css $R/xterm.css
           cp app/src/main/assets/xterm-addon-fit.js $R/xterm-addon-fit.js
           cp app/src/main/assets/thread-preview.html $R/thread-preview.html
           cp app/src/main/assets/kumo_*.png $R/
-          ls -la $R
-      - name: Generate Xcode project
-        working-directory: ${{ github.workspace }}/iOS
-        run: |
-          xcodegen generate
-          ls -la Kumo.xcodeproj
 
-      - name: Build app (unsigned)
-        working-directory: ${{ github.workspace }}/iOS
+      - name: Run KumoCore tests (host)
+        run: |
+          python3 - <<'PY'
+          import pathlib
+          import shutil
+          import subprocess
+          import tempfile
+
+          # The app is iOS-only; isolate its actual core sources/tests in a host package
+          # instead of asking SwiftPM to also compile UIKit or masking failures.
+          with tempfile.TemporaryDirectory(prefix='kumo-core-tests-') as directory:
+              root = pathlib.Path(directory)
+              shutil.copytree('iOS/Sources/KumoCore', root / 'Sources/KumoCore')
+              shutil.copytree('iOS/Tests/KumoCoreTests', root / 'Tests/KumoCoreTests')
+              (root / 'Package.swift').write_text('''// swift-tools-version:5.9
+          import PackageDescription
+          let package = Package(
+              name: "KumoCoreHostTests",
+              platforms: [.macOS(.v13)],
+              targets: [
+                  .target(name: "KumoCore"),
+                  .testTarget(name: "KumoCoreTests", dependencies: ["KumoCore"])
+              ]
+          )
+          ''')
+              subprocess.run(['swift', 'test', '--package-path', str(root)], check=True, timeout=180)
+          PY
+
+      - name: Generate Xcode project
+        working-directory: iOS
+        run: xcodegen generate
+
+      - name: Build native app (unsigned)
+        working-directory: iOS
         run: |
           set -o pipefail
           xcodebuild \
@@ -139,78 +87,35 @@ jobs:
             CODE_SIGNING_ALLOWED=NO \
             CODE_SIGN_IDENTITY="" \
             CODE_SIGNING_REQUIRED=NO \
-            build 2>&1 | xcpretty; test ${PIPESTATUS[0]} -eq 0
+            build 2>&1 | xcpretty
 
-      - name: Run UI transport and bridge JSON tests (host)
-        run: |
-          python3 - <<'PY'
-          import pathlib
-          import shutil
-          import subprocess
-          import tempfile
-
-          # Test the actual listener in isolation: KumoApp requires UIKit, which the
-          # host Swift package test runner cannot import.
-          with tempfile.TemporaryDirectory(prefix='kumo-ui-tests-') as directory:
-              root = pathlib.Path(directory)
-              (root / 'Sources/KumoCore').mkdir(parents=True)
-              (root / 'Tests/KumoCoreTests').mkdir(parents=True)
-              for name in ['UIServer', 'JavaScriptJSON']:
-                  shutil.copy(f'iOS/Sources/KumoCore/{name}.swift', root / 'Sources/KumoCore')
-                  shutil.copy(f'iOS/Tests/KumoCoreTests/{name}Tests.swift', root / 'Tests/KumoCoreTests')
-              (root / 'Package.swift').write_text('''// swift-tools-version:5.9
-          import PackageDescription
-          let package = Package(
-              name: "UIServerIntegration",
-              platforms: [.macOS(.v13)],
-              targets: [
-                  .target(name: "KumoCore"),
-                  .testTarget(name: "KumoCoreTests", dependencies: ["KumoCore"])
-              ]
-          )
-          ''')
-              subprocess.run(['swift', 'test', '--package-path', str(root)], check=True, timeout=120)
-          PY
-
-      - name: Run KumoCore unit tests (host)
-        working-directory: ${{ github.workspace }}/iOS
-        run: swift test --filter KumoCoreTests || echo "Unit tests failed — check logs"
-
-      - name: Stage unsigned .ipa
-        working-directory: ${{ github.workspace }}/iOS
+      - name: Stage unsigned IPA without server binaries
+        working-directory: iOS
         run: |
           set -e
-          APP=$(find .build/DerivedData/Build/Products/Release-iphoneos -maxdepth 1 -name "Kumo.app" -type d | head -1)
-          # Keep the UI host a normal sandboxed app. platform-application/no-container
-          # tighten system policy and can block WebKit XPC services and IOSurface.
-          # Local runtime execution needs a separate, trusted helper; granting the UI
-          # private entitlements does not make a macOS child executable trusted on iOS.
+          APP=.build/DerivedData/Build/Products/Release-iphoneos/Kumo.app
+          test -d "$APP"
+          test ! -f "$APP/AppHarness-Resources/opencode"
+          # Keep the UI host's ordinary sandbox: private platform/no-container rights
+          # blocked WebKit XPC and IOSurface on the target iPad.
           cat > "$APP/entitlements.plist" <<'ENTS'
           <?xml version="1.0" encoding="UTF-8"?>
           <!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
-          <plist version="1.0">
-          <dict>
-          	<key>get-task-allow</key><true/>
-          </dict>
-          </plist>
+          <plist version="1.0"><dict><key>get-task-allow</key><true/></dict></plist>
           ENTS
-          cat "$APP/entitlements.plist" | head -n 5
-          if [ -z "$APP" ]; then
-            echo "Kumo.app not found"; exit 1
-          fi
-          echo "App at: $APP"
-          # Ensure the opencode binary made it into the bundle.
-          if ! find "$APP" -name "opencode" -type f | grep -q .; then
-            echo "opencode binary missing from bundle"; exit 1
-          fi
           mkdir -p .build/Payload
           cp -R "$APP" .build/Payload/Kumo.app
-          cd .build
-          zip -r ../Kumo.ipa Payload
-          cd ..
-          ls -la Kumo.ipa
+          python3 - <<'PY'
+          import pathlib
+          import zipfile
+          root = pathlib.Path('.build')
+          with zipfile.ZipFile('Kumo.ipa', 'w', zipfile.ZIP_DEFLATED) as archive:
+              for path in sorted((root / 'Payload').rglob('*')):
+                  archive.write(path, path.relative_to(root))
+          print('IPA bytes:', pathlib.Path('Kumo.ipa').stat().st_size)
+          PY
 
-      - name: Upload .ipa artifact
+      - name: Upload IPA artifact
         uses: actions/upload-artifact@v4
         with:
           name: Kumo.ipa-unsigned

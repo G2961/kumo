@@ -4,7 +4,8 @@ import PackageDescription
 let package = Package(
     name: "Kumo",
     platforms: [
-        .iOS(.v16)
+        .iOS(.v16),
+        .macOS(.v13)
     ],
     products: [
         .library(name: "KumoCore", targets: ["KumoCore"]),

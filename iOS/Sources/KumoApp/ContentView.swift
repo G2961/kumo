@@ -5,12 +5,10 @@ import WebKit
 /// then transitions to an edge-to-edge WKWebView hosting the opencode web UI.
 public struct ContentView: View {
     @StateObject private var model: AppModel
+    @Environment(\.scenePhase) private var scenePhase
 
-    public init(executablePath: String) {
-        let cwd = ProjectManager.projectsRoot()
-        let settings = LocalRuntime.Settings(executablePath: executablePath, cwd: cwd)
-        let runtime = LocalRuntime(settings: settings)
-        _model = StateObject(wrappedValue: AppModel(runtime: runtime))
+    public init() {
+        _model = StateObject(wrappedValue: AppModel())
     }
 
     public var body: some View {
@@ -28,8 +26,9 @@ public struct ContentView: View {
                 statusView
             }
         }
-        .onAppear {
-            model.start()
+        .onAppear { model.start() }
+        .onChange(of: scenePhase) { phase in
+            if phase == .background { model.interruptForBackground() }
         }
     }
 
@@ -39,33 +38,22 @@ public struct ContentView: View {
                 .font(.system(size: 42, weight: .black))
                 .foregroundColor(Color(white: 0.2))
             Spacer().frame(height: 16)
-            if model.isLoading || (model.currentURL != nil && model.webLoadState == .loading) {
+            if model.webLoadState == .loading {
                 ProgressView()
                     .padding(.bottom, 8)
             }
-            Text(model.statusMessage.isEmpty ? "Starting server…" : model.statusMessage)
+            Text(model.statusMessage.isEmpty ? "Opening Kumo…" : model.statusMessage)
                 .font(.subheadline)
                 .foregroundColor(.white.opacity(0.7))
                 .multilineTextAlignment(.center)
                 .padding(.horizontal, 24)
                 .padding(.bottom, 8)
 
-            if model.currentURL != nil {
-                if case .failed = model.webLoadState {
-                    Button("Reload interface") {
-                        model.reloadInterface()
-                    }
-                    .padding(.top, 8)
-                }
-            } else if case .failed = model.phase {
-                Button("Retry") {
-                    model.restart()
+            if case .failed = model.webLoadState {
+                Button(model.currentURL == nil ? "Retry" : "Reload interface") {
+                    model.reloadInterface()
                 }
                 .padding(.top, 8)
-                Button("Open interface anyway") {
-                    model.forceUI()
-                }
-                .padding(.top, 4)
             }
         }
     }
