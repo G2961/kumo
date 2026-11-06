@@ -69,6 +69,20 @@ The rejection's internal policy and minimal required subset of headers remain
 unknown. A future officially supported Kumo profile should replace this workaround
 when the gateway provides one.
 
+## Latest compatibility validation
+
+- Production-profile build: `42269499412`, commit `1330adb`.
+- **175 XCTest and 9 UI staging tests passed**; iOS build passed.
+- Standalone diagnostic `42269501776` used the common production helper without
+  the `desktop-profile` switch: `/models` returned 3 models, Responses finished
+  successfully with 2 UTF-8 text bytes.
+- Signed IPA installed on the target iPad; its binary SHA-256 was verified.
+- All six existing sessions and both providers were preserved with a pre-install
+  backup. Only the existing AgentRouter config was explicitly switched to
+  Responses; Free Inference config was byte-for-byte equivalent after migration.
+- The iPad was locked during final app launch, so the post-install UI and a live
+  file-editing turn in the app are not yet physically verified.
+
 ## Diagnostic helper
 
 `ProviderDiagnostic.swift` is **not bundled in Kumo**. Its explicit

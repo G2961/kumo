@@ -48,6 +48,15 @@ Settings → Providers → add your provider, HTTPS base URL and key. Select Res
 or Chat Completions according to its actual API. The base URL should end at the
 API root, usually `/v1`, not a generation endpoint.
 
+**AgentRouter:** the exact HTTPS `agentrouter.org` host uses the Codex-compatible
+header profile verified against the owner's desktop gateway. On the target iPad,
+model discovery succeeded and the configured GPT model returned a complete `OK`
+stream through **Responses** with the unchanged Keychain key. The tested Chat
+Completions request returned HTTP 400 after this profile fixed its authentication.
+Use Responses for this setup. The profile does not change the protocol silently,
+add credentials, follow redirects, or affect Free Inference/other provider hosts.
+Details and the A/B results are in `Diagnostics/README.md`.
+
 Model discovery may not supply a context window. In that case, enter the actual
 context size from the provider documentation in **Context window for models
 without metadata**. This explicit fallback applies only to models missing saved
