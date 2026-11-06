@@ -4,6 +4,8 @@ import Darwin
 
 // Compile this file with NativeAgentBackend.swift, NativeFileTools.swift,
 // NativeModelClient.swift and NativeProviderCompatibility.swift, NOT ProviderDiagnostic.swift.
+// Compare -Onone and optimized parent builds if dispatch counters differ; the revision
+// marker identifies this harness source, not proof of the installed binary's build flags.
 // Device CLI only (iOS 15+); requires the owner's existing Keychain entitlement.
 // Each invocation has a 175-second hard deadline; a parent should use a 180-second timeout.
 // `all` runs allow (including reopen), reject, stop and conflict. Crash recovery requires
@@ -24,18 +26,65 @@ struct FileAgentAcceptance {
         var report: AcceptanceReport?
         var watchdog: DispatchWorkItem?
         var active: NativeAgentBackend?
-        var mode = "invalid"
         do {
             let args = CommandLine.arguments
+            print("DIAGNOSTIC harness_revision=execution_gates_1 arguments_count=\(args.count)")
             guard args.count == 4 || args.count == 5 else { throw AcceptanceFailure.usage }
-            mode = args.count == 5 ? args[4] : "all"
-            guard ["allow", "reject", "stop", "conflict", "reopen", "all", "crashPrepare", "crashReopen"].contains(mode) else {
+            let mode: String
+            if args.count == 5 { mode = args[4] } else { mode = "all" }
+            var scenarios: [String] = []
+            let expectedScenarioCount: Int
+            let recovering: Bool
+            switch mode {
+            case "allow":
+                scenarios.append("allow")
+                expectedScenarioCount = 1
+                recovering = false
+            case "reject":
+                scenarios.append("reject")
+                expectedScenarioCount = 1
+                recovering = false
+            case "stop":
+                scenarios.append("stop")
+                expectedScenarioCount = 1
+                recovering = false
+            case "conflict":
+                scenarios.append("conflict")
+                expectedScenarioCount = 1
+                recovering = false
+            case "crashPrepare":
+                scenarios.append("crashPrepare")
+                expectedScenarioCount = 1
+                recovering = false
+            case "all":
+                scenarios.append("allow")
+                scenarios.append("reject")
+                scenarios.append("stop")
+                scenarios.append("conflict")
+                expectedScenarioCount = 4
+                recovering = false
+            case "reopen":
+                scenarios.append("reopen")
+                expectedScenarioCount = 1
+                recovering = true
+            case "crashReopen":
+                scenarios.append("crashReopen")
+                expectedScenarioCount = 1
+                recovering = true
+            default:
+                print("DIAGNOSTIC mode_recognized=false mode_bytes=\(mode.utf8.count)")
                 throw AcceptanceFailure.usage
             }
+            print("DIAGNOSTIC mode_recognized=true mode_bytes=\(mode.utf8.count) scenario_count=\(scenarios.count) expected_count=\(expectedScenarioCount)")
+            try rootCheck(scenarios.count > 0, "dispatch_nonempty", failure: .emptyDispatch)
+            try rootCheck(scenarios.count == expectedScenarioCount, "dispatch_expected_count", failure: .dispatchCount)
             let source = try Source(statePath: args[1], providerID: args[2])
-            let root = try prepareRoot(args[3], source: source, recovering: ["reopen", "crashReopen"].contains(mode))
-            let results = try AcceptanceReport(root: root, recovering: ["reopen", "crashReopen"].contains(mode))
+            let root = try prepareRoot(args[3], source: source, recovering: recovering)
+            let results = try AcceptanceReport(root: root, recovering: recovering)
             report = results
+            try results.finish(success: false, code: "running")
+            var startedScenarios = 0
+            var performedScenarios = 0
             let hardStop = DispatchWorkItem {
                 try? results.finish(success: false, code: "process_timeout")
                 print("CHECK process_deadline FAIL\nACCEPTANCE_ERROR process_timeout")
@@ -45,7 +94,9 @@ struct FileAgentAcceptance {
             watchdog = hardStop
             DispatchQueue.global(qos: .utility).asyncAfter(deadline: .now() + 175, execute: hardStop)
             let budget = GenerationBudget()
-            if mode == "reopen" || mode == "crashReopen" {
+            if recovering {
+                startedScenarios += 1
+                print("DIAGNOSTIC scenario_entered index=0 started_count=\(startedScenarios)")
                 let record = try results.record(mode == "reopen" ? "allow" : "crashPrepare")
                 let project = try recoveryProject(record, root: root)
                 let snapshotURL = root.appendingPathComponent("native-agent/state.json")
@@ -87,9 +138,14 @@ struct FileAgentAcceptance {
                     await again.shutdown()
                     active = nil
                 }
+                performedScenarios += 1
+                print("DIAGNOSTIC scenario_verified index=0 performed_count=\(performedScenarios)")
             } else {
-                let scenarios = mode == "all" ? ["allow", "reject", "stop", "conflict"] : [mode]
-                for scenario in scenarios {
+                var scenarioIndex = 0
+                while scenarioIndex < scenarios.count {
+                    let scenario = scenarios[scenarioIndex]
+                    startedScenarios += 1
+                    print("DIAGNOSTIC scenario_entered index=\(scenarioIndex) started_count=\(startedScenarios)")
                     let client = LiveClient(budget: budget, limit: scenario == "allow" ? 6 : scenario == "reject" ? 5 : 4)
                     let backend = try source.backend(root: root, client: client)
                     active = backend
@@ -108,6 +164,9 @@ struct FileAgentAcceptance {
                                                      deadline: deadline, client: client, events: events)
                     try await verify(backend, sid: sid, project: project, outcome: outcome, events: events)
                     try check(!client.exhausted, "generation_cap_not_exceeded")
+                    try rootCheck(client.count > 0, "scenario_has_live_generation", failure: .noLiveGenerations)
+                    try rootCheck(events.counts["permission.asked", default: 0] > 0,
+                                  "scenario_has_actual_permission_event", failure: .noScenarioEvidence)
                     let evidence = try await evidence(backend, sid: sid, project: project)
                     if scenario == "crashPrepare" {
                         let snapshot = try readObject(root.appendingPathComponent("native-agent/state.json"))
@@ -117,6 +176,11 @@ struct FileAgentAcceptance {
                             "generations": client.count, "approvals": 0, "denials": 0
                         ], uniquingKeysWith: { _, new in new }), completed: false, events: events.counts)
                         events.printCounts()
+                        performedScenarios += 1
+                        print("DIAGNOSTIC scenario_verified index=\(scenarioIndex) performed_count=\(performedScenarios)")
+                        try requireExecution(results, scenarios: scenarios, expectedCount: expectedScenarioCount,
+                                             started: startedScenarios, performed: performedScenarios,
+                                             generations: budget.count, live: true)
                         try results.finish(success: true, code: "crash_prepared_not_recovered")
                         print("ACCEPTANCE_CRASH_PREPARED (no shutdown; run crashReopen in another process)")
                         hardStop.cancel()
@@ -155,9 +219,15 @@ struct FileAgentAcceptance {
                         try results.pass("reopen", counts: evidence.counts.merging(["generations": 0], uniquingKeysWith: { _, new in new }), completed: false, events: [:])
                     }
                     events.printCounts()
+                    performedScenarios += 1
+                    print("DIAGNOSTIC scenario_verified index=\(scenarioIndex) performed_count=\(performedScenarios)")
                     print("ACCEPTANCE_" + scenario.uppercased() + "_PASS completed=\(outcome.completed)")
+                    scenarioIndex += 1
                 }
             }
+            try requireExecution(results, scenarios: scenarios, expectedCount: expectedScenarioCount,
+                                 started: startedScenarios, performed: performedScenarios,
+                                 generations: budget.count, live: !recovering)
             try check(try Data(contentsOf: source.stateURL) == source.stateBytes, "user_state_unchanged")
             try results.finish(success: true, code: "verified")
             watchdog?.cancel()
@@ -698,6 +768,22 @@ struct FileAgentAcceptance {
         return lines.contains("-before-value") && lines.contains("+after-value")
     }
 
+    // The expected count is assigned independently of the dispatch array in main.
+    private static func requireExecution(_ results: AcceptanceReport, scenarios: [String], expectedCount: Int,
+                                         started: Int, performed: Int, generations: Int, live: Bool) throws {
+        print("DIAGNOSTIC execution planned_count=\(scenarios.count) expected_count=\(expectedCount) started_count=\(started) performed_count=\(performed) generations=\(generations)")
+        try rootCheck(expectedCount > 0 && scenarios.count == expectedCount, "final_dispatch_expected_count", failure: .dispatchCount)
+        try rootCheck(started == expectedCount && performed == expectedCount, "all_intended_scenarios_performed", failure: .incompleteExecution)
+        if live {
+            try rootCheck(generations > 0 && generations >= performed, "live_execution_has_generations", failure: .noLiveGenerations)
+        } else {
+            try rootCheck(generations == 0, "recovery_execution_zero_generations", failure: .generationLimit)
+        }
+        let recorded = try results.verifyPerformed(scenarios: scenarios, live: live)
+        print("DIAGNOSTIC execution recorded_count=\(recorded)")
+        try rootCheck(recorded == expectedCount, "report_matches_intended_scenarios", failure: .incompleteReport)
+    }
+
     private static func rootCheck(_ condition: Bool, _ name: String, failure: AcceptanceFailure) throws {
         print("CHECK " + name + (condition ? " PASS" : " FAIL"))
         if !condition { throw failure }
@@ -754,6 +840,12 @@ private enum AcceptanceFailure: String, Error {
     case rootRecoveryEscape = "test_root_recovery_storage_escape"
     case rootNotEmpty = "test_root_must_be_empty_use_a_new_directory"
     case externalPath = "external_or_unexpected_tool_path_rejected"
+    case emptyDispatch = "scenario_dispatch_empty"
+    case dispatchCount = "scenario_dispatch_count_mismatch"
+    case incompleteExecution = "intended_scenarios_not_performed"
+    case noLiveGenerations = "live_scenario_has_zero_generations"
+    case noScenarioEvidence = "scenario_has_no_actual_execution_evidence"
+    case incompleteReport = "performed_scenario_report_mismatch"
     case generationLimit = "live_generation_limit_exceeded"
     case scenarioTimeout = "scenario_timeout"
     case assertion = "acceptance_check_failed"
@@ -901,6 +993,7 @@ private final class AcceptanceReport: @unchecked Sendable {
     private let url: URL
     private var rows: [String: [String: Any]] = [:]
     private var running: String?
+    private var passedThisRun: Set<String> = []
     init(root: URL, recovering: Bool) throws {
         url = root.appendingPathComponent("acceptance-results.json")
         if recovering {
@@ -927,6 +1020,7 @@ private final class AcceptanceReport: @unchecked Sendable {
     func begin(_ name: String, project: String) throws {
         lock.lock(); defer { lock.unlock() }
         running = name
+        passedThisRun.remove(name)
         rows[name] = ["project": project, "success": false, "completed": false, "counts": [String: Int]()]
         try save(success: false, code: "running")
     }
@@ -943,10 +1037,45 @@ private final class AcceptanceReport: @unchecked Sendable {
         rows[name]?["counts"] = counts
         rows[name]?["eventCounts"] = events
         try save(success: false, code: "running")
+        passedThisRun.insert(name)
         running = nil
+    }
+    func verifyPerformed(scenarios: [String], live: Bool) throws -> Int {
+        lock.lock(); defer { lock.unlock() }
+        guard !scenarios.isEmpty, Set(scenarios).count == scenarios.count else { throw AcceptanceFailure.incompleteReport }
+        // Validate both this invocation's passes and what was actually persisted, not old recovery rows.
+        let file = try FileHandle(forReadingFrom: url)
+        defer { try? file.close() }
+        let data = try file.read(upToCount: 64 * 1024 + 1) ?? Data()
+        guard data.count <= 64 * 1024,
+              let object = try JSONSerialization.jsonObject(with: data) as? [String: Any],
+              let persisted = object["scenarios"] as? [String: [String: Any]] else { throw AcceptanceFailure.incompleteReport }
+        print("DIAGNOSTIC report persisted_record_count=\(persisted.count) fresh_pass_count=\(passedThisRun.count) intended_count=\(scenarios.count)")
+        var verified = 0
+        var index = 0
+        while index < scenarios.count {
+            let name = scenarios[index]
+            guard passedThisRun.contains(name), rows[name]?["success"] as? Bool == true,
+                  let row = persisted[name], row["success"] as? Bool == true,
+                  let counts = row["counts"] as? [String: Int], counts["messages", default: 0] > 0 else {
+                throw AcceptanceFailure.incompleteReport
+            }
+            if live {
+                guard counts["generations", default: 0] > 0,
+                      let events = row["eventCounts"] as? [String: Int], events["permission.asked", default: 0] > 0 else {
+                    throw AcceptanceFailure.noScenarioEvidence
+                }
+            }
+            verified += 1
+            index += 1
+        }
+        return verified
     }
     func finish(success: Bool, code: String) throws {
         lock.lock(); defer { lock.unlock() }
+        if success {
+            guard !rows.isEmpty, !passedThisRun.isEmpty, running == nil else { throw AcceptanceFailure.incompleteReport }
+        }
         if !success, let name = running { rows[name]?["success"] = false }
         try save(success: success, code: code)
     }
