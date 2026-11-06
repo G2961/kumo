@@ -16,6 +16,8 @@ public final class AppModel: ObservableObject {
     @Published public var statusMessage = "Starting server…"
     @Published public var currentURL: URL?
     @Published public var bridge: JSBridge?
+    @Published public var webLoadState: WebLoadState = .loading
+    @Published public var webViewAttempt = 0
 
     private let runtime: LocalRuntime
     private var uiServer: UIServer?
@@ -84,6 +86,8 @@ public final class AppModel: ObservableObject {
                     .replacingOccurrences(of: "=", with: "")
                 let url = URL(string: "http://127.0.0.1:\(ui.port)/_ui/index.html#d=\(data)")
                 DispatchQueue.main.async {
+                    self.webLoadState = .loading
+                    self.statusMessage = "Loading interface…"
                     self.currentURL = url
                     self.openingUI = false
                     self.phase = .ready
@@ -96,6 +100,25 @@ public final class AppModel: ObservableObject {
                 }
             }
         }
+    }
+
+    public func webViewDidChange(_ state: WebLoadState) {
+        webLoadState = state
+        switch state {
+        case .loading:
+            statusMessage = "Loading interface…"
+        case .loaded:
+            statusMessage = ""
+        case .failed(let message):
+            statusMessage = "Interface failed: \(message)"
+        }
+    }
+
+    public func reloadInterface() {
+        guard currentURL != nil else { return }
+        webLoadState = .loading
+        statusMessage = "Loading interface…"
+        webViewAttempt += 1
     }
 
     public var isReady: Bool { phase == .ready }

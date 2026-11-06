@@ -17,13 +17,15 @@ public struct ContentView: View {
         ZStack {
             Color.black.ignoresSafeArea()
 
-            if model.isReady, let bridge = model.bridge {
-                KumoWebView(url: model.currentURL, bridge: bridgeBinding(bridge))
+            if let url = model.currentURL, let bridge = model.bridge {
+                KumoWebView(url: url, bridge: bridgeBinding(bridge),
+                            onLoadStateChange: model.webViewDidChange)
+                    .id(model.webViewAttempt)
                     .ignoresSafeArea(.all)
-                    .transition(.opacity)
-            } else {
+            }
+            if model.currentURL == nil || model.webLoadState != .loaded {
+                Color.black.ignoresSafeArea()
                 statusView
-                    .transition(.opacity)
             }
         }
         .onAppear {
@@ -37,7 +39,7 @@ public struct ContentView: View {
                 .font(.system(size: 42, weight: .black))
                 .foregroundColor(Color(white: 0.2))
             Spacer().frame(height: 16)
-            if model.isLoading {
+            if model.isLoading || (model.currentURL != nil && model.webLoadState == .loading) {
                 ProgressView()
                     .padding(.bottom, 8)
             }
@@ -48,7 +50,14 @@ public struct ContentView: View {
                 .padding(.horizontal, 24)
                 .padding(.bottom, 8)
 
-            if case .failed = model.phase {
+            if model.currentURL != nil {
+                if case .failed = model.webLoadState {
+                    Button("Reload interface") {
+                        model.reloadInterface()
+                    }
+                    .padding(.top, 8)
+                }
+            } else if case .failed = model.phase {
                 Button("Retry") {
                     model.restart()
                 }
