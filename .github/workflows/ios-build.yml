@@ -37,7 +37,7 @@ jobs:
         uses: actions/upload-artifact@v4
         with:
           name: Kumo-file-agent-UI-proof
-          path: ../.local/file-agent-ui-proof
+          path: ${{ github.workspace }}/../.local/file-agent-ui-proof
           if-no-files-found: warn
 
   build:
