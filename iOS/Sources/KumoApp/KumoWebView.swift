@@ -216,6 +216,7 @@ public struct KumoWebView: UIViewRepresentable {
             const sessions = await api('/session');
             const providers = await api('/config/providers');
             const listing = await nativeCall('fsList', {path: S.dir});
+            if (runFilesProbe) {
             let filesProbe = {phase:'initial'};
             try {
               window.openFiles();
@@ -249,10 +250,11 @@ public struct KumoWebView: UIViewRepresentable {
               document.getElementById('fmScreen').hidden = true;
             }
             window.webkit.messageHandlers.kumoDiagnostics.postMessage({kind:'files-probe',metrics:filesProbe});
+            }
             return {backend: health.backend, sessions: sessions.length,
               providers: providers.providers.length, mainChildren: document.getElementById('main').children.length,
               files: listing.files.length};
-            """, arguments: [:], in: nil, in: .page) { result in
+            """, arguments: ["runFilesProbe": UserDefaults.standard.bool(forKey: "kumo.files-probe")], in: nil, in: .page) { result in
                 switch result {
                 case .success(let value):
                     guard let info = value as? [String: Any], info["backend"] as? String == "native" else {
