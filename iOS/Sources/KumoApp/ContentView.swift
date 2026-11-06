@@ -53,6 +53,10 @@ public struct ContentView: View {
                     model.restart()
                 }
                 .padding(.top, 8)
+                Button("Open interface anyway") {
+                    model.forceUI()
+                }
+                .padding(.top, 4)
             }
         }
     }

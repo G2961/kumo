@@ -42,8 +42,8 @@ public enum SshClient {
         }
     }
 
-    private static let sshPath = "/usr/bin/ssh"
-    private static let sftpPath = "/usr/bin/sftp"
+    private static let sshPath = FileManager.default.fileExists(atPath: "/usr/bin/ssh") ? "/usr/bin/ssh" : "/var/jb/usr/bin/ssh"
+    private static let sftpPath = FileManager.default.fileExists(atPath: "/usr/bin/sftp") ? "/usr/bin/sftp" : "/var/jb/usr/bin/sftp"
 
     // MARK: - Validation
 

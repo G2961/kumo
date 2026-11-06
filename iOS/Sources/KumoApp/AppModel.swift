@@ -48,6 +48,24 @@ public final class AppModel: ObservableObject {
         }
     }
 
+    /// Opens the WebView UI even when the local server failed: the bundled UI works with
+    /// remote SSH servers, so the app is still usable on devices where the local runtime
+    /// cannot spawn (AMFI-restricted).
+    public func forceUI() {
+        if uiServer == nil {
+            let ui = UIServer(targetPort: 1, user: runtime.authUser, password: runtime.password)
+            do { try ui.start() } catch { statusMessage = "UI server failed: \(error.localizedDescription)"; return }
+            uiServer = ui
+        }
+        let dir = ProjectManager.currentDir().path
+        let data = Data(dir.utf8).base64EncodedString()
+            .replacingOccurrences(of: "+", with: "-")
+            .replacingOccurrences(of: "/", with: "_")
+            .replacingOccurrences(of: "=", with: "")
+        currentURL = URL(string: "http://127.0.0.1:\(uiServer!.port)/_ui/index.html#d=\(data)")
+        phase = .ready
+    }
+
     public var isReady: Bool { phase == .ready }
     public var isLoading: Bool { phase == .preparing || phase == .loading }
 }
