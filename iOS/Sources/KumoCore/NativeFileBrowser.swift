@@ -40,10 +40,13 @@ public enum NativeFileBrowser {
             guard try attributes(at: url)[.type] as? FileAttributeType == .typeDirectory else {
                 throw NativeFileBrowserError.notDirectory(path: url.path)
             }
-            let entries = try FileManager.default.contentsOfDirectory(at: url, includingPropertiesForKeys: nil)
+            // Enumerate the resolved native path: Foundation's URL enumerator can reject directory symlink aliases.
+            let listingURL = url.resolvingSymlinksInPath()
+            let names = try FileManager.default.contentsOfDirectory(atPath: listingURL.path)
             var dirs: [String] = []
             var files: [[String: Any]] = []
-            for entry in entries.sorted(by: { $0.lastPathComponent < $1.lastPathComponent }) {
+            for name in names.sorted() {
+                let entry = url.appendingPathComponent(name)
                 let metadata = try withFileSystemError(path: entry.path, operation: "inspect entry") {
                     try attributes(at: entry)
                 }

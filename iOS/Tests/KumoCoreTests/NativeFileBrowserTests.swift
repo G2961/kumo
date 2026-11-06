@@ -165,9 +165,55 @@ final class NativeFileBrowserTests: XCTestCase {
         let files = try XCTUnwrap(listing["files"] as? [[String: Any]])
         XCTAssertEqual(files.first?["name"] as? String, "linked-file.txt")
         XCTAssertEqual(files.first?["size"] as? Int, text.utf8.count)
-        let linkedListing = try NativeFileBrowser.list(path: folderLink.path)
-        XCTAssertEqual(linkedListing["path"] as? String, folderLink.standardizedFileURL.path)
-        XCTAssertEqual((linkedListing["files"] as? [[String: Any]])?.first?["name"] as? String, "test.txt")
+        for path in [folderLink.path, folderLink.path + "/"] {
+            let linkedListing = try NativeFileBrowser.list(path: path)
+            XCTAssertEqual(linkedListing["path"] as? String, folderLink.standardizedFileURL.path)
+            XCTAssertEqual(linkedListing["dirs"] as? [String], [])
+            let linkedFiles = try XCTUnwrap(linkedListing["files"] as? [[String: Any]])
+            XCTAssertEqual(linkedFiles.count, 1)
+            XCTAssertEqual(linkedFiles.first?["name"] as? String, "test.txt")
+            XCTAssertEqual(linkedFiles.first?["size"] as? Int, text.utf8.count)
+        }
+        XCTAssertEqual(try NativeFileBrowser.read(path: folderLink.appendingPathComponent("test.txt").path)["content"] as? String, text)
+        XCTAssertEqual(try NativeFileBrowser.read(path: fileLink.path)["content"] as? String, text)
+    }
+
+    func testRelativeAndChainedSymbolicLinksPreserveAliasAndTargetContent() throws {
+        let directory = try mkdir("data")
+        let nested = try mkdir("data/nested")
+        let file = directory.appendingPathComponent("test.txt")
+        try Data(text.utf8).write(to: file)
+        try Data(text.utf8).write(to: nested.appendingPathComponent("test.txt"))
+        let aliases = try mkdir("aliases")
+        let folderLink = aliases.appendingPathComponent("relative-folder")
+        let chainedLink = aliases.appendingPathComponent("chained-folder")
+        let fileLink = aliases.appendingPathComponent("relative-file.txt")
+        try FileManager.default.createSymbolicLink(atPath: folderLink.path, withDestinationPath: "../data")
+        try FileManager.default.createSymbolicLink(atPath: chainedLink.path, withDestinationPath: "relative-folder")
+        try FileManager.default.createSymbolicLink(atPath: fileLink.path, withDestinationPath: "../data/test.txt")
+        try FileManager.default.createSymbolicLink(
+            atPath: directory.appendingPathComponent("text-link.txt").path, withDestinationPath: "test.txt"
+        )
+
+        for alias in [folderLink, chainedLink] {
+            let listing = try NativeFileBrowser.list(path: alias.path)
+            XCTAssertEqual(listing["path"] as? String, alias.standardizedFileURL.path)
+            XCTAssertEqual(listing["dirs"] as? [String], ["nested"])
+            let files = try XCTUnwrap(listing["files"] as? [[String: Any]])
+            XCTAssertEqual(files.compactMap { $0["name"] as? String }, ["test.txt", "text-link.txt"])
+            for entry in files {
+                let name = try XCTUnwrap(entry["name"] as? String)
+                XCTAssertEqual(entry["size"] as? Int, text.utf8.count)
+                let reading = try NativeFileBrowser.read(path: alias.appendingPathComponent(name).path)
+                XCTAssertEqual(reading["content"] as? String, text)
+                XCTAssertEqual(reading["size"] as? Int, text.utf8.count)
+            }
+            let nestedAlias = alias.appendingPathComponent("nested")
+            let nestedListing = try NativeFileBrowser.list(path: nestedAlias.path)
+            XCTAssertEqual(nestedListing["path"] as? String, nestedAlias.standardizedFileURL.path)
+            XCTAssertEqual((nestedListing["files"] as? [[String: Any]])?.first?["name"] as? String, "test.txt")
+            XCTAssertEqual(try NativeFileBrowser.read(path: nestedAlias.appendingPathComponent("test.txt").path)["content"] as? String, text)
+        }
         XCTAssertEqual(try NativeFileBrowser.read(path: fileLink.path)["content"] as? String, text)
     }
 
