@@ -1350,7 +1350,10 @@ final class NativeAgentBackendTests: XCTestCase {
         model.scripts = [[.text("Recovered."), .finished]]
         try await prompt(reopened, id, text: "Continue, do not repeat the edit.")
         try await waitIdle(reopened, id)
-        XCTAssertTrue(model.requests[2].messages.contains { $0.content == "unfinished" })
+        XCTAssertFalse(model.requests[2].messages.contains { $0.content == "unfinished" })
+        let recoveredState = try JSONSerialization.jsonObject(with: Data(contentsOf: snapshot)) as! [String: Any]
+        let retained = (recoveredState["transcripts"] as! [String: [[String: Any]]])[id]!
+        XCTAssertTrue(retained.contains { $0["content"] as? String == "unfinished" && $0["excludedFromContext"] as? Bool == true })
         XCTAssertEqual(model.requests[2].messages.filter { $0.toolCallID == "saved-write" }.count, 1)
         XCTAssertEqual(try String(contentsOf: file), "saved once")
         await reopened.shutdown()
