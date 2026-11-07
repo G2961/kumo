@@ -50,9 +50,30 @@ from saved metadata; no larger provider window is guessed.
   not logged. Build with `ios-diagnostics.yml`, artifact `KumoCompactionAcceptance`.
 
 Local Windows checks passed: Swift tree-sitter syntax, 10 staging/Node tests,
-29 Playwright scenarios and patch-boundary guard. Swift compilation/XCTest and
-physical-device proof must be recorded from their actual runs, not inferred from
-these checks.
+29 Playwright scenarios and patch-boundary guard. macOS CI `42377309975`
+(`e09b245`) passed all **234 XCTest** and built the app; the UI job passed.
+
+Physical iPad6,11 / iOS 16.7.12 proof (`ios-diagnostics` run `42377309804`):
+one live AgentRouter summary plus one live continuation both completed HTTP 200.
+The continuation recovered the exact synthetic non-secret fact. Request budget
+fell from **17894 to 9240**, the final estimate was 12388 (including opaque
+provider replay), original transcript/UI rows were preserved, patch history and
+user state stayed unchanged, and reopening made zero model requests.
+This run used a temporary harness-local transport observer sharing the production
+request builder/parser/decoder; the final harness removes that duplicate and
+calls `URLSessionNativeModelClient` directly. A final production-transport run
+and installed IPA verification are recorded separately below.
+
+Earlier gates were deliberately treated as failures: invalid JSON in the budget
+needed `isValidJSONObject` to avoid Foundation exceptions; one provider summary
+failed/incompleted without committing; another completed summary retained the
+recall goal but omitted its factual value. The summary instructions now explicitly
+preserve exact non-secret task values. Summaries are still lossy model output,
+not a guarantee of perfect recall; the full original transcript remains available.
+
+Standalone jailbreak CLI signing requires platform/no-container rights on this
+device. These temporary grants are **not** added to the UI host/IPA; keep its
+minimal WebKit-compatible entitlements. Remove the helper/grant after validation.
 
 ## Work log
 
@@ -65,4 +86,6 @@ these checks.
    Android canonical HTML was not modified.
 6. Reviewed cancellation/recovery and fixed batch scanning, crash flags,
    completed/error counters, replay-only estimates and counter overflow.
-7. Added isolated live-device acceptance and its CI build target.
+8. Ran macOS compilation/XCTest, browser CI and physical iPad checks; rejected
+   failed model/recall gates, refined exact-fact retention and removed temporary
+   transport duplication before final production validation.
