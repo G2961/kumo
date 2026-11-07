@@ -220,7 +220,9 @@ final class NativeAgentResumeTests: XCTestCase {
     func testRecoverableErrorsKeepOnlyLatestMarkerAndExcludeAllFailedPartialsFromFutureInput() async throws {
         let errors: [Error] = [NativeModelClientError.transport(-1200), NativeModelClientError.http(503),
             NativeModelClientError.httpReason(status: 429, reason: .rateLimited), NativeModelClientError.truncatedStream,
-            NativeModelClientError.providerFailure, NSError(domain: NSURLErrorDomain, code: -1200)]
+            NativeModelClientError.providerFailure,
+            NativeModelClientError.malformedStream("chat delta after finish reason"),
+            NSError(domain: NSURLErrorDomain, code: -1200)]
         for error in errors {
             let f = try await fixture()
             f.model.enqueue(Script(events: [.text("FAILED_ONE")], failure: error))

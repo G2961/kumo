@@ -727,6 +727,46 @@ final class NativeModelClientTests: XCTestCase {
         ])))
     }
 
+    func testChatEmptyTrailersAfterToolFinishPreserveCallsAndUsageUntilDone() throws {
+        var decoder = NativeModelStreamDecoder(format: .chatCompletions)
+        _ = try decoder.consume(chatChunk(["tool_calls": [
+            ["index": 0, "id": "read-once", "function": ["name": "read", "arguments": "{\"filePath\":\"a.txt\"}"]]
+        ]], finish: "tool_calls"))
+        for delta: [String: Any] in [[:], ["content": NSNull()], ["role": "assistant", "content": "", "reasoning_content": "", "tool_calls": []]] {
+            XCTAssertTrue(try decoder.consume(chatChunk(delta, finish: "tool_calls")).isEmpty)
+        }
+        XCTAssertTrue(try decoder.consume(frame(["choices": [["index": 0, "delta": NSNull(), "finish_reason": NSNull()]],
+            "usage": ["prompt_tokens": 12, "completion_tokens": 7]])).isEmpty)
+        XCTAssertFalse(decoder.isFinished)
+        XCTAssertThrowsError(try decoder.finish(), "A harmless tail does not replace the successful terminal marker")
+        XCTAssertEqual(eventLabels(try decoder.consume(NativeSSEFrame(event: nil, data: "[DONE]"))),
+                       ["tool:read-once:read:{\"filePath\":\"a.txt\"}", "usage:12:7", "finished"])
+    }
+
+    func testChatEmptyStopTrailerDoesNotDuplicateText() throws {
+        var decoder = NativeModelStreamDecoder(format: .chatCompletions)
+        XCTAssertEqual(eventLabels(try decoder.consume(chatChunk(["content": "Answer"], finish: "stop"))), ["text:Answer"])
+        XCTAssertTrue(try decoder.consume(frame(["choices": [["index": 0, "finish_reason": "stop"]]])).isEmpty)
+        XCTAssertEqual(eventLabels(try decoder.consume(NativeSSEFrame(event: nil, data: "[DONE]"))), ["finished"])
+    }
+
+    func testChatSubstantiveOrConflictingTrailersStillFailBeforeToolExecution() throws {
+        for delta: [String: Any] in [["content": "late text"], ["reasoning_content": "late reasoning"],
+            ["tool_calls": [["index": 0, "function": ["arguments": "late"]]]],
+            ["function_call": [:]], ["role": "user"], ["content": 123], ["unknown": "data"]] {
+            var decoder = NativeModelStreamDecoder(format: .chatCompletions)
+            _ = try decoder.consume(chatChunk([:], finish: "stop"))
+            XCTAssertThrowsError(try decoder.consume(chatChunk(delta)))
+            XCTAssertFalse(decoder.isFinished)
+        }
+        for reason in ["tool_calls", "length", "content_filter"] {
+            var decoder = NativeModelStreamDecoder(format: .chatCompletions)
+            _ = try decoder.consume(chatChunk([:], finish: "stop"))
+            XCTAssertThrowsError(try decoder.consume(chatChunk([:], finish: reason)))
+            XCTAssertFalse(decoder.isFinished)
+        }
+    }
+
     func testChatStopStillRequiresDoneAndNullContentIsAccepted() throws {
         var decoder = NativeModelStreamDecoder(format: .chatCompletions)
         _ = try decoder.consume(chatChunk(["role": "assistant", "content": NSNull()]))

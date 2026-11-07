@@ -794,8 +794,28 @@ struct NativeModelStreamDecoder {
         for choice in choices {
             let choiceIndex = try index(choice, key: "index", maximum: NativeModelLimits.outputItems)
             if choiceIndex != 0 { continue } // Requests never ask for n > 1.
-            guard chatFinishReason == nil else {
-                throw NativeModelClientError.malformedStream("chat delta after finish reason")
+            if let reason = chatFinishReason {
+                // Some compatible gateways repeat choice 0 in their final usage
+                // chunk. Accept only an empty trailer, never post-finish output.
+                if let finish = choice["finish_reason"], !(finish is NSNull) {
+                    guard finish as? String == reason else {
+                        throw NativeModelClientError.malformedStream("conflicting chat finish reason")
+                    }
+                }
+                let value = choice["delta"]
+                let delta: [String: Any]
+                if value == nil || value is NSNull { delta = [:] }
+                else if let object = value as? [String: Any] { delta = object }
+                else { throw NativeModelClientError.malformedStream("invalid chat trailer delta") }
+                guard delta.allSatisfy({ key, value in
+                    switch key {
+                    case "role": return value is NSNull || value as? String == "assistant"
+                    case "content", "reasoning_content": return value is NSNull || value as? String == ""
+                    case "tool_calls": return value is NSNull || (value as? [Any])?.isEmpty == true
+                    default: return false
+                    }
+                }) else { throw NativeModelClientError.malformedStream("chat delta after finish reason") }
+                continue
             }
             guard let delta = choice["delta"] as? [String: Any] else {
                 throw NativeModelClientError.malformedStream("missing chat delta")

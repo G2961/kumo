@@ -105,7 +105,10 @@ final class NativeProviderIntegrationTests: XCTestCase {
             prefix += try chat(["content": finalText])
         }
         var terminal = try chat([:], finish: tool == nil ? "stop" : "tool_calls")
-        terminal += try frame(["choices": [], "usage": ["prompt_tokens": input,
+        // Compatible providers may repeat the finished choice in a usage trailer.
+        terminal += try frame(["choices": [["index": 0, "delta": ["content": NSNull()],
+                                            "finish_reason": tool == nil ? "stop" : "tool_calls"]],
+                              "usage": ["prompt_tokens": input,
                                                         "completion_tokens": outputTokens,
                                                         "total_tokens": input + outputTokens]])
         terminal += Data("data: [DONE]\r\n\r\n".utf8)

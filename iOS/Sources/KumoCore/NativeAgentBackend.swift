@@ -449,7 +449,7 @@ public actor NativeAgentBackend {
     private static func recoverableModelFailure(_ error: Error) -> Bool {
         if let error = error as? NativeModelClientError {
             switch error {
-            case .transport, .http, .httpReason, .truncatedStream, .providerFailure: return true
+            case .transport, .http, .httpReason, .truncatedStream, .providerFailure, .malformedStream: return true
             default: return false
             }
         }

@@ -8,8 +8,10 @@ message is required instead of silently regenerating the turn.
 
 Before each agent model request the backend persists a session `resume`
 checkpoint: original user/message IDs, transcript boundary, provider/model,
-agent/variant, and cumulative step. On a recoverable network/HTTP/truncated or
-provider failure it keeps that checkpoint and publishes the continuation marker.
+agent/variant, and cumulative step. On a recoverable network/HTTP/truncated,
+malformed-stream or provider failure it keeps that checkpoint and publishes the
+continuation marker. Malformed output is still never executed or fed back as
+verified history; only the original failed model request is retried.
 There are no automatic billable retries. Resuming adds only a new assistant
 message under the same user turn and retries the failed request, with completed
 assistant/tool-call/tool-result history retained. Already executed tools are not
@@ -33,6 +35,21 @@ Snapshots remain version 1 with optional fields; old sessions load unchanged,
 but failures recorded before this feature have no safe resume checkpoint.
 New prompts/manual compaction invalidate old continuation buttons. Stale,
 busy, foreign-directory and malformed resume requests fail without writes.
+
+## Chat completion trailers
+
+The parser used to reject every choice chunk after `finish_reason`, including
+empty repeated choices carrying usage. It now accepts only empty trailers
+(missing/null/empty delta, empty text/reasoning/tools, optional assistant role)
+with no finish reason or the same reason. Late text, tool arguments, legacy
+calls, invalid fields and conflicting finish reasons remain errors. `[DONE]`
+is still mandatory before tool calls can execute. Decoder and real URLSession
+file-agent fixtures cover tool/read and final-text trailers; resume tests cover
+the original `chat delta after finish reason` failure category.
+
+An error recorded by an older build without a saved checkpoint cannot be made
+safely resumable retroactively. The update fixes future occurrences rather than
+inventing a tool outcome for that old message.
 
 Validation:
 - CI `42390076595` (`015af07`): **255 XCTest**, 12 staging/Node tests,
