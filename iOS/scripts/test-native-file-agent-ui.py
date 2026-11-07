@@ -70,7 +70,8 @@ ROUTES = {'/doc': ['get'], '/global/health': ['get'], '/global/config': ['get', 
           '/session': ['get', 'post'], '/experimental/session': ['get'],
           '/session/status': ['get'], '/session/{sessionID}': ['get', 'patch', 'delete'],
           '/session/{sessionID}/message': ['get'], '/session/{sessionID}/prompt_async': ['post'],
-          '/session/{sessionID}/abort': ['post'], '/session/{sessionID}/diff': ['get'],
+          '/session/{sessionID}/abort': ['post'], '/session/{sessionID}/compact': ['post'],
+          '/session/{sessionID}/diff': ['get'],
           '/permission': ['get'], '/permission/{requestID}/reply': ['post']}
 DOC = {'openapi': '3.1.0', 'paths': {p: {m: {} for m in methods} for p, methods in ROUTES.items()}}
 
@@ -138,6 +139,10 @@ class NativeFixture:
         self.session_directory = DIRECTORY
         self.native_context = None
         self.compaction = None
+        self.compaction_error = None
+        self.compact_gate = None
+        self.compact_result = {'started': True}
+        self.expected_compact = None
         self.list_context = True
         self.metadata_gate = None
         self.providers = {'providers': [], 'default': {}}
@@ -228,8 +233,9 @@ class NativeFixture:
         require(action == 'backendRequest', 'Unexpected native action: ' + action)
         method, path = data.get('method'), data.get('path')
         require(data.get('directory') == self.session_directory, 'backendRequest directory mismatch: ' + str(data))
-        session = dict(SESSION, directory=self.session_directory)
+        session: dict[str, object] = dict(SESSION, directory=self.session_directory)
         hydrated = deepcopy(session)
+        hydrated['compactionError'] = self.compaction_error
         if self.native_context is not None:
             hydrated['nativeContext'] = deepcopy(self.native_context)
         if self.compaction is not None:
@@ -259,9 +265,16 @@ class NativeFixture:
             self.permissions = []
             return True, [{'type': 'permission.replied', 'properties': {
                 'sessionID': SID, 'requestID': p['id'], 'reply': data['body']['reply']}}]
+        if method == 'POST' and path == '/session/' + SID + '/compact':
+            require(data == self.expected_compact, 'Wrong manual compaction payload: ' + repr(data))
+            if self.compact_gate:
+                await asyncio.wait_for(self.compact_gate.wait(), 10)
+            return self.compact_result, []  # Ack only; tests publish lifecycle events independently.
         if method == 'POST' and path == '/session/' + SID + '/abort':
             require('body' not in data, 'Stop unexpectedly sent a write/prompt body')
             self.status, self.permissions = 'idle', []
+            if self.native_context:
+                self.native_context['compacting'] = False
             return True, []  # Stop must reconcile via the actual syncSession, not a fake event.
         raise AssertionError('Unexpected native request: ' + str(data))
 
@@ -922,7 +935,7 @@ async def context_compacting(page, fixture, expect):
     # Native metadata, not generic session busy/idle, owns compaction indication.
     await publish(page, {'type': 'session.status', 'properties': {'sessionID': SID, 'status': {'type': 'idle'}}})
     await expect(page.locator('#nativeContextStatus')).to_contain_text('Сжатие контекста…')
-    await expect(details.locator('button')).to_have_count(0)
+    await expect(details.get_by_role('button', name='Сжать сейчас', exact=True)).to_be_disabled()
     # Restoring while compaction is still active must restore its busy label, too.
     fixture.list_context = False
     await page.reload()
@@ -994,6 +1007,7 @@ async def context_provider_fallback(page, fixture, expect):
     await expect(pop).to_contain_text('1.5k / 10.0k · 15%')
     await expect(pop).to_contain_text('Output')
     await expect(pop).not_to_contain_text('Оценка бюджета')
+    await expect(compact_button(pop)).to_be_enabled()
     await context_event(page, fixture, budget())
     await expect(pop).to_contain_text('Оценка бюджета контекста')
     # Malformed/missing native metadata fails closed to the existing provider UI.
@@ -1011,7 +1025,8 @@ async def context_provider_fallback(page, fixture, expect):
     await context_popover(page)
     await page.locator('#ctxMore').click()
     await context_event(page, fixture, None)
-    await expect(page.locator('#sheet')).not_to_have_class('on')
+    await expect(page.locator('#sheet')).to_have_class('on')
+    await expect(page.locator('#sheet')).to_contain_text('Cache read')
     # Even valid metadata cannot change the HTTP/provider path when native mode is off.
     await context_event(page, fixture, budget())
     await page.evaluate('window.KumoNativeBackend=false;updateCtxRing()')
@@ -1019,6 +1034,7 @@ async def context_provider_fallback(page, fixture, expect):
     await expect(ring).to_have_attribute('aria-label', 'Context usage')
     pop = await context_popover(page)
     await expect(pop.locator('h4')).to_have_text('Context')
+    await expect(compact_button(pop)).to_have_count(0)
 
 
 async def context_stale_hydration(page, fixture, expect):
@@ -1085,7 +1101,367 @@ async def context_layout(page, fixture, expect):
         await page.locator('#dim').click(position={'x': 10, 'y': 10})
 
 
-CASES = {'context_metadata_update': context_metadata_update, 'context_compacting': context_compacting,
+def compact_button(container):
+    return container.get_by_role('button', name='Сжать сейчас', exact=True)
+
+
+async def manual_setup(page, fixture, agent='auto', variant: str | None = 'high', metadata=True):
+    await page.evaluate("({agent,variant}) => {S.model={p:'fixture',m:'chosen'};S.agent=agent;S.efforts[modelKey()]=variant;chips()}",
+                        {'agent': agent, 'variant': variant})
+    fixture.expected_compact = {'path': '/session/' + SID + '/compact', 'method': 'POST',
+                                'directory': DIRECTORY, 'body': {
+                                    'model': {'providerID': 'fixture', 'modelID': 'chosen'},
+                                    'agent': 'plan' if agent == 'plan' else 'build'}}
+    if variant:
+        fixture.expected_compact['body']['variant'] = variant
+    if metadata:
+        await context_event(page, fixture, budget(input=1000))  # 30%, well below automatic threshold.
+
+
+async def manual_status(page, fixture, status):
+    fixture.status = status
+    await publish(page, {'type': 'session.status', 'properties': {
+        'sessionID': SID, 'status': {'type': status}}})
+
+
+async def manual_error(page, fixture, error):
+    fixture.compaction_error = error
+    await publish(page, {'type': 'session.updated', 'properties': {'info': {
+        'id': SID, 'compactionError': error}}})
+
+
+async def manual_ack_settled(page):
+    await page.wait_for_function('nativePending.size === 0')
+    await frames(page)
+
+
+async def manual_success(page, fixture, expect):
+    await manual_setup(page, fixture)
+    pop = await context_popover(page)
+    await expect(pop).to_contain_text('дополнительный запрос к модели')
+    await expect(pop).to_contain_text('Последний ход')
+    await expect(compact_button(pop)).to_be_enabled()
+    fixture.compact_gate = asyncio.Event()
+    await compact_button(pop).click()
+    await wait_calls(page, fixture, 'backendRequest', '/session/' + SID + '/compact')
+    await expect(compact_button(pop)).to_be_disabled()
+    await manual_status(page, fixture, 'busy')
+    await manual_error(page, fixture, None)
+    await context_event(page, fixture, budget(input=1000, compacting=True))
+    fixture.compact_gate.set()
+    await manual_ack_settled(page)
+    await expect(compact_button(pop)).to_be_disabled()
+    await expect(pop).to_contain_text('Сжатие контекста…')
+    await pop.locator('#ctxMore').click()
+    details = page.locator('#sheet [data-native-context-details]')
+    compact = {'boundary': 2, 'summary': 'Summary', 'created': 3000, 'count': 1}
+    await context_event(page, fixture, budget(input=200), compact)
+    await expect(details).to_contain_text('Сжатий сохранено: 1')
+    await expect(compact_button(details)).to_be_disabled()  # updated precedes idle.
+    await manual_status(page, fixture, 'idle')
+    await expect(compact_button(details)).to_be_enabled()
+    await expect(page.locator('#main')).to_contain_text('FINAL_SNAPSHOT')
+    require(len(fixture.calls('backendRequest', '/session/' + SID + '/compact')) == 1,
+            'Manual success retried automatically')
+    require(not fixture.calls('backendRequest', '/session/' + SID + '/prompt_async'), 'Compaction sent a prompt')
+
+
+async def manual_guards(page, fixture, expect):
+    await manual_setup(page, fixture)
+    pop = await context_popover(page)
+    await manual_status(page, fixture, 'busy')
+    await expect(compact_button(pop)).to_be_disabled()
+    await compact_button(pop).dispatch_event('click')
+    await manual_status(page, fixture, 'idle')
+    await page.evaluate('S.sending=true;updateCtxRing()')
+    await expect(compact_button(pop)).to_be_disabled()
+    await compact_button(pop).dispatch_event('click')
+    await page.evaluate('S.sending=false;updateCtxRing()')
+    await context_event(page, fixture, budget(compacting=True))
+    await expect(compact_button(pop)).to_be_disabled()
+    await compact_button(pop).dispatch_event('click')
+    await context_event(page, fixture, budget(input=1000))
+    require(not fixture.calls('backendRequest', '/session/' + SID + '/compact'), 'Busy guard sent compaction')
+    fixture.compact_gate, fixture.compact_result = asyncio.Event(), {'started': False, 'reason': 'nothing_to_compact'}
+    # Retain the original handler across synchronous double clicks and DOM replacement.
+    await compact_button(pop).evaluate("b => {b.click();b.dispatchEvent(new MouseEvent('click',{bubbles:true}))}")
+    await wait_calls(page, fixture, 'backendRequest', '/session/' + SID + '/compact')
+    await context_event(page, fixture, budget(input=1100))
+    await expect(compact_button(pop)).to_be_disabled()
+    await pop.locator('#ctxMore').click()
+    details = page.locator('#sheet [data-native-context-details]')
+    await expect(compact_button(details)).to_be_disabled()
+    await compact_button(details).dispatch_event('click')
+    fixture.compact_gate.set()
+    await manual_ack_settled(page)
+    await expect(details).to_contain_text('Нечего сжимать')
+    await expect(compact_button(details)).to_be_enabled()
+    require(len(fixture.calls('backendRequest', '/session/' + SID + '/compact')) == 1,
+            'Double click/re-render bypassed pending ack guard')
+    # Missing model and session are separate disabled states, not implicit creation.
+    await page.evaluate('S.provs=[];chips()')
+    await expect(compact_button(details)).to_be_disabled()
+    await compact_button(details).dispatch_event('click')
+    await page.evaluate('resetThread();contextSheet()')
+    await expect(compact_button(page.locator('#sheet'))).to_be_disabled()
+    await compact_button(page.locator('#sheet')).dispatch_event('click')
+    require(len(fixture.calls('backendRequest', '/session/' + SID + '/compact')) == 1, 'Missing model/session sent request')
+
+
+async def manual_noop_failure(page, fixture, expect):
+    await manual_setup(page, fixture, agent='plan', variant=None)
+    pop = await context_popover(page)
+    fixture.compact_result = {'started': False, 'reason': 'nothing_to_compact'}
+    await compact_button(pop).click()
+    await expect(pop).to_contain_text('Нечего сжимать')
+    await expect(pop).to_contain_text('запрос к модели не выполнялся')
+    await context_event(page, fixture, budget(input=1200))
+    await expect(pop).to_contain_text('Нечего сжимать')
+    await pop.locator('#ctxMore').click()
+    details = page.locator('#sheet [data-native-context-details]')
+    await expect(details).to_contain_text('Нечего сжимать')
+    fixture.compact_result = {'error': 'COMPACT_DENIED <img src=x onerror="window.contextInjected=true">'}
+    await compact_button(details).click()
+    await expect(details).to_contain_text('COMPACT_DENIED <img')
+    await expect(compact_button(details)).to_be_enabled()
+    await context_event(page, fixture, budget(input=1500))
+    await expect(details).to_contain_text('COMPACT_DENIED')
+    require(not await page.evaluate('window.contextInjected === true'), 'Compaction error executed HTML')
+    require(not await page.evaluate('S.running || S.sending'), 'No-op/failure left composer busy')
+    await page.evaluate('syncSession()')
+    await expect(details).to_contain_text('COMPACT_DENIED')
+    require(len(fixture.calls('backendRequest', '/session/' + SID + '/compact')) == 2, 'No-op/failure auto-retried')
+    # A later backend failure must supersede a locally retained no-op/transport message.
+    await manual_error(page, fixture, 'NEW_EVENT_FAILURE')
+    await expect(details).to_contain_text('NEW_EVENT_FAILURE')
+    await expect(details).not_to_contain_text('COMPACT_DENIED')
+    await manual_error(page, fixture, None)
+    await expect(details).not_to_contain_text('NEW_EVENT_FAILURE')
+
+
+async def manual_event_error(page, fixture, expect):
+    await manual_setup(page, fixture, agent='build', variant='low')
+    pop = await context_popover(page)
+    await compact_button(pop).click()
+    await manual_ack_settled(page)
+    await manual_status(page, fixture, 'busy')
+    await context_event(page, fixture, budget(compacting=True))
+    await manual_error(page, fixture, 'MODEL_FAILED <unsafe>')
+    await publish(page, {'type': 'session.error', 'properties': {
+        'sessionID': SID, 'error': {'name': 'UnknownError', 'data': {'message': 'MODEL_FAILED <unsafe>'}}}})
+    require(await page.evaluate("S.errors.length === 1 && S.lastErr.includes('MODEL_FAILED')"),
+            'Standard session.error path was suppressed')
+    await expect(page.locator('#main .error-card')).to_contain_text('MODEL_FAILED <unsafe>')
+    await context_event(page, fixture, budget(input=1000))
+    await manual_status(page, fixture, 'idle')
+    await expect(pop).to_contain_text('MODEL_FAILED <unsafe>')
+    await pop.locator('#ctxMore').click()
+    details = page.locator('#sheet [data-native-context-details]')
+    await page.evaluate('syncSession()')
+    await expect(details).to_contain_text('MODEL_FAILED <unsafe>')
+    # Explicit null from a new start clears the error in both session stores.
+    await manual_error(page, fixture, None)
+    await expect(details).not_to_contain_text('MODEL_FAILED')
+    require(await page.evaluate("S.sessions.find(s=>s.id===S.sid).compactionError === null"), 'Error null did not merge')
+    require(await page.evaluate('S.lastErr === null'), 'Manual error:null left its standard chat error behind')
+    await expect(page.locator('#main .error-card')).to_have_count(0)
+    require(len(fixture.calls('backendRequest', '/session/' + SID + '/compact')) == 1, 'Event error auto-retried')
+    # A successful explicit retry must not leave a stale Failed card in the conversation.
+    await compact_button(details).click()
+    await manual_ack_settled(page)
+    await manual_status(page, fixture, 'busy')
+    await manual_error(page, fixture, None)
+    await context_event(page, fixture, budget(compacting=True))
+    await context_event(page, fixture, budget(input=200), {'boundary': 2, 'summary': 'Retried', 'created': 4000, 'count': 1})
+    await manual_status(page, fixture, 'idle')
+    await expect(page.locator('#main .error-card')).to_have_count(0)
+    require(await page.evaluate('S.errors.length === 1'), 'Clearing the chat error erased the diagnostic log')
+    await page.evaluate('S.errors=[]')  # Only the deliberate standard error above is expected.
+
+
+async def manual_standard_error(page, text, sid=SID):
+    await publish(page, {'type': 'session.error', 'properties': {
+        'sessionID': sid, 'error': {'name': 'UnknownError', 'data': {'message': text}}}})
+
+
+async def manual_retry_start(page, fixture, expect):
+    await manual_setup(page, fixture)
+    pop = await context_popover(page)
+    await compact_button(pop).click()
+    await manual_ack_settled(page)
+    await manual_status(page, fixture, 'busy')
+    await context_event(page, fixture, budget(compacting=True))
+    fixture.compaction_error, fixture.native_context = 'RETRY_OWNED_ERROR', budget(input=1000)
+    await publish(page, {'type': 'session.updated', 'properties': {'info': {
+        'id': SID, 'compactionError': fixture.compaction_error, 'nativeContext': fixture.native_context}}})
+    await manual_standard_error(page, 'RETRY_OWNED_ERROR')
+    await context_event(page, fixture, budget(input=1000))
+    await manual_status(page, fixture, 'idle')
+    await expect(page.locator('#main .error-card')).to_contain_text('RETRY_OWNED_ERROR')
+    fixture.compact_gate = asyncio.Event()
+    await compact_button(pop).click()
+    # Clear the owned chat error at the user action, before any ack or start event.
+    require(await page.evaluate('S.lastErr === null'), 'New manual start retained its previous chat error')
+    await expect(page.locator('#main .error-card')).to_have_count(0)
+    fixture.compact_gate.set()
+    await manual_ack_settled(page)
+    await manual_error(page, fixture, None)
+    await expect(pop).not_to_contain_text('RETRY_OWNED_ERROR')
+    await manual_status(page, fixture, 'busy')
+    await context_event(page, fixture, budget(compacting=True))
+    await context_event(page, fixture, budget(input=200), {'boundary': 2, 'summary': 'Retry success', 'created': 4000, 'count': 1})
+    await manual_status(page, fixture, 'idle')
+    await expect(page.locator('#main .error-card')).to_have_count(0)
+    require(await page.evaluate('S.errors.length === 1'), 'Manual retry erased the diagnostic log')
+    await page.evaluate('S.errors=[]')
+
+
+async def manual_error_ownership(page, fixture, expect):
+    await manual_setup(page, fixture)
+    pop = await context_popover(page)
+    # No manual request owns an automatic/ordinary session failure, even with matching metadata.
+    await manual_error(page, fixture, 'NOT_MANUAL_ERROR')
+    await manual_standard_error(page, 'NOT_MANUAL_ERROR')
+    await manual_error(page, fixture, None)
+    await expect(page.locator('#main .error-card')).to_contain_text('NOT_MANUAL_ERROR')
+    await compact_button(pop).click()
+    await manual_ack_settled(page)
+    await manual_error(page, fixture, None)
+    await expect(page.locator('#main .error-card')).to_contain_text('NOT_MANUAL_ERROR')
+    await manual_status(page, fixture, 'busy')
+    await context_event(page, fixture, budget(compacting=True))
+    await manual_error(page, fixture, 'MANUAL_THEN_UNRELATED')
+    await manual_standard_error(page, 'MANUAL_THEN_UNRELATED')
+    await context_event(page, fixture, budget(input=1000))
+    await manual_status(page, fixture, 'idle')
+    # A foreign clear must not clear the current thread's owned error.
+    await publish(page, {'type': 'session.updated', 'properties': {'info': {
+        'id': 'ses_other', 'compactionError': None}}})
+    await expect(page.locator('#main .error-card')).to_contain_text('MANUAL_THEN_UNRELATED')
+    # An unrelated subsequent event with the SAME text replaces ownership, not just its string.
+    await manual_standard_error(page, 'MANUAL_THEN_UNRELATED')
+    await compact_button(pop).click()
+    await manual_ack_settled(page)
+    await manual_error(page, fixture, None)
+    await expect(page.locator('#main .error-card')).to_contain_text('MANUAL_THEN_UNRELATED')
+    await manual_standard_error(page, 'UNRELATED_DIFFERENT_ERROR')
+    await manual_error(page, fixture, None)
+    await expect(page.locator('#main .error-card')).to_contain_text('UNRELATED_DIFFERENT_ERROR')
+    # A completed manual success must not claim a later automatic compaction's error.
+    await manual_status(page, fixture, 'busy')
+    await context_event(page, fixture, budget(compacting=True))
+    await context_event(page, fixture, budget(input=1000))
+    await manual_status(page, fixture, 'idle')
+    await manual_error(page, fixture, 'LATER_AUTOMATIC_ERROR')
+    await manual_standard_error(page, 'LATER_AUTOMATIC_ERROR')
+    await manual_error(page, fixture, None)
+    await expect(page.locator('#main .error-card')).to_contain_text('LATER_AUTOMATIC_ERROR')
+    require(await page.evaluate('S.errors.length === 5'), 'Unexpected suppression or deletion of session errors')
+    await page.evaluate('S.errors=[]')
+
+
+async def manual_stale(page, fixture, expect):
+    await manual_setup(page, fixture)
+    pop = await context_popover(page)
+    fixture.compact_gate = asyncio.Event()
+    await compact_button(pop).click()
+    await wait_calls(page, fixture, 'backendRequest', '/session/' + SID + '/compact')
+    # Complete before ack: the late started:true must not restore busy state.
+    await manual_status(page, fixture, 'busy')
+    await context_event(page, fixture, budget(compacting=True))
+    await context_event(page, fixture, budget(input=200), {'boundary': 2, 'summary': 'Done', 'created': 3000, 'count': 1})
+    await manual_status(page, fixture, 'idle')
+    await expect(compact_button(pop)).to_be_disabled()
+    fixture.compact_gate.set()
+    await manual_ack_settled(page)
+    await expect(compact_button(pop)).to_be_enabled()
+    require(not await page.evaluate('S.running'), 'Late success ack restarted completed compaction')
+    for result in ({'started': True}, {'error': 'STALE_FAILURE'}, {'started': False, 'reason': 'nothing_to_compact'}):
+        fixture.compact_gate, fixture.compact_result = asyncio.Event(), result
+        before = len(fixture.calls('backendRequest', '/session/' + SID + '/compact'))
+        await compact_button(pop).click()
+        await wait_calls(page, fixture, 'backendRequest', '/session/' + SID + '/compact', before + 1)
+        await page.evaluate("resetThread('ses_other');S.dir='/other';S.lastErr='FOREIGN_ERROR';contextSheet()")
+        await expect(compact_button(page.locator('#sheet'))).to_be_enabled()
+        fixture.compact_gate.set()
+        await manual_ack_settled(page)
+        await expect(page.locator('#sheet')).not_to_contain_text('STALE_FAILURE')
+        await expect(page.locator('#sheet')).not_to_contain_text('Нечего сжимать')
+        require(not await page.evaluate('S.running || S.sending'), 'Stale ack changed another thread state')
+        require(await page.evaluate("S.lastErr === 'FOREIGN_ERROR'"), 'Stale ack mutated the foreign chat error')
+        # Same session ID in a different directory still must not expose the original feedback.
+        await page.evaluate('resetThread(' + json.dumps(SID) + ');contextSheet()')
+        await expect(page.locator('#sheet')).not_to_contain_text('STALE_FAILURE')
+        await expect(page.locator('#sheet')).not_to_contain_text('Нечего сжимать')
+        await page.evaluate('directory => {S.dir=directory;resetThread(' + json.dumps(SID) + ')}', DIRECTORY)
+        await page.evaluate('syncSession()')
+        pop = await context_popover(page)
+        await expect(compact_button(pop)).to_be_enabled()
+        if result.get('error'):
+            await expect(pop).to_contain_text('STALE_FAILURE')
+        elif result.get('started') is False:
+            await expect(pop).to_contain_text('Нечего сжимать')
+        await context_event(page, fixture, budget(input=1000))
+        if result.get('error'):
+            await expect(pop).to_contain_text('STALE_FAILURE')
+        require(not await page.evaluate('S.lastErr || S.running || S.sending'), 'Admission feedback mutated chat/run state')
+    # Return before an admission rejection: retain the pending guard AND the eventual feedback.
+    fixture.compact_gate, fixture.compact_result = asyncio.Event(), {'error': 'RETURNED_ADMISSION_FAILURE'}
+    await compact_button(pop).click()
+    await page.evaluate("resetThread('ses_other');resetThread(" + json.dumps(SID) + ');contextSheet()')
+    await expect(compact_button(page.locator('#sheet'))).to_be_disabled()
+    fixture.compact_gate.set()
+    await manual_ack_settled(page)
+    await expect(compact_button(page.locator('#sheet'))).to_be_enabled()
+    await expect(page.locator('#sheet')).to_contain_text('RETURNED_ADMISSION_FAILURE')
+    await page.evaluate('syncSession()')
+    await expect(page.locator('#sheet')).to_contain_text('RETURNED_ADMISSION_FAILURE')
+
+
+async def manual_fallback(page, fixture, expect):
+    await manual_setup(page, fixture, metadata=False)
+    await expect(page.locator('#ctxRing')).to_be_hidden()
+    await page.locator('#menu').click()
+    await page.locator('#drawer [data-a="settings"]').click()
+    await page.locator('[data-sa="context"]').click()
+    details = page.locator('#sheet [data-native-context-details]')
+    await expect(details).to_contain_text('No context usage yet.')
+    fixture.compact_result = {'started': False, 'reason': 'nothing_to_compact'}
+    await compact_button(details).click()
+    await expect(details).to_contain_text('Нечего сжимать')
+    await context_event(page, fixture, budget(input=1000))
+    await expect(details).to_contain_text('Оценка бюджета контекста')
+    await expect(details).to_contain_text('Нечего сжимать')
+    await page.evaluate('window.KumoNativeBackend=false;updateCtxRing();contextSheet()')
+    await expect(compact_button(page.locator('#sheet'))).to_have_count(0)
+
+
+async def manual_stop(page, fixture, expect):
+    await manual_setup(page, fixture)
+    pop = await context_popover(page)
+    fixture.compact_gate = asyncio.Event()
+    await compact_button(pop).click()
+    await wait_calls(page, fixture, 'backendRequest', '/session/' + SID + '/compact')
+    await manual_status(page, fixture, 'busy')
+    await context_event(page, fixture, budget(compacting=True))
+    require(not await page.evaluate('S.sending'), 'Manual ack blocked standard Stop via S.sending')
+    await page.locator('#inp').fill('UNSENT_COMPACTION_TEXT')
+    await page.locator('#send').click()
+    await page.wait_for_function('!S.running && syncing === null')
+    require(fixture.calls('backendRequest', '/session/' + SID + '/abort')[0]['data'] == {
+        'path': '/session/' + SID + '/abort', 'method': 'POST', 'directory': DIRECTORY}, 'Wrong manual Stop payload')
+    fixture.compact_gate.set()
+    await manual_ack_settled(page)
+    require(not await page.evaluate('S.running || S.sending'), 'Late ack undid Stop')
+    await expect(page.locator('#inp')).to_have_value('UNSENT_COMPACTION_TEXT')
+    require(not fixture.calls('backendRequest', '/session/' + SID + '/prompt_async'), 'Stop sent unsent draft')
+
+
+CASES = {'manual_success': manual_success, 'manual_guards': manual_guards,
+         'manual_noop_failure': manual_noop_failure, 'manual_event_error': manual_event_error,
+         'manual_retry_start': manual_retry_start, 'manual_error_ownership': manual_error_ownership,
+         'manual_stale': manual_stale, 'manual_fallback': manual_fallback, 'manual_stop': manual_stop,
+         'context_metadata_update': context_metadata_update, 'context_compacting': context_compacting,
          'context_compacted': context_compacted, 'context_restored': context_restored,
          'context_provider_fallback': context_provider_fallback, 'context_stale_hydration': context_stale_hydration,
          'context_stale_session': context_stale_session, 'context_layout': context_layout,
@@ -1108,9 +1484,12 @@ async def run_case(browser, origin, name, output, expect):
         fixture.list_context = False
         fixture.native_context = budget(input=1000)
         fixture.compaction = {'boundary': 2, 'summary': 'Saved context', 'created': 3000, 'count': 3}
+    if name == 'context_provider_fallback' or name.startswith('manual_'):
+        fixture.providers = {'providers': [{'id': 'fixture', 'models': {
+            'model': {'id': 'model', 'limit': {'context': 10000, 'output': 2000}},
+            'chosen': {'id': 'chosen', 'variants': {'high': {}, 'low': {}},
+                       'limit': {'context': 20000, 'output': 3000}}}}], 'default': {'fixture': 'model'}}
     if name == 'context_provider_fallback':
-        fixture.providers = {'providers': [{'id': 'fixture', 'models': {'model': {
-            'id': 'model', 'limit': {'context': 10000, 'output': 2000}}}}], 'default': {'fixture': 'model'}}
         fixture.messages[-1]['info']['tokens'] = {'input': 1000, 'output': 200, 'reasoning': 100,
                                                   'cache': {'read': 150, 'write': 50}}
     if name.startswith('permission_') or name in ('allow', 'reject', 'stop'):
@@ -1160,6 +1539,8 @@ async def run_case(browser, origin, name, output, expect):
                 fixture.metadata_gate.set()
             if fixture.reply_gate:
                 fixture.reply_gate.set()
+            if fixture.compact_gate:
+                fixture.compact_gate.set()
             for gate in fixture.fs_gates.values():
                 gate.set()
             result.update(requests=fixture.trace, unexpected=fixture.unexpected, pageErrors=errors, external=external)
@@ -1237,6 +1618,7 @@ def main():
     canonical = SOURCE.read_bytes().decode('utf-8').replace('\r\n', '\n')
     for label, old in (('permission', module.PERMISSION_OLD), ('file manager', module.FILE_MANAGER_OLD),
                        ('context', module.CONTEXT_OLD), ('context metadata event', module.CONTEXT_EVENT_OLD),
+                       ('manual context error', module.CONTEXT_ERROR_OLD),
                        ('context hydration', module.CONTEXT_SYNC_OLD)):
         require(canonical.count(old) == 1, label + ' patch is not an exact canonical block')
         mutated = old.replace('function ', 'function changed_', 1) if 'function ' in old else old.replace('const ', 'const changed_', 1)

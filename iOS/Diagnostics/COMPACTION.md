@@ -32,6 +32,37 @@ from saved metadata; no larger provider window is guessed.
   estimate, the active compaction and its saved count. Provider usage remains
   distinct. Crash recovery clears the active compaction flag.
 
+## Manual compaction
+
+The native context popover and Context settings sheet offer **Сжать сейчас**.
+It uses the selected provider/model/effort and build/plan mode, ignoring the
+80% trigger but otherwise sharing automatic compaction's safety and budget
+checks. A short cost hint explains that summarization is a provider request.
+
+`POST /session/{sessionID}/compact` accepts optional `model` (providerID/modelID),
+`variant`, and `agent`. It returns `{started:true}` immediately and publishes
+normal busy/context/idle events. It does not append user/assistant messages or
+run a tool-capable continuation. The whole latest completed user turn remains.
+An empty/single-turn/already-compacted history returns
+`{started:false,reason:"nothing_to_compact"}` with no writes or model calls.
+Busy sessions and mismatched directories are rejected before starting.
+
+Manual runs have a separate active `kind:"compaction"` marker and no owned chat
+turn: error, abort, backgrounding and crash recovery must not mark any older
+message/tool as interrupted. `session.compactionError` reports errors separately
+and clears to JSON null on a new manual start. The existing Stop button cancels
+summarization. Immediate cancellation is checked before any deferred task write.
+UI double-click protection is session-scoped, and delayed acknowledgements do
+not overwrite another thread or undo Stop. Rejected admission feedback survives
+switching away/back; successful retry clears only its own previous chat error.
+
+Regression coverage adds 12 backend tests and 9 browser scenarios for manual
+requests, repeated no-op, selection, untouched transcript/UI, failure/cancellation,
+crash/reopen, immediate-abort scheduling, busy guards and stale feedback.
+The standalone acceptance harness accepts a final `manual` argument: two exact
+scripted turns below 80%, one live summary, a zero-call no-op, and only then an
+explicit live recall request. It uses the unchanged production model transport.
+
 ## Verification
 
 - `NativeContextCompactionTests`: pure budget, safe call/result boundaries,
@@ -114,3 +145,7 @@ minimal WebKit-compatible entitlements. Remove the helper/grant after validation
 9. Passed the production-client device gate, installed the IPA with data backup
    and container path remapping, verified physical bridge/DOM launch, and removed
    the temporary standalone helper/grant.
+10. Added manual summary-only runs and context buttons, wrote behavioral tests,
+    reviewed cancellation/feedback races, and added a below-threshold device gate.
+    Local manual UI validation: 12 staging/Node tests and 38 browser scenarios
+    passed; Swift/device outcomes must be taken from their actual CI/live runs.

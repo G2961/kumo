@@ -5,21 +5,29 @@ import Darwin
 // Standalone physical-iPad CLI (iOS 15+), never bundled in the application.
 // Compile ONLY with NativeAgentBackend.swift, NativeContextCompaction.swift,
 // NativeFileTools.swift, NativeModelClient.swift and NativeProviderCompatibility.swift.
-// Usage: KumoCompactionAcceptance <state.json> <providerID> <fresh-absolute-test-root>
+// Usage: KumoCompactionAcceptance <state.json> <providerID> <fresh-absolute-test-root> [manual]
 // Requires the owner's existing Keychain entitlement. Reads, never migrates, credentials.
-// One scripted seed, then ONE live AgentRouter summary + continuation (two billable
-// streams maximum, no retry). Live requests use URLSessionNativeModelClient unchanged.
-// Only the isolated root is written; leave it for inspection.
-// The 20000-byte conservative estimate window is diagnostic-local, not provider metadata.
+// Auto (default): one scripted seed, then ONE live AgentRouter summary + continuation.
+// Manual: two scripted turns, POST compact (summary only), no-op repeat, explicit recall.
+// Both modes allow two billable streams maximum, no retry; live requests use
+// URLSessionNativeModelClient unchanged. Only the isolated root is written.
+// The estimate window is diagnostic-local: auto 20000 bytes, manual 100000 bytes.
 // A parent should allow 180s; this process exits nonzero after a 175s hard deadline.
 // Stdout is fixed CHECK categories and counts only. Backend NSLog stderr is suppressed
 // because even a storage error could otherwise disclose a path. Never print model text.
 @available(iOS 15.0, macOS 12.0, *)
 @main
 struct CompactionAcceptance {
-    private static let context = 20_000
+    private enum Mode {
+        case auto, manual
+        var context: Int { self == .manual ? 100_000 : 20_000 }
+        var scriptedCount: Int { self == .manual ? 2 : 1 }
+    }
+
     private static let code = "context_compaction_lime_47"
     private static let seedAnswer = "Recorded."
+    private static let manualLatest = "Keep the remembered acceptance code for later. Reply only OK, no tools."
+    private static let manualAnswer = "OK"
     private static let latest = "What acceptance code did I ask you to remember? Return only it, no tools."
     private static let seed: String = {
         let prefix = "Remember this acceptance code for the next turn: " + code
@@ -31,6 +39,8 @@ struct CompactionAcceptance {
         case arguments, device, output, source, config, keychain, root
         case credentialWrite = "credential_write"
         case fixture, streams, budget, checkpoint, history, answer, tools, reopen
+        case manualStarted = "manual_started"
+        case manualNoop = "manual_noop"
         case userState = "user_state"
         case timeout, backend
         case verified
@@ -53,17 +63,19 @@ struct CompactionAcceptance {
         do {
             let args = CommandLine.arguments
             try requireIPad()
-            guard args.count == 4 else { throw Failure.arguments }
+            guard args.count == 4 || (args.count == 5 && args[4] == "manual") else { throw Failure.arguments }
+            let mode: Mode = args.count == 5 ? .manual : .auto
+            let context = mode.context
             let sink = open("/dev/null", O_WRONLY)
             guard sink >= 0 else { throw Failure.output }
             let redirected = dup2(sink, STDERR_FILENO)
             if sink != STDERR_FILENO { close(sink) }
             guard redirected >= 0 else { throw Failure.output }
-            let source = try Source(statePath: args[1], providerID: args[2])
+            let source = try Source(statePath: args[1], providerID: args[2], context: context)
             let root = try prepareRoot(args[3], source: source)
             let project = root.appendingPathComponent("project", isDirectory: true)
             try FileManager.default.createDirectory(at: project, withIntermediateDirectories: false)
-            let client = LiveModel()
+            let client = LiveModel(mode: mode)
             let backend = try source.backend(root: root, client: client)
             active = backend
             let events = Events()
@@ -77,8 +89,8 @@ struct CompactionAcceptance {
 
             try await prompt(backend, sid: sid, project: project, source: source, text: seed)
             try await waitIdle(backend, sid: sid, deadline: deadline)
-            let original = try Snapshot(root: root, sid: sid)
-            let oldUI = try await messages(backend, sid: sid, project: project)
+            var original = try Snapshot(root: root, sid: sid)
+            var oldUI = try await messages(backend, sid: sid, project: project)
             let seeded = client.requests
             try check(seeded.count == 1 && client.requestCount == 1 && !client.denied, .fixture, count: seeded.count)
             guard let baseline = seeded.first else { throw Failure.fixture }
@@ -91,26 +103,65 @@ struct CompactionAcceptance {
                 && events.errors == 0, .fixture, count: original.transcript.count)
             try check(try json(oldUI) == json(original.visible), .history, count: oldUI.count)
 
-            // Use the backend's actual system/tools from the seed, not a reconstructed prompt.
-            let full = try decode(original.transcript) + [NativeModelMessage(role: "user", content: latest)]
-            let before = try budget(baseline, messages: full)
-            try check(before >= context - context / 5 && before < context, .budget, count: before)
-            try check(NativeContextCompaction.boundary(in: full, after: 0) == original.transcript.count,
-                      .checkpoint, count: original.transcript.count)
+            let boundary = original.transcript.count
+            if mode == .manual {
+                try await prompt(backend, sid: sid, project: project, source: source, text: manualLatest)
+                try await waitIdle(backend, sid: sid, deadline: deadline)
+                let prepared = try Snapshot(root: root, sid: sid)
+                let preparedUI = try await messages(backend, sid: sid, project: project)
+                let requests = client.requests
+                try check(requests.count == 2 && client.requestCount == 2 && client.liveCount == 0
+                    && !client.denied && events.compactingUpdates == 0 && events.errors == 0,
+                          .fixture, count: requests.count)
+                let preparation = requests[1]
+                try check(preparation.system == baseline.system && source.matches(preparation)
+                    && preparation.effort == baseline.effort
+                    && (try json(preparation.tools)) == json(baseline.tools)
+                    && (try json(rows(preparation.messages))) == json(original.transcript + rows([
+                        NativeModelMessage(role: "user", content: manualLatest)]))
+                    && (try budget(preparation)) < context - context / 5,
+                          .fixture, count: preparation.messages.count)
+                try check(prepared.transcript.count == 4 && preparedUI.count == 4
+                    && (try json(prepared.transcript)) == json(original.transcript + rows([
+                        NativeModelMessage(role: "user", content: manualLatest),
+                        NativeModelMessage(role: "assistant", content: manualAnswer)]))
+                    && (try json(Array(preparedUI.prefix(oldUI.count)))) == json(oldUI)
+                    && (try json(preparedUI)) == json(prepared.visible)
+                    && prepared.session["compaction"] == nil && prepared.active.isEmpty && completed(preparedUI),
+                          .fixture, count: prepared.transcript.count)
+                original = prepared
+                oldUI = preparedUI
+            }
 
-            try await prompt(backend, sid: sid, project: project, source: source, text: latest)
+            // Use the backend's actual system/tools from the seed, not a reconstructed prompt.
+            let full = try decode(original.transcript)
+                + (mode == .manual ? [] : [NativeModelMessage(role: "user", content: latest)])
+            let before = try budget(baseline, messages: full)
+            try check((mode == .manual ? before < context - context / 5 : before >= context - context / 5)
+                && before < context, .budget, count: before)
+            try check(NativeContextCompaction.boundary(in: full, after: 0) == boundary,
+                      .checkpoint, count: boundary)
+
+            let messageUpdatesBefore = events.messageUpdates
+            if mode == .manual {
+                let result = try await backend.request(method: "POST", path: "/session/" + sid + "/compact",
+                                                       directory: project.path, body: source.selection)
+                try check(try json(result) == json(["started": true]), .manualStarted, count: 1)
+            } else {
+                try await prompt(backend, sid: sid, project: project, source: source, text: latest)
+            }
             try await waitIdle(backend, sid: sid, deadline: deadline)
             client.printCounts()
-            let requests = client.requests
-            try check(requests.count == 3 && client.requestCount == 3
-                && client.liveSummary == 1 && client.liveContinuation == 1
-                && client.liveCount == 2 && !client.denied, .streams, count: client.requestCount)
-            guard requests.count == 3 else { throw Failure.streams }
-            let summaryRequest = requests[1], continuation = requests[2]
-            let saved = try Snapshot(root: root, sid: sid)
-            guard let object = saved.session["compaction"] as? [String: Any] else { throw Failure.checkpoint }
+            let compactingRequests = client.requests
+            try check(compactingRequests.count == 3 && client.requestCount == 3
+                && client.liveSummary == 1 && client.liveContinuation == (mode == .manual ? 0 : 1)
+                && client.liveCount == (mode == .manual ? 1 : 2) && !client.denied,
+                      .streams, count: client.requestCount)
+            let summaryRequest = compactingRequests[mode.scriptedCount]
+            let compacted = try Snapshot(root: root, sid: sid)
+            guard let object = compacted.session["compaction"] as? [String: Any] else { throw Failure.checkpoint }
             let checkpoint = try JSONDecoder().decode(NativeContextCheckpoint.self, from: json(object))
-            try check(checkpoint.count == 1 && checkpoint.boundary == original.transcript.count
+            try check(checkpoint.count == 1 && checkpoint.boundary == boundary
                 && checkpoint.created > 0 && !checkpoint.summary.isEmpty
                 && checkpoint.summary.contains(code), .checkpoint, count: checkpoint.count)
             let info = try await backend.request(method: "GET", path: "/session/" + sid, directory: project.path, body: nil)
@@ -118,7 +169,7 @@ struct CompactionAcceptance {
             try check(try json(apiCheckpoint) == json(object), .checkpoint, count: checkpoint.boundary)
 
             let expectedSummary = try NativeContextCompaction.summaryRequestMessages(
-                full: full, checkpoint: nil, boundary: original.transcript.count)
+                full: full, checkpoint: nil, boundary: boundary)
             try check(summaryRequest.system == NativeContextCompaction.summaryInstructions
                 && summaryRequest.tools.isEmpty && summaryRequest.messages.count == 1
                 && (try json(rows(summaryRequest.messages))) == json(rows(expectedSummary))
@@ -130,17 +181,60 @@ struct CompactionAcceptance {
             try check(wireBody["tools"] == nil && wire.httpMethod == "POST"
                 && wire.url?.path.hasSuffix("/responses") == true
                 && (try budget(summaryRequest)) < context, .streams, count: client.liveSummary)
-            let expectedActive = NativeContextCompaction.activeMessages(full, checkpoint: checkpoint)
+            let compactedActive = NativeContextCompaction.activeMessages(full, checkpoint: checkpoint)
+            let compactedBudget = try budget(baseline, messages: compactedActive)
+            try check(events.compactingUpdates > 0 && events.beforeBudget == before
+                && events.checkpointBudget == compactedBudget, .budget, count: events.compactingUpdates)
+            if mode == .manual {
+                let compactedUI = try await messages(backend, sid: sid, project: project)
+                // Entire rows, including IDs, timestamps, replay and parts, must survive;
+                // a manual summary must not append even an empty assistant placeholder.
+                try check((try json(compacted.transcript)) == json(original.transcript)
+                    && (try json(compacted.visible)) == json(original.visible)
+                    && (try json(compactedUI)) == json(oldUI)
+                    && completed(compactedUI) && compacted.active.isEmpty
+                    && events.messageUpdates == messageUpdatesBefore && events.errors == 0,
+                          .history, count: compactedUI.count)
+                try check(checkpoint.boundary == original.transcript.count - 2
+                    && (try json(rows(Array(compactedActive.dropFirst())))) == json(Array(original.transcript.suffix(2))),
+                          .checkpoint, count: checkpoint.boundary)
+                guard let metadata = info["nativeContext"] as? [String: Any],
+                      let input = metadata["input"] as? Int else { throw Failure.budget }
+                try check(metadata["estimated"] as? Bool == true && metadata["compacting"] as? Bool == false
+                    && metadata["limit"] as? Int == context && metadata["reserve"] as? Int == source.output
+                    && input + source.output == compactedBudget && compactedBudget < before
+                    && compactedBudget < context - context / 5
+                    && info["compactionError"] is NSNull && compacted.session["compactionError"] is NSNull
+                    && (try json(metadata)) == json(compacted.session["nativeContext"] ?? NSNull()),
+                          .budget, count: compactedBudget)
+                try await verifyManualNoop(backend, sid: sid, project: project, root: root, source: source,
+                                           client: client, events: events, deadline: deadline)
+                // Only after all summary-only/no-op checks may the second live stream run.
+                try client.allowManualContinuation()
+                try await prompt(backend, sid: sid, project: project, source: source, text: latest)
+                try await waitIdle(backend, sid: sid, deadline: deadline)
+                client.printCounts()
+            }
+            let requests = client.requests
+            try check(requests.count == mode.scriptedCount + 2 && client.requestCount == mode.scriptedCount + 2
+                && client.liveSummary == 1 && client.liveContinuation == 1 && client.liveCount == 2 && !client.denied,
+                      .streams, count: client.requestCount)
+            let continuation = requests[mode.scriptedCount + 1]
+            let saved = try Snapshot(root: root, sid: sid)
+            if mode == .manual {
+                try check(try json(saved.session["compaction"] ?? NSNull()) == json(object),
+                          .checkpoint, count: checkpoint.count)
+            }
+            let continuationFull = full + (mode == .manual ? [NativeModelMessage(role: "user", content: latest)] : [])
+            let expectedActive = NativeContextCompaction.activeMessages(continuationFull, checkpoint: checkpoint)
             try check(continuation.system == baseline.system && !continuation.tools.isEmpty
                 && source.matches(continuation) && continuation.effort == baseline.effort
                 && (try json(continuation.tools)) == json(baseline.tools)
                 && (try json(rows(continuation.messages))) == json(rows(expectedActive))
-                && continuation.messages.count == 2 && continuation.messages.last?.content == latest,
+                && continuation.messages.count == (mode == .manual ? 4 : 2) && continuation.messages.last?.content == latest,
                       .streams, count: client.liveContinuation)
             let after = try budget(continuation)
             try check(after < before && after < context, .budget, count: after)
-            try check(events.compactingUpdates > 0 && events.beforeBudget == before
-                && events.checkpointBudget == after, .budget, count: events.compactingUpdates)
             guard let current = saved.session["nativeContext"] as? [String: Any],
                   let input = current["input"] as? Int else { throw Failure.budget }
             let finalEstimate = try budget(continuation, messages: NativeContextCompaction.activeMessages(
@@ -246,7 +340,7 @@ struct CompactionAcceptance {
         private let key: String
         private let baseURL: URL
 
-        init(statePath: String, providerID: String) throws {
+        init(statePath: String, providerID: String, context: Int) throws {
             guard validPath(statePath), providerID.range(of: "^[A-Za-z0-9._-]{1,128}$", options: .regularExpression) != nil,
                   !["__proto__", "constructor", "prototype"].contains(providerID) else { throw Failure.arguments }
             let stateURL = URL(fileURLWithPath: statePath).standardizedFileURL
@@ -282,7 +376,7 @@ struct CompactionAcceptance {
             let savedOutput = limits["output"] as? Int ?? min(4096, savedContext / 4)
             guard savedOutput > 0, savedOutput < savedContext else { throw Failure.config }
             let output = min(savedOutput, 1000)
-            // Never expand a saved window. This smaller local estimate forces auto80%.
+            // Never expand a saved window; auto forces 80%, manual stays below it.
             limits["context"] = context
             limits["output"] = output
             if let input = limits["input"] as? Int { limits["input"] = min(input, context) }
@@ -308,6 +402,12 @@ struct CompactionAcceptance {
             self.key = key
             self.baseURL = baseURL
             self.config = ["provider": [providerID: provider], "model": providerID + "/" + modelID]
+        }
+
+        var selection: [String: Any] {
+            var body: [String: Any] = ["agent": "build", "model": ["providerID": providerID, "modelID": modelID]]
+            if let variant { body["variant"] = variant }
+            return body
         }
 
         func validateRoot(_ path: String) throws {
@@ -449,10 +549,31 @@ struct CompactionAcceptance {
     }
 
     private static func prompt(_ backend: NativeAgentBackend, sid: String, project: URL, source: Source, text: String) async throws {
-        var body: [String: Any] = ["parts": [["type": "text", "text": text]], "agent": "build",
-                                  "model": ["providerID": source.providerID, "modelID": source.modelID]]
-        if let variant = source.variant { body["variant"] = variant }
+        var body = source.selection
+        body["parts"] = [["type": "text", "text": text]]
         _ = try await backend.request(method: "POST", path: "/session/" + sid + "/prompt_async", directory: project.path, body: body)
+    }
+
+    private static func verifyManualNoop(_ backend: NativeAgentBackend, sid: String, project: URL, root: URL,
+                                          source: Source, client: LiveModel, events: Events, deadline: TimeInterval) async throws {
+        let url = root.appendingPathComponent("native-agent/state.json")
+        let before = try boundedData(url, maximum: 32 * 1024 * 1024)
+        let oldUI = try await messages(backend, sid: sid, project: project)
+        let eventCount = events.count
+        let requestCount = client.requestCount
+        for _ in 0..<2 {
+            let result = try await backend.request(method: "POST", path: "/session/" + sid + "/compact",
+                                                   directory: project.path, body: source.selection)
+            try check(try json(result) == json(["started": false, "reason": "nothing_to_compact"]),
+                      .manualNoop, count: 0)
+            try await waitIdle(backend, sid: sid, deadline: deadline)
+            let ui = try await messages(backend, sid: sid, project: project)
+            try check(client.requestCount == requestCount && client.requests.count == requestCount
+                && client.liveCount == 1 && client.liveSummary == 1 && client.liveContinuation == 0 && !client.denied
+                && events.count == eventCount && (try json(ui)) == json(oldUI)
+                && (try boundedData(url, maximum: 32 * 1024 * 1024)) == before,
+                      .manualNoop, count: client.requestCount - requestCount)
+        }
     }
 
     private static func waitIdle(_ backend: NativeAgentBackend, sid: String, deadline: TimeInterval) async throws {
@@ -511,12 +632,23 @@ struct CompactionAcceptance {
     private final class LiveModel: NativeModelClient, @unchecked Sendable {
         private let lock = NSLock()
         private let transport = URLSessionNativeModelClient()
+        private let mode: Mode
+        private var manualContinuationAllowed = false
         private var stored: [NativeModelRequest] = []
         private var attempts = 0
         private var summaries = 0
         private var continuations = 0
         private var rejected = false
         private let limit = 2
+
+        init(mode: Mode) { self.mode = mode }
+
+        func allowManualContinuation() throws {
+            lock.lock(); defer { lock.unlock() }
+            guard mode == .manual, attempts == 3, stored.count == 3,
+                  summaries == 1, continuations == 0, !rejected, !manualContinuationAllowed else { throw Failure.streams }
+            manualContinuationAllowed = true
+        }
 
         var requests: [NativeModelRequest] { lock.lock(); defer { lock.unlock() }; return stored }
         var requestCount: Int { lock.lock(); defer { lock.unlock() }; return attempts }
@@ -538,10 +670,17 @@ struct CompactionAcceptance {
             attempts += 1
             let index = attempts - 1
             let summary = request.system == NativeContextCompaction.summaryInstructions
-            let scripted = index == 0 && !summary && request.messages.count == 1
-                && request.messages.first?.content == seed
-            let live = index > 0 && summaries + continuations < limit
-                && ((index == 1 && summary) || (index == 2 && !summary))
+            let seedMessages = [NativeModelMessage(role: "user", content: seed)]
+            let preparationMessages = seedMessages + [NativeModelMessage(role: "assistant", content: seedAnswer),
+                                                       NativeModelMessage(role: "user", content: manualLatest)]
+            let scriptedSeed = index == 0 && !summary && Self.matches(request.messages, seedMessages)
+            let scriptedLatest = mode == .manual && index == 1 && !summary
+                && Self.matches(request.messages, preparationMessages)
+            let scripted = scriptedSeed || scriptedLatest
+            let live = summaries + continuations < limit
+                && ((index == mode.scriptedCount && summary)
+                    || (index == mode.scriptedCount + 1 && !summary
+                        && (mode == .auto || manualContinuationAllowed)))
             if scripted || live { stored.append(request) }
             if live {
                 if summary { summaries += 1 } else { continuations += 1 }
@@ -550,7 +689,7 @@ struct CompactionAcceptance {
             lock.unlock()
             if scripted {
                 return AsyncThrowingStream { continuation in
-                    continuation.yield(.text(seedAnswer))
+                    continuation.yield(.text(scriptedSeed ? seedAnswer : manualAnswer))
                     continuation.yield(.finished)
                     continuation.finish()
                 }
@@ -559,6 +698,11 @@ struct CompactionAcceptance {
             // Metered passthrough: production owns networking, decoding and cancellation.
             printCounts()
             return transport.stream(request: request)
+        }
+
+        private static func matches(_ actual: [NativeModelMessage], _ expected: [NativeModelMessage]) -> Bool {
+            guard let actual = try? json(rows(actual)), let expected = try? json(rows(expected)) else { return false }
+            return actual == expected
         }
     }
 
@@ -576,12 +720,16 @@ struct CompactionAcceptance {
     private final class Events: @unchecked Sendable {
         private let lock = NSLock()
         private var errorCount = 0
+        private var eventCount = 0
+        private var messageCount = 0
         private var permissionCount = 0
         private var toolCount = 0
         private var compactingCount = 0
         private var before: Int?
         private var after: Int?
         var errors: Int { lock.lock(); defer { lock.unlock() }; return errorCount }
+        var count: Int { lock.lock(); defer { lock.unlock() }; return eventCount }
+        var messageUpdates: Int { lock.lock(); defer { lock.unlock() }; return messageCount }
         var permissions: Int { lock.lock(); defer { lock.unlock() }; return permissionCount }
         var toolParts: Int { lock.lock(); defer { lock.unlock() }; return toolCount }
         var compactingUpdates: Int { lock.lock(); defer { lock.unlock() }; return compactingCount }
@@ -591,6 +739,8 @@ struct CompactionAcceptance {
         func receive(_ event: [String: Any]) {
             lock.lock(); defer { lock.unlock() }
             let type = event["type"] as? String
+            eventCount += 1
+            if type?.hasPrefix("message.") == true { messageCount += 1 }
             let properties = event["properties"] as? [String: Any] ?? [:]
             if type == "session.error" { errorCount += 1 }
             if type == "permission.asked" { permissionCount += 1 }

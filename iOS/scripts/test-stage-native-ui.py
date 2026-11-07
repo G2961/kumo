@@ -94,10 +94,80 @@ class StageTests(unittest.TestCase):
         self.assertIn("api('/session/'+sid,{directory:dir})", sync)
         self.assertNotIn("/compact", sync)
 
+    def test_native_manual_compaction_boundary(self):
+        context = self.stage.NATIVE_CONTEXT
+        self.assertIn('data-native-compact', context)
+        self.assertIn('Сжать сейчас', context)
+        self.assertIn("S.efforts[modelKey()]", context)
+        self.assertIn("model:{providerID:m.p,modelID:m.m}", context)
+        self.assertIn("agent:S.agent==='plan'?'plan':'build'", context)
+        self.assertIn("method:'POST',body,directory:dir", context)
+        self.assertIn("['nativeContext','compaction','compactionError']", context)
+        action = section(context, ' async function compact(){', ' function integer(')
+        self.assertNotIn('S.running=', action)
+        self.assertNotIn('S.sending=', action)
+        self.assertNotIn('ensureModelVariants', action)
+        self.assertEqual(self.html.count("'/compact'"), 1)
+        # The request lives only in the explicit action, never update/hydration/refresh.
+        self.assertIn("'/compact'", action)
+        self.assertIn('if(blocked())return;', action)
+        # Android's original fallback remains unchanged behind native-only branches.
+        self.assertIn("if(window.KumoNativeBackend){nativeContextUI.showSheet(info);return}", self.html)
+        self.assertIn('function ctxMoreSheet(){', self.source)
+        self.assertNotIn('data-native-compact', self.source)
+
+    @unittest.skipUnless(shutil.which("node"), "Node is not installed")
+    def test_context_error_metadata_merge(self):
+        # Exercise the real update() against both independently held session stores.
+        harness = r"""
+const assert=require('node:assert/strict');
+const window={KumoNativeBackend:true};
+const S={sid:'one',dir:'/workspace',sessions:[],folderSessions:new Map(),lastErr:'unrelated'};
+""" + self.stage.NATIVE_CONTEXT + r"""
+const list={id:'one'},folder={id:'one'};
+S.sessions=[list];S.folderSessions.set(S.dir,[folder]);
+const nativeContext={input:1,reserve:2,limit:10,estimated:true,compacting:false};
+const compaction={count:1,boundary:2,created:3,summary:'summary'};
+nativeContextUI.update({id:'one',nativeContext,compaction,compactionError:'failed'},false);
+for(const s of [list,folder]){
+ assert.equal(s.compactionError,'failed');
+ assert.deepEqual(s.nativeContext,nativeContext);
+ assert.deepEqual(s.compaction,compaction);
+}
+nativeContextUI.update({id:'one',nativeContext:{...nativeContext,input:2}},false);
+for(const s of [list,folder])assert.equal(s.compactionError,'failed');
+nativeContextUI.sessionError({sessionID:'one'});
+nativeContextUI.update({id:'one',compactionError:null},false);
+for(const s of [list,folder])assert.equal(s.compactionError,null);
+assert.equal(S.lastErr,'unrelated','Metadata without a manual request must not clear a chat error');
+nativeContextUI.update({id:'one',compactionError:'restored'},true);
+for(const s of [list,folder]){
+ assert.equal(s.compactionError,'restored');
+ assert.equal(s.nativeContext,null);
+ assert.equal(s.compaction,null);
+}
+nativeContextUI.update({id:'other',compactionError:'foreign'},false);
+assert.equal(list.compactionError,'restored');
+nativeContextUI.update({id:'one'},true);
+assert.equal(folder.compactionError,null);
+window.KumoNativeBackend=false;
+nativeContextUI.update({id:'one',compactionError:'HTTP'},false);
+assert.equal(folder.compactionError,null);
+console.log('context error metadata merge passed');
+"""
+        with tempfile.TemporaryDirectory() as tmp:
+            script = Path(tmp) / 'context-metadata.cjs'
+            script.write_text(harness, encoding='utf-8')
+            result = subprocess.run(['node', str(script)], check=False, capture_output=True, text=True, timeout=10)
+        self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
+        self.assertIn('context error metadata merge passed', result.stdout)
+
     def test_render_events_and_history_are_untouched(self):
         events = section(self.source, "function onEvent(ev)", "function resetThread(")
         expected_events = self.stage.replace_exact(events, self.stage.CONTEXT_EVENT_OLD,
                                                    self.stage.CONTEXT_EVENT_NEW, "context metadata event")
+        expected_events = self.stage.replace_exact(expected_events, self.stage.CONTEXT_ERROR_OLD,
+                                                   self.stage.CONTEXT_ERROR_NEW, "manual context error ownership")
         self.assertEqual(section(self.html, "function onEvent(ev)", "function resetThread("), expected_events)
         for start, end in (
             ("function formatDiff(", "function configuredRules("),
@@ -109,7 +179,7 @@ class StageTests(unittest.TestCase):
         self.assertNotIn("x-native-capabilities", self.html)
 
     def test_exact_patches_fail_closed(self):
-        for old in ("async function api(path,o={}){", "function connectSSE(){", "await (await fetch('/doc')).json()", 'id="pmManual" hidden', "let fetched=await fetchProviderModels(url.href,key);", "function contextInfo(){", "function updateCtxRing(){", "function renderCtxPop(){", "function ctxMoreSheet(){", "function contextSheet(){", "const [messages,statuses,permissions,questions]=", "const i=p.info;if(!i)return;const s=S.sessions.find"):
+        for old in ("async function api(path,o={}){", "function connectSSE(){", "await (await fetch('/doc')).json()", 'id="pmManual" hidden', "let fetched=await fetchProviderModels(url.href,key);", "function contextInfo(){", "function updateCtxRing(){", "function renderCtxPop(){", "function ctxMoreSheet(){", "function contextSheet(){", "const [messages,statuses,permissions,questions]=", "const i=p.info;if(!i)return;const s=S.sessions.find", "S.lastErr=null;S.sending=", "finally{if(view===S.view)S.sending=", "const e=p.error;S.lastErr="):
             with self.subTest(old=old), self.assertRaisesRegex(ValueError, "patch"):
                 self.stage.patch_html(self.source.replace(old, old + " changed", 1))
         with self.assertRaises(ValueError):

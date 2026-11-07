@@ -21,6 +21,10 @@ No context default is guessed; a fallback does not override existing limits.
 Session nativeContext {input,reserve,limit,estimated:true,compacting} supplies a
 conservative budget estimate, not tokenizer usage. Session GET hydrates it and
 session.updated refreshes it; compaction.count is persisted by the backend.
+Manual POST /session/{sid}/compact captures directory, model, agent and variant;
+started:true only acknowledges launch. Events own busy/idle and completion.
+started:false/nothing_to_compact uses no model; compactionError is cleared by
+an explicit null at start and survives session hydration when errors occur.
 The parent must use safe HTTPS URLSession requests without secret-bearing redirects.
 Existing auth PUTs use backendRequest; existing history actions use NativePatchLedger.
 Serve parent-owned assets at kumo://app/_ui/index.html; /_ui/ URLs stay unchanged.
@@ -276,14 +280,62 @@ function contextSheet(){
 NATIVE_CONTEXT = r"""const nativeContextUI=(function(){
  'use strict';
  const note='Консервативная оценка входа + резерв ответа, не фактический подсчёт токенизатором. Контекст сжимается автоматически. Полная история переписки сохраняется.';
+ // Pending acknowledgements belong to a workspace/session, never to a rendered button.
+ const requests=new Map();
+ const key=()=>JSON.stringify([S.dir,S.sid]);
+ const session=()=>S.sessions.find(s=>s.id===S.sid)||(S.folderSessions.get(S.dir)||[]).find(s=>s.id===S.sid);
+ function blocked(){
+  const m=currentModel();
+  return !window.KumoNativeBackend||!S.sid||!m?.p||!m?.m||S.running||S.sending||!!requests.get(key())?.pending||session()?.nativeContext?.compacting===true;
+ }
+ function feedback(){
+  const request=requests.get(key()),error=session()?.compactionError;
+  return request?.message||(typeof error==='string'&&error?'Ошибка сжатия: '+nativeErrorMessage(error):'')||(request?.pending?'Отправляем запрос на сжатие…':'');
+ }
+ function actions(){
+  return '<div data-native-context-actions><p class="note">Сжатие — дополнительный запрос к модели и возможные расходы. Последний ход остаётся в контексте. Полная история переписки сохраняется.</p>'
+   +'<div class="btns"><button class="btn" data-native-compact'+(blocked()?' disabled':'')+'>Сжать сейчас</button></div>'
+   +'<p class="note" role="status" aria-live="polite" data-native-compaction-feedback>'+esc(feedback())+'</p></div>';
+ }
+ function clearChatError(request){
+  const owned=request?.chatError;
+  if(owned&&owned.view===S.view&&owned.text===S.lastErr){S.lastErr=null;sched()}
+  if(request)request.chatError=null;
+ }
+ function sessionError(event){
+  const request=requests.get(key());if(!request)return;
+  // Consume the paired metadata error once; a later, even identical, error is unrelated.
+  request.chatError=event.sessionID===S.sid&&request.eventError===S.lastErr?{view:S.view,text:S.lastErr}:null;
+  request.eventError=null;request.active=false;
+ }
+ function bind(root){const button=root.querySelector('[data-native-compact]');if(button)button.onclick=compact}
+ async function compact(){
+  if(blocked())return;
+  const sid=S.sid,dir=S.dir,id=key(),m=currentModel(),currentEff=S.efforts[modelKey()];
+  const body={model:{providerID:m.p,modelID:m.m},agent:S.agent==='plan'?'plan':'build'};
+  if(currentEff)body.variant=currentEff;
+  clearChatError(requests.get(id));
+  const request={pending:true,active:true,message:''};requests.set(id,request);
+  updateCtxRing();
+  try{
+   const result=await api('/session/'+encodeURIComponent(sid)+'/compact',{method:'POST',body,directory:dir});
+   if(result?.started===false&&result.reason==='nothing_to_compact'){request.active=false;request.message='Нечего сжимать: запрос к модели не выполнялся.'}
+   else if(result?.started!==true)throw new Error('Не удалось подтвердить запуск сжатия.');
+   // Never set running here: completion or Stop may have arrived before this ack.
+  }catch(error){request.active=false;request.message='Ошибка сжатия: '+nativeErrorMessage(error)}
+  finally{
+   request.pending=false;
+   if(!request.active&&!request.message&&!request.chatError&&!request.eventError)requests.delete(id);
+   if(sid===S.sid&&dir===S.dir)updateCtxRing();
+  }
+ }
  function integer(n){return Number.isSafeInteger(n)&&n>=0}
  function info(){
   if(!window.KumoNativeBackend||!S.sid)return null;
-  const session=S.sessions.find(s=>s.id===S.sid)||(S.folderSessions.get(S.dir)||[]).find(s=>s.id===S.sid);
-  const n=session&&session.nativeContext;
+  const current=session(),n=current&&current.nativeContext;
   if(!n||n.estimated!==true||typeof n.compacting!=='boolean'||!integer(n.input)||!integer(n.reserve)||!integer(n.limit)||!n.limit)return null;
   const used=n.input+n.reserve;if(!integer(used))return null;
-  const c=session.compaction;
+  const c=current.compaction;
   const count=c&&integer(c.count)&&integer(c.boundary)&&integer(c.created)&&typeof c.summary==='string'?c.count:0;
   return {used,limit:n.limit,pct:Math.min(100,used/n.limit*100),input:n.input,reserve:n.reserve,estimated:true,compacting:n.compacting,count};
  }
@@ -294,6 +346,16 @@ NATIVE_CONTEXT = r"""const nativeContextUI=(function(){
  }
  function content(value,details){
   const row=(name,text)=>'<div class="ctx-row"><span>'+name+'</span><b>'+text+'</b></div>';
+  if(!value?.estimated){
+   const heading=details?'<h3>Context</h3>':'<h4>Context</h4>';
+   if(!value)return heading+'<p class="note">No context usage yet.</p>';
+   const m=currentModel(),t=value.t,olim=m?.limit?.output;
+   return heading+(details?'<p class="note">'+esc(m?.mn||'')+'</p>':'')
+    +row('Used',fmtTok(value.used)+' / '+fmtTok(value.limit)+' · '+Math.round(value.pct)+'%')
+    +row('Input',fmtTok(t.input||0))+row('Output',fmtTok(t.output||0)+(!details&&olim?' / '+fmtTok(olim):''))
+    +(details?row('Reasoning',fmtTok(t.reasoning||0))+row('Cache read',fmtTok(t.cache?.read||0))+row('Cache write',fmtTok(t.cache?.write||0))
+     +'<p class="note">Estimated from the last model response. The context clears when the thread compacts.</p>':'');
+  }
   return '<h'+(details?'3':'4')+'>Оценка бюджета контекста</h'+(details?'3':'4')+'>'
    +(value.compacting?'<p class="note" role="status">Сжатие контекста…</p>':'')
    +row('Оценка + резерв','≈'+fmtTok(value.used)+' / '+fmtTok(value.limit)+' · ≈'+Math.round(value.pct)+'%')
@@ -303,18 +365,21 @@ NATIVE_CONTEXT = r"""const nativeContextUI=(function(){
    +'<p class="note">'+note+'</p>';
  }
  function pop(value){
-  $('#ctxPop').innerHTML=content(value,false)+'<div class="btns"><button class="btn" id="ctxMore">More</button></div>';
+  $('#ctxPop').innerHTML=content(value,false)+actions()+'<div class="btns"><button class="btn" id="ctxMore">More</button></div>';
   $('#ctxMore').onclick=ctxMoreSheet;
+  bind($('#ctxPop'));
  }
  function showSheet(value){
   $('#ctxPop').hidden=true;
-  sheet('<div data-native-context-details data-session="'+esc(S.sid)+'">'+content(value,true)+'</div>');
+  sheet('<div data-native-context-details data-session="'+esc(S.sid||'')+'" data-directory="'+esc(S.dir||'')+'">'+content(value,true)+actions()+'</div>');
   $('#sheet').onclick=null;
+  bind($('#sheet'));
  }
  function refresh(value){
   const native=!!(value&&value.estimated),status=$('#nativeContextStatus'),ring=$('#ctxRing'),pop=$('#ctxPop');
-  status.hidden=!native;
-  const text=native?label(value):'';if(status.textContent!==text)status.textContent=text;
+  const message=window.KumoNativeBackend&&S.sid?feedback():'';
+  status.hidden=!native&&!message;
+  const text=[native?label(value):'',message].filter(Boolean).join(' · ');if(status.textContent!==text)status.textContent=text;
   ring.classList.toggle('native-estimate',native);
   ring.setAttribute('aria-label',native?text:'Context usage');
   ring.setAttribute('aria-busy',String(native&&value.compacting));
@@ -323,8 +388,8 @@ NATIVE_CONTEXT = r"""const nativeContextUI=(function(){
   const setting=$('[data-sa="context"]');if(setting)setting.classList.toggle('native-estimate',native);
   const details=$('#sheet.on [data-native-context-details]');
   if(details){
-   if(details.dataset.session!==S.sid||!native){closeSheet();details.remove()}
-   else{const html=content(value,true);if(details.innerHTML!==html)details.innerHTML=html}
+   if(details.dataset.session!==(S.sid||'')||details.dataset.directory!==(S.dir||'')||!window.KumoNativeBackend){closeSheet();details.remove()}
+   else{const html=content(value,true)+actions();if(details.innerHTML!==html){details.innerHTML=html;bind(details)}}
   }
  }
  function update(session,hydrate){
@@ -333,12 +398,26 @@ NATIVE_CONTEXT = r"""const nativeContextUI=(function(){
   const matches=[...S.sessions,...list].filter(s=>s.id===session.id);
   if(!matches.length&&session.id===S.sid){const s={id:session.id};S.sessions.push(s);matches.push(s)}
   for(const s of matches){
-   for(const key of ['nativeContext','compaction']){
+   for(const key of ['nativeContext','compaction','compactionError']){
     if(hydrate||Object.prototype.hasOwnProperty.call(session,key))s[key]=session[key]||null;
    }
   }
+  const request=requests.get(JSON.stringify([S.dir,session.id]));
+  if(request){
+   if(!hydrate&&(session.compactionError===null||typeof session.compactionError==='string')){
+    request.message='';
+    if(session.compactionError===null){
+     request.eventError=null;
+     if(session.id===S.sid)clearChatError(request);
+    }else if(request.active){
+     request.eventError=redact(session.compactionError);request.active=false;
+    }
+   }
+   if(session.nativeContext?.compacting===true&&request.active)request.compacting=true;
+   if(session.nativeContext?.compacting===false&&request.compacting)request.active=false;
+  }
  }
- return {info,label,pop,showSheet,refresh,update};
+ return {info,label,pop,showSheet,refresh,update,sessionError};
 })();
 """
 CONTEXT_NEW = NATIVE_CONTEXT + CONTEXT_OLD
@@ -346,9 +425,9 @@ for old, new in (
     ("function contextInfo(){", "function contextInfo(){\n const native=nativeContextUI.info();if(native)return native;"),
     ("value.textContent=info?Math.round(info.pct)+'%':'No data'", "value.textContent=nativeContextUI.label(info)"),
     (" ring.hidden=!info;", " nativeContextUI.refresh(info);\n ring.hidden=!info;"),
-    (" const m=currentModel(),olim=m&&m.limit&&m.limit.output;", " if(info.estimated){nativeContextUI.pop(info);return}\n const m=currentModel(),olim=m&&m.limit&&m.limit.output;"),
-    ("function ctxMoreSheet(){\n const info=contextInfo();", "function ctxMoreSheet(){\n const info=contextInfo();\n if(info&&info.estimated){nativeContextUI.showSheet(info);return}"),
-    ("function contextSheet(){\n const info=contextInfo();", "function contextSheet(){\n const info=contextInfo();\n if(info&&info.estimated){nativeContextUI.showSheet(info);return}\n "),
+    (" const m=currentModel(),olim=m&&m.limit&&m.limit.output;", " if(window.KumoNativeBackend){nativeContextUI.pop(info);return}\n const m=currentModel(),olim=m&&m.limit&&m.limit.output;"),
+    ("function ctxMoreSheet(){\n const info=contextInfo();", "function ctxMoreSheet(){\n const info=contextInfo();\n if(window.KumoNativeBackend){nativeContextUI.showSheet(info);return}"),
+    ("function contextSheet(){\n const info=contextInfo();", "function contextSheet(){\n const info=contextInfo();\n if(window.KumoNativeBackend){nativeContextUI.showSheet(info);return}\n "),
 ):
     CONTEXT_NEW = replace_exact(CONTEXT_NEW, old, new, "context branch")
 
@@ -360,6 +439,8 @@ CONTEXT_EVENT_OLD = r"""  const i=p.info;if(!i)return;const s=S.sessions.find(x=
    if(thTitle)thTitle.textContent=displaySessionTitle(s);
   }"""
 CONTEXT_EVENT_NEW = CONTEXT_EVENT_OLD + "\n  if(window.KumoNativeBackend){nativeContextUI.update(i,false);if(i.id===S.sid){S.revision++;updateCtxRing()}}"
+CONTEXT_ERROR_OLD = "  const e=p.error;S.lastErr=redact(e&&(e.data&&e.data.message||e.message||e.name)||'session error');err('session.error: '+S.lastErr);"
+CONTEXT_ERROR_NEW = CONTEXT_ERROR_OLD + "\n  if(window.KumoNativeBackend)nativeContextUI.sessionError(p);"
 # Metadata participates in the canonical view/revision gate: a newer event must
 # invalidate a pending hydration snapshot, including its old compacting flag.
 CONTEXT_SYNC_OLD = """  const [messages,statuses,permissions,questions]=await Promise.allSettled([
@@ -377,6 +458,9 @@ CONTEXT_CSS = """#nativeContextStatus{padding:0 var(--s-16) var(--s-4);font-size
 #ctxPop.native-estimate .ctx-row b,[data-native-context-details] .ctx-row b{margin-left:auto}
 [data-sa="context"].native-estimate .r{flex:1;max-width:60%}
 [data-sa="context"].native-estimate [data-context-value]{white-space:normal;overflow-wrap:anywhere;text-align:right}
+[data-native-context-actions]{overflow-wrap:anywhere}
+[data-native-context-actions] .btn:disabled{opacity:.5;cursor:default}
+[data-native-context-actions] .btn:focus-visible{outline:2px solid var(--accent);outline-offset:2px}
 #ctxRing:focus-visible{outline:2px solid var(--accent);outline-offset:-2px}
 """
 
@@ -566,7 +650,12 @@ def patch_html(html):
         (EVENTS_OLD, EVENTS_NEW, "event subscription"),
         (CONTEXT_OLD, CONTEXT_NEW, "native context UI"),
         (CONTEXT_EVENT_OLD, CONTEXT_EVENT_NEW, "context metadata event"),
+        (CONTEXT_ERROR_OLD, CONTEXT_ERROR_NEW, "manual context error ownership"),
         (CONTEXT_SYNC_OLD, CONTEXT_SYNC_NEW, "context metadata hydration"),
+        (" $('#inp').value='';autosize();S.lastErr=null;S.sending=true;",
+         " $('#inp').value='';autosize();S.lastErr=null;S.sending=true;if(window.KumoNativeBackend)updateCtxRing();", "manual context sending guard"),
+        (" finally{if(view===S.view)S.sending=false}",
+         " finally{if(view===S.view){S.sending=false;if(window.KumoNativeBackend)updateCtxRing()}}", "manual context sending settled"),
         (" kwReset();\n updateCommitButton();\n}\nfunction renderSessionSkeleton(){",
          " kwReset();\n updateCommitButton();\n if(window.KumoNativeBackend)updateCtxRing();\n}\nfunction renderSessionSkeleton(){", "context thread switch"),
         ('    <div id="ctxPop" hidden></div>', '    <div id="nativeContextStatus" role="status" aria-live="polite" aria-atomic="true" hidden></div>\n    <div id="ctxPop" hidden></div>', "native context status"),

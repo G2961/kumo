@@ -11,10 +11,14 @@ public actor NativeAgentBackend {
     public typealias CredentialRead = (String) throws -> String?
     public typealias CredentialWrite = (String, String?) throws -> Void
 
-    private struct Run {
-        let token: String
+    private struct Turn {
         let userID: String
         var messageID: String
+    }
+
+    private struct Run {
+        let token: String
+        var turn: Turn?
         var task: Task<Void, Never>?
         let selection: Selection
         let agent: String
@@ -104,9 +108,13 @@ public actor NativeAgentBackend {
                 try Self.validateSnapshot(sessions: sessions, messages: messages, transcripts: transcripts)
                 let active = state["active"] as? [String: [String: Any]] ?? [:]
                 for (sid, run) in active {
-                    Self.interruptMessages(&self.messages, sessionID: sid, userID: run["userID"] as? String,
-                                           message: "Interrupted when the app stopped. No file operation was replayed.")
-                    Self.resolveUnansweredCalls(&self.transcripts, sessionID: sid)
+                    if run["kind"] as? String != "compaction" {
+                        Self.interruptMessages(&self.messages, sessionID: sid, userID: run["userID"] as? String,
+                                               message: "Interrupted when the app stopped. No file operation was replayed.")
+                        Self.resolveUnansweredCalls(&self.transcripts, sessionID: sid)
+                    } else if let index = self.sessions.firstIndex(where: { $0["id"] as? String == sid }) {
+                        self.sessions[index]["compactionError"] = "Compaction was interrupted when the app stopped. Original history and the last saved summary are unchanged."
+                    }
                     if let index = self.sessions.firstIndex(where: { $0["id"] as? String == sid }),
                        var context = self.sessions[index]["nativeContext"] as? [String: Any] {
                         context["compacting"] = false
@@ -332,6 +340,8 @@ public actor NativeAgentBackend {
             if components.count == 3 {
                 switch (method, components[2]) {
                 case ("GET", "message"): return messages[sid] ?? []
+                case ("POST", "compact"):
+                    return try startCompaction(sid, body: body)
                 case ("POST", "prompt_async"):
                     try start(sid, body: body)
                     return NSNull()
@@ -345,6 +355,55 @@ public actor NativeAgentBackend {
             }
         }
         throw Self.failure("Unsupported native backend route: \(method) \(components.prefix(1).joined(separator: "/")). This feature is not implemented.")
+    }
+
+    private func startCompaction(_ sid: String, body: [String: Any]) throws -> [String: Any] {
+        guard runs[sid] == nil else { throw Self.failure("This session is already busy; wait or stop it before compacting.") }
+        guard Set(body.keys).isSubset(of: ["model", "variant", "agent"]),
+              body["agent"] == nil || body["agent"] is String,
+              body["variant"] == nil || body["variant"] is String else {
+            throw Self.failure("Manual compaction supports model, variant and agent only.")
+        }
+        if let model = body["model"] {
+            guard let model = model as? [String: String], Set(model.keys) == ["providerID", "modelID"] else {
+                throw Self.failure("Compaction model must specify providerID and modelID.")
+            }
+        }
+        let agent = body["agent"] as? String ?? "build"
+        guard ["build", "plan"].contains(agent) else { throw Self.failure("Native agents support build and plan only.") }
+        let full = (transcripts[sid] ?? []).map(Self.decodeMessage)
+        guard NativeContextCompaction.boundary(in: full, after: try checkpoint(sid)?.boundary ?? 0) != nil else {
+            return ["started": false, "reason": "nothing_to_compact"]
+        }
+        let selection = try select(body)
+        let token = id("run")
+        let index = try sessionIndex(sid, directory: nil)
+        let oldSession = sessions[index]
+        runs[sid] = Run(token: token, turn: nil, task: nil, selection: selection, agent: agent)
+        sessions[index]["compactionError"] = NSNull()
+        do {
+            try recordContext(sid, selection: selection, system: systemPrompt(sid, agent: agent),
+                              compacting: true, hasPlaceholder: false)
+        } catch {
+            sessions[index] = oldSession
+            runs.removeValue(forKey: sid)
+            throw error
+        }
+        publish("session.status", ["sessionID": sid, "status": ["type": "busy"]])
+        runs[sid]?.task = Task {
+            do {
+                _ = try await self.prepareContext(sid, token: token, selection: selection,
+                                                  system: self.systemPrompt(sid, agent: agent), force: true, hasPlaceholder: false)
+                try self.checkRun(sid, token)
+                try self.finish(sid, token: token, error: nil)
+            } catch {
+                guard self.runs[sid]?.token == token else { return }
+                let message = error is CancellationError ? "Compaction stopped by the user." : self.safeError(error,
+                    fallback: "Compaction failed. Original history and the last saved summary are unchanged.").localizedDescription
+                try? self.finish(sid, token: token, error: message)
+            }
+        }
+        return ["started": true]
     }
 
     private func start(_ sid: String, body: [String: Any]) throws {
@@ -378,7 +437,7 @@ public actor NativeAgentBackend {
         let oldMessages = messages[sid], oldTranscript = transcripts[sid], oldSessions = sessions
         messages[sid, default: []].append(["info": userInfo, "parts": parts])
         transcripts[sid, default: []].append(Self.encodeMessage(NativeModelMessage(role: "user", content: texts.joined(separator: "\n"))))
-        runs[sid] = Run(token: token, userID: userID, messageID: assistantID, task: nil, selection: selection, agent: agent)
+        runs[sid] = Run(token: token, turn: Turn(userID: userID, messageID: assistantID), task: nil, selection: selection, agent: agent)
         appendAssistant(sid, id: assistantID, userID: userID, selection: selection, agent: agent)
         transcripts[sid, default: []].append(Self.encodeMessage(NativeModelMessage(role: "assistant", content: "")))
         touch(sid)
@@ -405,13 +464,13 @@ public actor NativeAgentBackend {
                 try checkRun(sid, token)
                 if step > 0 {
                     let mid = id("msg")
-                    runs[sid]?.messageID = mid
-                    appendAssistant(sid, id: mid, userID: runs[sid]!.userID, selection: selection, agent: agent)
+                    runs[sid]?.turn?.messageID = mid
+                    appendAssistant(sid, id: mid, userID: runs[sid]!.turn!.userID, selection: selection, agent: agent)
                     transcripts[sid, default: []].append(Self.encodeMessage(NativeModelMessage(role: "assistant", content: "")))
                     try persist()
                     publishMessage(sid, mid)
                 }
-                let mid = runs[sid]!.messageID
+                let mid = runs[sid]!.turn!.messageID
                 let context = try await prepareContext(sid, token: token, selection: selection, system: system)
                 try checkRun(sid, token)
                 let request = NativeModelRequest(baseURL: selection.baseURL, apiKey: selection.key, format: selection.format,
@@ -519,7 +578,7 @@ public actor NativeAgentBackend {
             let directory = sessions[try sessionIndex(sid, directory: nil)]["directory"] as! String
             // Preparation captures the diff and file precondition; it must not execute writes.
             let prepared = try fileTools.prepare(name: call.name, arguments: arguments, directory: directory,
-                                                 sessionID: sid, turnID: runs[sid]!.userID)
+                                                 sessionID: sid, turnID: runs[sid]!.turn!.userID)
             metadata = prepared.metadata
             try updateTool(sid, mid: mid, partID: partID) { state in
                 state["title"] = prepared.title
@@ -667,14 +726,17 @@ public actor NativeAgentBackend {
 
     private func finish(_ sid: String, token: String, error: String?) throws {
         guard let run = runs[sid], run.token == token else { return }
-        if let error = error {
-            Self.interruptMessages(&messages, sessionID: sid, userID: run.userID, message: error)
-            if let index = messageIndex(sid, run.messageID) {
+        if let error = error, let turn = run.turn {
+            Self.interruptMessages(&messages, sessionID: sid, userID: turn.userID, message: error)
+            if let index = messageIndex(sid, turn.messageID) {
                 var info = messages[sid]![index]["info"] as! [String: Any]
                 info["error"] = Self.errorPayload(error)
                 messages[sid]![index]["info"] = info
             }
             Self.resolveUnansweredCalls(&transcripts, sessionID: sid)
+        }
+        if run.turn == nil {
+            sessions[try sessionIndex(sid, directory: nil)]["compactionError"] = error.map { clean($0) } ?? NSNull()
         }
         touch(sid)
         if let index = sessions.firstIndex(where: { $0["id"] as? String == sid }),
@@ -708,7 +770,7 @@ public actor NativeAgentBackend {
         if let error = error {
             for message in messages[sid] ?? [] {
                 let info = message["info"] as! [String: Any]
-                if info["parentID"] as? String == run.userID {
+                if let turn = run.turn, info["parentID"] as? String == turn.userID {
                     publish("message.updated", ["info": info])
                     for part in message["parts"] as? [[String: Any]] ?? [] { publish("message.part.updated", ["part": part]) }
                 }
@@ -941,21 +1003,23 @@ public actor NativeAgentBackend {
         publish("session.updated", ["info": sessions[index]])
     }
 
-    private func prepareContext(_ sid: String, token: String, selection: Selection, system: String) async throws -> [NativeModelMessage] {
-        let full = contextHistory(sid)
+    private func prepareContext(_ sid: String, token: String, selection: Selection, system: String,
+                                force: Bool = false, hasPlaceholder: Bool = true) async throws -> [NativeModelMessage] {
+        try checkRun(sid, token)
+        let full = hasPlaceholder ? contextHistory(sid) : (transcripts[sid] ?? []).map(Self.decodeMessage)
         let saved = try checkpoint(sid)
         let active = NativeContextCompaction.activeMessages(full, checkpoint: saved)
         let before = try contextBudget(active, selection: selection, system: system)
         let trigger = selection.context - selection.context / 5
-        guard before >= trigger,
+        guard force || before >= trigger,
               let boundary = NativeContextCompaction.boundary(in: full, after: saved?.boundary ?? 0) else {
             guard before < selection.context else { throw Self.failure("Context budget exceeded with no safe compaction boundary. No history was trimmed.") }
-            try recordContext(sid, selection: selection, system: system, compacting: false)
+            try recordContext(sid, selection: selection, system: system, compacting: false, hasPlaceholder: hasPlaceholder)
             return active
         }
         let nextCount = (saved?.count ?? 0).addingReportingOverflow(1)
         guard !nextCount.overflow else { throw Self.failure("Compaction counter is exhausted. Original history remains unchanged.") }
-        try recordContext(sid, selection: selection, system: system, compacting: true)
+        try recordContext(sid, selection: selection, system: system, compacting: true, hasPlaceholder: hasPlaceholder)
         var candidate = saved
         // Only complete historical user turns may be batched. Never truncate an
         // oversized turn or split a call/result pair to make a summary request fit.
@@ -1103,7 +1167,13 @@ public actor NativeAgentBackend {
 
     private func persist() throws {
         var active: [String: Any] = [:]
-        for (sid, run) in runs { active[sid] = ["userID": run.userID, "messageID": run.messageID] }
+        for (sid, run) in runs {
+            if let turn = run.turn {
+                active[sid] = ["userID": turn.userID, "messageID": turn.messageID]
+            } else {
+                active[sid] = ["kind": "compaction"]
+            }
+        }
         let savedTranscripts = try transcripts.mapValues { rows in
             try rows.map { row -> [String: Any] in
                 let replay = row["replayItems"] as? [[String: Any]] ?? []
@@ -1457,7 +1527,7 @@ public actor NativeAgentBackend {
         "text": true, "fileTools": true, "permissions": true, "stop": true, "persistence": true,
         "events": "bridge-subscribe", "providerFormats": ["responses", "chatCompletions"],
         "attachments": false, "questions": false, "shell": false, "ssh": false, "websearch": false,
-        "mcp": false, "skills": false, "fork": false, "autoCompaction": true,
+        "mcp": false, "skills": false, "fork": false, "autoCompaction": true, "manualCompaction": true,
                 "contextEstimate": "conservative-utf8-bytes", "compactionPreservesHistory": true
     ]
 
@@ -1469,6 +1539,7 @@ public actor NativeAgentBackend {
             "/session": ["get", "post"], "/experimental/session": ["get"], "/session/status": ["get"],
             "/session/{sessionID}": ["get", "patch", "delete"], "/session/{sessionID}/message": ["get"],
             "/session/{sessionID}/prompt_async": ["post"], "/session/{sessionID}/abort": ["post"],
+            "/session/{sessionID}/compact": ["post"],
             "/session/{sessionID}/diff": ["get"], "/permission": ["get"], "/permission/{requestID}/reply": ["post"]
         ]
         var paths: [String: Any] = [:]

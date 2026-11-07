@@ -285,10 +285,10 @@ final class NativeAgentCompactionTests: XCTestCase {
         XCTAssertEqual(try checkpoint(fixture)["count"] as? Int, 1)
     }
 
-    private func summaryData(_ request: NativeModelRequest) throws -> [String: Any] {
+    private func summaryData(_ request: NativeModelRequest, model: String = "scripted") throws -> [String: Any] {
         XCTAssertEqual(request.system, NativeContextCompaction.summaryInstructions)
         XCTAssertTrue(request.tools.isEmpty, "Summary requests must have no callable tools")
-        XCTAssertEqual(request.model, "scripted")
+        XCTAssertEqual(request.model, model)
         XCTAssertGreaterThan(try XCTUnwrap(request.maxOutputTokens), 0)
         XCTAssertLessThanOrEqual(try budget(request), Self.context, "Every summary request must fit its configured context")
         XCTAssertEqual(request.messages.count, 1)
@@ -337,6 +337,628 @@ final class NativeAgentCompactionTests: XCTestCase {
         XCTAssertEqual(context["estimated"] as? Bool, true)
         XCTAssertEqual(context["compacting"] as? Bool, compacting)
         if fits { XCTAssertLessThan(input + Self.reserve, Self.context) }
+    }
+
+    private struct ManualHistory {
+        let transcript: [[String: Any]]
+        let messages: [[String: Any]]
+        let checkpoint: Data
+    }
+
+    private func manualHistory(_ fixture: Fixture) async throws -> ManualHistory {
+        let visible = try await messages(fixture.backend, fixture.id)
+        return ManualHistory(transcript: try transcript(fixture), messages: visible,
+                             checkpoint: try checkpointData(fixture))
+    }
+
+    private func assertManualHistory(_ fixture: Fixture, _ original: ManualHistory,
+                                     checkpointUnchanged: Bool = true) async throws {
+        XCTAssertEqual(try json(try transcript(fixture)), try json(original.transcript),
+                       "Manual compaction must not append, trim or rewrite any transcript row")
+        let visible = try await messages(fixture.backend, fixture.id)
+        XCTAssertEqual(try json(visible), try json(original.messages),
+                       "Every old UI message, part, ID, timestamp and error must remain unchanged")
+        let stored = try XCTUnwrap(try snapshot(fixture.root)["messages"] as? [String: [[String: Any]]])
+        XCTAssertEqual(try json(try XCTUnwrap(stored[fixture.id])), try json(original.messages))
+        if checkpointUnchanged { XCTAssertEqual(try checkpointData(fixture), original.checkpoint) }
+    }
+
+    private func assertManualIdle(_ fixture: Fixture) async throws {
+        try await waitIdle(fixture.backend, fixture.id)
+        let info = try await sessionInfo(fixture.backend, fixture.id)
+        let context = try XCTUnwrap(info["nativeContext"] as? [String: Any])
+        XCTAssertEqual(context["compacting"] as? Bool, false)
+        XCTAssertEqual(context["limit"] as? Int, 100_000)
+        XCTAssertEqual(try json(try XCTUnwrap(try storedSession(fixture)["nativeContext"] as? [String: Any])), try json(context))
+        XCTAssertTrue(try XCTUnwrap(try snapshot(fixture.root)["active"] as? [String: Any]).isEmpty)
+    }
+
+    private func assertManualError(_ fixture: Fixture) async throws {
+        let info = try await sessionInfo(fixture.backend, fixture.id)
+        let error = try XCTUnwrap(info["compactionError"] as? String)
+        XCTAssertFalse(error.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty)
+        XCTAssertEqual(try storedSession(fixture)["compactionError"] as? String, error)
+    }
+
+    private func assertNoManualMessageEvents(_ events: Events) throws {
+        XCTAssertFalse(events.values.contains { ($0["type"] as? String ?? "").hasPrefix("message.") },
+                       "A summary-only run must not publish message or part updates, even on failure")
+    }
+
+    private func compact(_ fixture: Fixture, body: [String: Any]? = nil) async throws -> [String: Any] {
+        let result = try await request(fixture.backend, "POST", "/session/\(fixture.id)/compact",
+                                       directory: fixture.root.path, body: body)
+        return try XCTUnwrap(result as? [String: Any])
+    }
+
+    private func startManualCompaction(_ fixture: Fixture, body: [String: Any]? = nil) async throws {
+        let result = try await compact(fixture, body: body)
+        XCTAssertEqual(try json(result), try json(["started": true]))
+    }
+
+    private func waitManualSummary(_ fixture: Fixture, at index: Int) async throws {
+        try await waitUntil {
+            let info = try await self.sessionInfo(fixture.backend, fixture.id)
+            return fixture.model.continuation(at: index) != nil
+                && (info["nativeContext"] as? [String: Any])?["compacting"] as? Bool == true
+        }
+    }
+
+    private func completeManualToolTurn(_ fixture: Fixture) async throws {
+        try "Manual retained evidence.".write(to: fixture.root.appendingPathComponent("manual-evidence.txt"),
+                                              atomically: true, encoding: .utf8)
+        let read = try call("manual-retained-read", "read", ["filePath": "manual-evidence.txt"])
+        let items = fixture.model.requests.first?.format == .chatCompletions ? []
+            : replay(read, text: "Read retained evidence.", marker: "manual_retained")
+        fixture.model.enqueue(Script(events: [.text("Read retained evidence."), .toolCall(read), .replay(items), .finished]))
+        fixture.model.enqueue(Script(events: [.text("MANUAL_LATEST_COMPLETED_ANSWER"), .finished]))
+        try await prompt(fixture.backend, fixture.id, "MANUAL_LATEST: read the evidence.")
+        try await waitIdle(fixture.backend, fixture.id)
+    }
+
+    private func prepareManualHistory(_ fixture: Fixture, priorCheckpoint: Bool = false) async throws -> Int {
+        if priorCheckpoint {
+            try await establishCheckpoint(fixture)
+            try await setContext(fixture, 100_000)
+        }
+        let label = "MANUAL_OLDER\n"
+        let older = label + String(repeating: "x", count: 9_000 - label.utf8.count)
+        try await completeTurn(fixture, text: older)
+        let boundary = try transcript(fixture).count
+        try await completeManualToolTurn(fixture)
+        return boundary
+    }
+
+    private func assertManualRestartUsesCheckpoint(_ fixture: Fixture, _ original: ManualHistory) async throws {
+        let priorInfo = try await sessionInfo(fixture.backend, fixture.id)
+        await fixture.backend.shutdown()
+        let url = fixture.root.appendingPathComponent("native-agent/state.json")
+        let before = try Data(contentsOf: url)
+        let model = ScriptedModel()
+        let reopened = try backend(fixture.root, model, fixture.credentials)
+        let restored = Fixture(root: fixture.root, credentials: fixture.credentials, model: model,
+                               backend: reopened, id: fixture.id)
+        try await assertManualHistory(restored, original)
+        try await assertManualIdle(restored)
+        let info = try await sessionInfo(reopened, fixture.id)
+        XCTAssertEqual(try json(["compactionError": info["compactionError"] ?? NSNull()]),
+                       try json(["compactionError": priorInfo["compactionError"] ?? NSNull()]))
+        XCTAssertEqual(try Data(contentsOf: url), before, "A clean restart must not rewrite the recovered snapshot")
+        XCTAssertTrue(model.requests.isEmpty, "Opening must not automatically summarize or generate a reply")
+        let saved = try storedSession(restored)["compaction"] as? [String: Any]
+        let boundary = saved?["boundary"] as? Int ?? 0
+        let latest = "Resume explicitly after manual compaction."
+        model.enqueue(Script(events: [.text("Resumed from the committed history."), .finished]))
+        try await prompt(reopened, fixture.id, latest)
+        try await waitIdle(reopened, fixture.id)
+        XCTAssertEqual(model.requests.count, 1)
+        let resumed = try XCTUnwrap(model.requests.first)
+        XCTAssertNotEqual(resumed.system, NativeContextCompaction.summaryInstructions)
+        XCTAssertFalse(resumed.tools.isEmpty)
+        if let saved {
+            XCTAssertTrue(resumed.messages.first?.content.hasSuffix(try XCTUnwrap(saved["summary"] as? String)) == true)
+        }
+        let retained = saved == nil ? resumed.messages : Array(resumed.messages.dropFirst())
+        XCTAssertEqual(try json(rows(retained)),
+                       try json(Array(original.transcript.dropFirst(boundary)) + rows([NativeModelMessage(role: "user", content: latest)])),
+                       "Restart must keep the entire retained turn, including the completed final answer and tool pairs")
+        XCTAssertEqual(try checkpointData(restored), original.checkpoint)
+        await reopened.shutdown()
+    }
+
+    private func markOldManualUIAsUnfinished(_ fixture: Fixture) async throws -> Fixture {
+        await fixture.backend.shutdown()
+        var state = try snapshot(fixture.root)
+        var allMessages = try XCTUnwrap(state["messages"] as? [String: [[String: Any]]])
+        var visible = try XCTUnwrap(allMessages[fixture.id])
+        let index = try XCTUnwrap(visible.firstIndex {
+            let parts = $0["parts"] as? [[String: Any]] ?? []
+            return parts.contains { $0["type"] as? String == "tool" }
+        })
+        var info = try XCTUnwrap(visible[index]["info"] as? [String: Any])
+        var time = try XCTUnwrap(info["time"] as? [String: Any])
+        time.removeValue(forKey: "completed")
+        info["time"] = time
+        visible[index]["info"] = info
+        var parts = try XCTUnwrap(visible[index]["parts"] as? [[String: Any]])
+        let toolIndex = try XCTUnwrap(parts.firstIndex { $0["type"] as? String == "tool" })
+        var toolState = try XCTUnwrap(parts[toolIndex]["state"] as? [String: Any])
+        toolState["status"] = "running"
+        parts[toolIndex]["state"] = toolState
+        visible[index]["parts"] = parts
+        allMessages[fixture.id] = visible
+        state["messages"] = allMessages
+        XCTAssertTrue(try XCTUnwrap(state["active"] as? [String: Any]).isEmpty)
+        // Legacy UI timestamps may be incomplete even though the transcript has a safe,
+        // completed tool pair. A manual run must never claim or repair that old UI turn.
+        try json(state).write(to: fixture.root.appendingPathComponent("native-agent/state.json"), options: .atomic)
+        let model = ScriptedModel()
+        let reopened = try backend(fixture.root, model, fixture.credentials)
+        return Fixture(root: fixture.root, credentials: fixture.credentials, model: model, backend: reopened, id: fixture.id)
+    }
+
+    func testManualCompactionForcesBelowThresholdWithoutAppendingMessagesAndRestartsWithFullLatestTurn() async throws {
+        for format in [NativeProviderFormat.responses, .chatCompletions] {
+            for body: [String: Any]? in [nil, [:]] {
+                let fixture = try await fixture(format: format)
+                let boundary = try await prepareManualHistory(fixture)
+                let original = try await manualHistory(fixture)
+                let baseline = try XCTUnwrap(fixture.model.requests.first)
+                let before = try budget(baseline, messages: try decoded(original.transcript))
+                XCTAssertLessThan(before, 100_000 * 80 / 100, "Manual compaction must force the summary below the automatic threshold")
+                XCTAssertEqual((original.transcript.first?["content"] as? String)?.utf8.count, 9_000)
+                XCTAssertEqual(original.transcript.last?["content"] as? String, "MANUAL_LATEST_COMPLETED_ANSWER")
+                let retained = try decoded(Array(original.transcript.dropFirst(boundary)))
+                XCTAssertEqual(retained.map { $0.role }, ["user", "assistant", "tool", "assistant"])
+                XCTAssertEqual(retained.flatMap { $0.toolCalls.map { $0.id } }, ["manual-retained-read"])
+                XCTAssertEqual(retained.compactMap { $0.toolCallID }, ["manual-retained-read"])
+                XCTAssertTrue(retained.contains { $0.role == "tool" && $0.content.contains("Manual retained evidence.") })
+                let events = Events()
+                await fixture.backend.setEventHandler(events.receive)
+                let index = fixture.model.requests.count
+                fixture.model.enqueue(Script(events: [.text(Self.summary)], holdOpen: true), summary: true)
+                fixture.model.enqueue(Script(events: [.text("UNEXPECTED_MANUAL_CONTINUATION"), .finished]))
+                try await startManualCompaction(fixture, body: body)
+                try await waitManualSummary(fixture, at: index)
+                try await assertManualHistory(fixture, original)
+                let running = try await sessionInfo(fixture.backend, fixture.id)
+                XCTAssertTrue(running["compactionError"] is NSNull)
+                let summaryRequest = try XCTUnwrap(fixture.model.requests.dropFirst(index).first)
+                let history = try summaryData(summaryRequest)
+                try assertSummaryWire(summaryRequest)
+                XCTAssertEqual(summaryRequest.baseURL, baseline.baseURL)
+                XCTAssertEqual(summaryRequest.apiKey, baseline.apiKey)
+                XCTAssertEqual(summaryRequest.format, format)
+                XCTAssertEqual(summaryRequest.effort, baseline.effort)
+                XCTAssertNil(history["priorSummary"])
+                let historicalRows = try XCTUnwrap(history["messages"] as? [[String: Any]])
+                XCTAssertEqual(historicalRows.compactMap { $0["content"] as? String },
+                               original.transcript.prefix(boundary).compactMap { $0["content"] as? String })
+                XCTAssertFalse(summaryRequest.messages[0].content.contains("MANUAL_LATEST"))
+                XCTAssertFalse(summaryRequest.messages[0].content.contains("manual-retained-read"))
+                let stream = try XCTUnwrap(fixture.model.continuation(at: index))
+                stream.yield(.finished)
+                stream.finish()
+                try await assertManualIdle(fixture)
+                XCTAssertEqual(fixture.model.requests.count, index + 1, "Exactly one summary; never a tool-capable continuation")
+                try await assertManualHistory(fixture, original, checkpointUnchanged: false)
+                let saved = try checkpoint(fixture)
+                XCTAssertEqual(saved["boundary"] as? Int, boundary)
+                XCTAssertEqual(saved["summary"] as? String, Self.summary)
+                XCTAssertEqual(saved["count"] as? Int, 1)
+                XCTAssertGreaterThan(try XCTUnwrap(saved["created"] as? Int64), 0)
+                let info = try await sessionInfo(fixture.backend, fixture.id)
+                let context = try XCTUnwrap(info["nativeContext"] as? [String: Any])
+                let savedCheckpoint = try JSONDecoder().decode(NativeContextCheckpoint.self, from: json(saved))
+                let projection = NativeContextCompaction.activeMessages(try decoded(original.transcript), checkpoint: savedCheckpoint)
+                XCTAssertEqual(try json(rows(Array(projection.dropFirst()))), try json(rows(retained)))
+                XCTAssertEqual(context["input"] as? Int, try budget(baseline, messages: projection) - Self.reserve,
+                               "No manual placeholder exists: count the completed final assistant row too")
+                XCTAssertLessThan(try budget(baseline, messages: projection), before)
+                XCTAssertTrue(info["compactionError"] is NSNull)
+                try assertNoManualMessageEvents(events)
+                try assertNoVisibleSummary(original.messages, forbidden: [Self.summary, "UNEXPECTED_MANUAL_CONTINUATION"])
+                let committed = try await manualHistory(fixture)
+                try await assertManualRestartUsesCheckpoint(fixture, committed)
+            }
+        }
+    }
+
+    func testManualCompactionUsesExplicitProviderModelVariantAndAgentInsteadOfDefaults() async throws {
+        for format in [NativeProviderFormat.responses, .chatCompletions] {
+            let fixture = try await fixture(format: format)
+            let npm = format == .responses ? "@ai-sdk/openai" : "@ai-sdk/openai-compatible"
+            _ = try await request(fixture.backend, "PATCH", "/global/config", body: [
+                "provider": ["selected": ["name": "Selected", "npm": npm,
+                    "options": ["baseURL": "https://selected.invalid/v1"],
+                    "models": ["manual-selected": ["name": "Manual selected", "limit": ["context": 100_000, "output": Self.reserve],
+                        "variants": ["careful": ["reasoningEffort": "high"]]]]]]
+            ])
+            _ = try await request(fixture.backend, "PUT", "/auth/selected", body: ["type": "api", "key": UUID().uuidString])
+            let selection: [String: Any] = ["model": ["providerID": "selected", "modelID": "manual-selected"],
+                                             "variant": "careful", "agent": "plan"]
+            for text in [largeText("EXPLICIT_OLDER"), "EXPLICIT_LATEST"] {
+                var body = selection
+                body["parts"] = [["type": "text", "text": text]]
+                fixture.model.enqueue(Script(events: [.text("Selected model answer."), .finished]))
+                _ = try await request(fixture.backend, "POST", "/session/\(fixture.id)/prompt_async", body: body)
+                try await waitIdle(fixture.backend, fixture.id)
+            }
+            let original = try await manualHistory(fixture)
+            let baseline = try XCTUnwrap(fixture.model.requests.last)
+            let count = fixture.model.requests.count
+            fixture.model.enqueue(Script(events: [.text(Self.summary), .finished]), summary: true)
+            try await startManualCompaction(fixture, body: selection)
+            try await assertManualIdle(fixture)
+            XCTAssertEqual(fixture.model.requests.count, count + 1)
+            let summary = try XCTUnwrap(fixture.model.requests.last)
+            _ = try summaryData(summary, model: "manual-selected")
+            try assertSummaryWire(summary)
+            XCTAssertEqual(summary.baseURL, baseline.baseURL)
+            XCTAssertEqual(summary.baseURL.host, "selected.invalid")
+            XCTAssertEqual(summary.apiKey, baseline.apiKey)
+            XCTAssertEqual(summary.format, format)
+            XCTAssertEqual(summary.model, baseline.model)
+            XCTAssertEqual(summary.effort, baseline.effort)
+            XCTAssertEqual(summary.effort, "high")
+            let saved = try JSONDecoder().decode(NativeContextCheckpoint.self, from: json(checkpoint(fixture)))
+            let projection = NativeContextCompaction.activeMessages(try decoded(original.transcript), checkpoint: saved)
+            let info = try await sessionInfo(fixture.backend, fixture.id)
+            XCTAssertEqual((info["nativeContext"] as? [String: Any])?["input"] as? Int,
+                           try budget(baseline, messages: projection) - Self.reserve,
+                           "Context metadata must use the selected plan agent, not the build default")
+            try await assertManualHistory(fixture, original, checkpointUnchanged: false)
+        }
+    }
+
+    func testManualCompactionNoOpForEmptySingleToolTurnAndAlreadyCompactedBoundaryDoesNotWriteOrRequest() async throws {
+        for mode in ["empty", "one-turn", "same-boundary"] {
+            let fixture = try await fixture()
+            if mode == "one-turn" { try await completeManualToolTurn(fixture) }
+            if mode == "same-boundary" {
+                _ = try await prepareManualHistory(fixture)
+                fixture.model.enqueue(Script(events: [.text(Self.summary), .finished]), summary: true)
+                try await startManualCompaction(fixture)
+                try await assertManualIdle(fixture)
+            }
+            let url = fixture.root.appendingPathComponent("native-agent/state.json")
+            let before = try Data(contentsOf: url)
+            let original = try await manualHistory(fixture)
+            let count = fixture.model.requests.count
+            let events = Events()
+            await fixture.backend.setEventHandler(events.receive)
+            for body: [String: Any]? in [nil, [:]] {
+                let result = try await compact(fixture, body: body)
+                XCTAssertEqual(try json(result), try json(["started": false, "reason": "nothing_to_compact"]), mode)
+                try await waitIdle(fixture.backend, fixture.id)
+                XCTAssertEqual(fixture.model.requests.count, count, mode)
+                XCTAssertEqual(try Data(contentsOf: url), before, "No-op must not touch storage, timestamps or metadata: \(mode)")
+                try await assertManualHistory(fixture, original)
+                XCTAssertTrue(events.values.isEmpty)
+                XCTAssertTrue(try XCTUnwrap(try snapshot(fixture.root)["active"] as? [String: Any]).isEmpty)
+            }
+        }
+    }
+
+    func testManualCompactionRejectsUnsupportedBodyAndInvalidSelectionWithoutWritingOrRequesting() async throws {
+        let fixture = try await fixture()
+        _ = try await prepareManualHistory(fixture)
+        let url = fixture.root.appendingPathComponent("native-agent/state.json")
+        let before = try Data(contentsOf: url)
+        let original = try await manualHistory(fixture)
+        let count = fixture.model.requests.count
+        let events = Events()
+        await fixture.backend.setEventHandler(events.receive)
+        let bodies: [[String: Any]] = [
+            ["parts": [["type": "text", "text": "Do not create a turn"]]],
+            ["system": "Do not replace the summary instructions"], ["messages": []], ["force": true],
+            ["model": ["providerID": "missing", "modelID": "missing"]],
+            ["variant": "missing"], ["agent": "unsupported"]
+        ]
+        for body in bodies {
+            do {
+                _ = try await compact(fixture, body: body)
+                XCTFail("Manual compaction accepted unsupported options: \(body.keys.sorted())")
+            } catch {
+                XCTAssertFalse(error.localizedDescription.contains("Unsupported native backend route"),
+                               "The route must exist; reject the options, not the endpoint")
+            }
+            try await waitIdle(fixture.backend, fixture.id)
+            XCTAssertEqual(fixture.model.requests.count, count)
+            XCTAssertEqual(try Data(contentsOf: url), before)
+            try await assertManualHistory(fixture, original)
+            XCTAssertTrue(events.values.isEmpty)
+        }
+    }
+
+    func testManualCompactionRejectsWrongDirectoryBeforeStorageOrRequests() async throws {
+        let fixture = try await fixture()
+        _ = try await prepareManualHistory(fixture)
+        let other = try temporaryRoot()
+        let url = fixture.root.appendingPathComponent("native-agent/state.json")
+        let before = try Data(contentsOf: url)
+        let original = try await manualHistory(fixture)
+        let count = fixture.model.requests.count
+        do {
+            _ = try await request(fixture.backend, "POST", "/session/\(fixture.id)/compact", directory: other.path)
+            XCTFail("A session from another project must not be compacted")
+        } catch {
+            XCTAssertTrue(error.localizedDescription.lowercased().contains("directory"))
+        }
+        try await waitIdle(fixture.backend, fixture.id)
+        XCTAssertEqual(fixture.model.requests.count, count)
+        XCTAssertEqual(try Data(contentsOf: url), before)
+        try await assertManualHistory(fixture, original)
+    }
+
+    func testManualCompactionRejectsBusyNormalAndSummaryRunsBeforeValidationStorageOrRequests() async throws {
+        for manual in [false, true] {
+            let fixture = try await fixture()
+            _ = try await prepareManualHistory(fixture)
+            let index = fixture.model.requests.count
+            fixture.model.enqueue(Script(events: [], holdOpen: true), summary: manual)
+            if manual {
+                try await startManualCompaction(fixture)
+                try await waitManualSummary(fixture, at: index)
+            } else {
+                try await prompt(fixture.backend, fixture.id, "Keep this normal turn active.")
+                try await waitUntil { fixture.model.continuation(at: index) != nil }
+            }
+            let url = fixture.root.appendingPathComponent("native-agent/state.json")
+            let before = try Data(contentsOf: url)
+            let original = try await manualHistory(fixture)
+            let events = Events()
+            await fixture.backend.setEventHandler(events.receive)
+            for body: [String: Any]? in [nil, ["agent": "unsupported", "variant": "missing"]] {
+                do {
+                    _ = try await compact(fixture, body: body)
+                    XCTFail("Busy admission must reject even if an older safe boundary exists")
+                } catch {
+                    XCTAssertTrue(error.localizedDescription.lowercased().contains("busy"))
+                }
+                XCTAssertEqual(fixture.model.requests.count, index + 1)
+                XCTAssertEqual(try Data(contentsOf: url), before)
+                try await assertManualHistory(fixture, original)
+                XCTAssertTrue(events.values.isEmpty)
+            }
+            let stream = try XCTUnwrap(fixture.model.continuation(at: index))
+            stream.yield(.text(manual ? Self.summary : "Completed the original normal turn."))
+            stream.yield(.finished)
+            stream.finish()
+            try await assertManualIdle(fixture)
+        }
+    }
+
+    func testManualCompactionAdvancesOnlyNewOlderTurnsAfterPreviousCheckpoint() async throws {
+        let fixture = try await fixture()
+        _ = try await prepareManualHistory(fixture)
+        fixture.model.enqueue(Script(events: [.text(Self.summary), .finished]), summary: true)
+        try await startManualCompaction(fixture)
+        try await assertManualIdle(fixture)
+        let first = try checkpoint(fixture)
+        let firstBoundary = try XCTUnwrap(first["boundary"] as? Int)
+        try await completeTurn(fixture, text: largeText("MANUAL_NEW_OLDER"))
+        let boundary = try transcript(fixture).count
+        try await completeTurn(fixture, text: "MANUAL_NEW_LATEST", answer: "New latest completed answer.")
+        let original = try await manualHistory(fixture)
+        let count = fixture.model.requests.count
+        let secondSummary = "SECOND_MANUAL_SUMMARY: prior constraints and newly confirmed evidence."
+        fixture.model.enqueue(Script(events: [.text(secondSummary), .finished]), summary: true)
+        try await startManualCompaction(fixture)
+        try await assertManualIdle(fixture)
+        XCTAssertEqual(fixture.model.requests.count, count + 1)
+        let request = try XCTUnwrap(fixture.model.requests.last)
+        let history = try summaryData(request)
+        XCTAssertEqual(history["priorSummary"] as? String, Self.summary)
+        let historical = try XCTUnwrap(history["messages"] as? [[String: Any]])
+        let expected = Array(original.transcript[firstBoundary..<boundary])
+        XCTAssertEqual(historical.compactMap { $0["content"] as? String }, expected.compactMap { $0["content"] as? String })
+        XCTAssertFalse(request.messages[0].content.contains("MANUAL_OLDER"), "Do not resummarize the checkpointed prefix")
+        XCTAssertFalse(request.messages[0].content.contains("MANUAL_NEW_LATEST"))
+        let second = try checkpoint(fixture)
+        XCTAssertEqual(second["boundary"] as? Int, boundary)
+        XCTAssertGreaterThan(boundary, firstBoundary)
+        XCTAssertEqual(second["count"] as? Int, 2)
+        XCTAssertEqual(second["summary"] as? String, secondSummary)
+        try await assertManualHistory(fixture, original, checkpointUnchanged: false)
+    }
+
+    func testManualSummaryFailuresOnlySetSessionErrorAndNeverMutateHistoryOrPreviousCheckpoint() async throws {
+        for hasPriorCheckpoint in [false, true] {
+            for mode in ["provider", "tool", "tool-preview", "replay-tool", "empty", "truncated", "nonshrinking"] {
+                let initial = try await fixture()
+                _ = try await prepareManualHistory(initial, priorCheckpoint: hasPriorCheckpoint)
+                let fixture = try await markOldManualUIAsUnfinished(initial)
+                let original = try await manualHistory(fixture)
+                let index = fixture.model.requests.count
+                let events = Events()
+                await fixture.backend.setEventHandler(events.receive)
+                let write = try call("manual-summary-write", "write", ["filePath": "manual-must-not-exist.txt", "content": "forbidden"])
+                let partial = "FAILED_PRIVATE_MANUAL_SUMMARY"
+                let script: Script
+                switch mode {
+                case "provider": script = Script(events: [.text(partial)], failure: NativeModelClientError.providerFailure)
+                case "tool": script = Script(events: [.text(partial), .toolCall(write), .finished])
+                case "tool-preview": script = Script(events: [.toolStarted(id: write.id, name: write.name), .finished])
+                case "replay-tool": script = Script(events: [.replay(replay(write, text: partial, marker: "manual_invalid")), .finished])
+                case "empty": script = Script(events: [.text(" \n\t "), .finished])
+                case "nonshrinking": script = Script(events: [.text(largeText(partial, size: 20_000)), .finished])
+                default: script = Script(events: [.text(partial)])
+                }
+                fixture.model.enqueue(script, summary: true)
+                fixture.model.enqueue(Script(events: [.text("UNEXPECTED_MANUAL_CONTINUATION"), .finished]))
+                try await startManualCompaction(fixture)
+                try await assertManualIdle(fixture)
+                XCTAssertEqual(fixture.model.requests.count, index + 1, "No retry or generation after \(mode)")
+                _ = try summaryData(try XCTUnwrap(fixture.model.requests.last))
+                try await assertManualHistory(fixture, original)
+                try await assertManualError(fixture)
+                try assertNoManualMessageEvents(events)
+                XCTAssertFalse(FileManager.default.fileExists(atPath: fixture.root.appendingPathComponent("manual-must-not-exist.txt").path))
+                XCTAssertFalse(String(decoding: try json(events.values), as: UTF8.self).contains(partial))
+                XCTAssertTrue(events.values.contains {
+                    let info = ($0["properties"] as? [String: Any])?["info"] as? [String: Any]
+                    return $0["type"] as? String == "session.updated" && info?["compactionError"] is String
+                })
+                if mode == "provider" { try await assertManualRestartUsesCheckpoint(fixture, original) }
+            }
+        }
+    }
+
+    func testManualCompactionClearsPersistedErrorToExplicitNullAsSoonAsRetryStarts() async throws {
+        let fixture = try await fixture()
+        _ = try await prepareManualHistory(fixture, priorCheckpoint: true)
+        let original = try await manualHistory(fixture)
+        fixture.model.enqueue(Script(events: [], failure: NativeModelClientError.providerFailure), summary: true)
+        try await startManualCompaction(fixture)
+        try await assertManualIdle(fixture)
+        try await assertManualError(fixture)
+        let events = Events()
+        await fixture.backend.setEventHandler(events.receive)
+        let index = fixture.model.requests.count
+        fixture.model.enqueue(Script(events: [.text(Self.summary)], holdOpen: true), summary: true)
+        try await startManualCompaction(fixture)
+        try await waitManualSummary(fixture, at: index)
+        let info = try await sessionInfo(fixture.backend, fixture.id)
+        XCTAssertTrue(info["compactionError"] is NSNull, "Omission does not clear an existing UI error")
+        XCTAssertTrue(try storedSession(fixture)["compactionError"] is NSNull)
+        XCTAssertTrue(events.values.contains {
+            let info = ($0["properties"] as? [String: Any])?["info"] as? [String: Any]
+            return $0["type"] as? String == "session.updated" && info?["compactionError"] is NSNull
+                && (info?["nativeContext"] as? [String: Any])?["compacting"] as? Bool == true
+        })
+        try await assertManualHistory(fixture, original)
+        let stream = try XCTUnwrap(fixture.model.continuation(at: index))
+        stream.yield(.finished)
+        stream.finish()
+        try await assertManualIdle(fixture)
+        XCTAssertEqual(fixture.model.requests.count, index + 1)
+        let finished = try await sessionInfo(fixture.backend, fixture.id)
+        XCTAssertTrue(finished["compactionError"] is NSNull)
+        try await assertManualHistory(fixture, original, checkpointUnchanged: false)
+        try assertNoManualMessageEvents(events)
+    }
+
+    func testManualImmediateAbortAndBackgroundAfterAckCannotResurrectScheduledCompaction() async throws {
+        for background in [false, true] {
+            for attempt in 0..<20 {
+                let fixture = try await fixture()
+                _ = try await prepareManualHistory(fixture, priorCheckpoint: attempt % 2 == 1)
+                let original = try await manualHistory(fixture)
+                let events = Events()
+                await fixture.backend.setEventHandler(events.receive)
+                let index = fixture.model.requests.count
+                fixture.model.enqueue(Script(events: [.text(Self.summary)], holdOpen: true), summary: true)
+
+                // Do not wait for the scheduled task or stream: cancellation must race
+                // prepareContext's first persistence, not just its streaming loop.
+                let result = try await fixture.backend.request(method: "POST", path: "/session/\(fixture.id)/compact",
+                                                                directory: fixture.root.path, body: nil)
+                if background { await fixture.backend.interruptActiveRuns() }
+                else {
+                    _ = try await fixture.backend.request(method: "POST", path: "/session/\(fixture.id)/abort",
+                                                           directory: fixture.root.path, body: nil)
+                }
+                let stoppedRequests = fixture.model.requests.count
+                let url = fixture.root.appendingPathComponent("native-agent/state.json")
+                let stoppedBytes = try Data(contentsOf: url)
+                let response = try XCTUnwrap(result as? [String: Any])
+                XCTAssertEqual(try json(response), try json(["started": true]))
+                let scenario = "background=\(background), attempt=\(attempt)"
+                XCTAssertLessThanOrEqual(stoppedRequests, index + 1, scenario)
+
+                // The scheduler may have opened the stream before cancellation won.
+                // Allow either ordering, but never let a late terminal event commit.
+                if let stream = fixture.model.continuation(at: index) {
+                    stream.yield(.text("LATE_IMMEDIATE_MANUAL_SUMMARY"))
+                    stream.yield(.finished)
+                    stream.finish()
+                }
+                // An initial idle observation is insufficient: the cancelled task may
+                // still be queued. Give it bounded scheduling opportunities, then recheck.
+                for _ in 0..<5 {
+                    await Task.yield()
+                    try await Task.sleep(nanoseconds: 10_000_000)
+                    try await assertManualIdle(fixture)
+                    try await assertManualHistory(fixture, original)
+                    XCTAssertEqual(fixture.model.requests.count, stoppedRequests, "No request after cancellation: \(scenario)")
+                    XCTAssertEqual(try Data(contentsOf: url), stoppedBytes, "No late persistence after cancellation: \(scenario)")
+                }
+                if stoppedRequests > index {
+                    _ = try summaryData(try XCTUnwrap(fixture.model.requests.dropFirst(index).first))
+                    XCTAssertTrue(fixture.model.terminated(at: index), scenario)
+                }
+                try assertNoManualMessageEvents(events)
+            }
+        }
+    }
+
+    func testManualStopAndBackgroundDuringHeldSummaryPreserveAllHistoryAndCheckpointOnRestart() async throws {
+        for hasPriorCheckpoint in [false, true] {
+            for background in [false, true] {
+                let initial = try await fixture()
+                _ = try await prepareManualHistory(initial, priorCheckpoint: hasPriorCheckpoint)
+                let fixture = try await markOldManualUIAsUnfinished(initial)
+                let original = try await manualHistory(fixture)
+                let events = Events()
+                await fixture.backend.setEventHandler(events.receive)
+                let index = fixture.model.requests.count
+                let partial = "CANCELLED_PRIVATE_MANUAL_SUMMARY"
+                fixture.model.enqueue(Script(events: [.text(partial)], holdOpen: true), summary: true)
+                fixture.model.enqueue(Script(events: [.text("UNEXPECTED_MANUAL_CONTINUATION"), .finished]))
+                try await startManualCompaction(fixture)
+                try await waitManualSummary(fixture, at: index)
+                try await assertManualHistory(fixture, original)
+                let stream = try XCTUnwrap(fixture.model.continuation(at: index))
+                if background { await fixture.backend.interruptActiveRuns() }
+                else { _ = try await request(fixture.backend, "POST", "/session/\(fixture.id)/abort") }
+                stream.yield(.text("LATE_MANUAL_SUMMARY"))
+                stream.yield(.finished)
+                stream.finish()
+                try await assertManualIdle(fixture)
+                try await waitUntil { fixture.model.terminated(at: index) }
+                XCTAssertEqual(fixture.model.requests.count, index + 1)
+                try await assertManualHistory(fixture, original)
+                try await assertManualError(fixture)
+                try assertNoManualMessageEvents(events)
+                XCTAssertFalse(String(decoding: try json(events.values), as: UTF8.self).contains(partial))
+                try await assertManualRestartUsesCheckpoint(fixture, original)
+            }
+        }
+    }
+
+    func testManualCrashMarkerRecoversWithoutInterruptingAnyOldMessageOrGeneratingOnRestart() async throws {
+        for hasPriorCheckpoint in [false, true] {
+            let initial = try await fixture()
+            _ = try await prepareManualHistory(initial, priorCheckpoint: hasPriorCheckpoint)
+            let fixture = try await markOldManualUIAsUnfinished(initial)
+            let original = try await manualHistory(fixture)
+            let index = fixture.model.requests.count
+            fixture.model.enqueue(Script(events: [.text("CRASHED_PRIVATE_MANUAL_SUMMARY")], holdOpen: true), summary: true)
+            try await startManualCompaction(fixture)
+            try await waitManualSummary(fixture, at: index)
+            try await assertManualHistory(fixture, original)
+            let active = try XCTUnwrap(try snapshot(fixture.root)["active"] as? [String: [String: Any]])
+            let marker = try XCTUnwrap(active[fixture.id])
+            XCTAssertEqual(marker["kind"] as? String, "compaction")
+            XCTAssertNil(marker["userID"] as? String, "A manual run does not own an old user turn")
+            XCTAssertNil(marker["messageID"] as? String, "A manual run has no assistant placeholder")
+            let url = fixture.root.appendingPathComponent("native-agent/state.json")
+            let crashBytes = try Data(contentsOf: url)
+            // Replay the actual in-flight marker, not the graceful shutdown snapshot.
+            await fixture.backend.shutdown()
+            try crashBytes.write(to: url, options: .atomic)
+            let model = ScriptedModel()
+            let reopened = try backend(fixture.root, model, fixture.credentials)
+            let restored = Fixture(root: fixture.root, credentials: fixture.credentials, model: model,
+                                   backend: reopened, id: fixture.id)
+            try await assertManualIdle(restored)
+            try await assertManualHistory(restored, original)
+            try await assertManualError(restored)
+            XCTAssertTrue(model.requests.isEmpty)
+            XCTAssertEqual(fixture.model.requests.count, index + 1)
+            try await assertManualRestartUsesCheckpoint(restored, original)
+        }
     }
 
     func testAutomaticCompactionPreservesHistoryAndReopensWithSummaryInBothFormats() async throws {
