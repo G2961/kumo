@@ -13,3 +13,8 @@ app/src/main/assets/rootfs.tgz
 tests/__pycache__/
 tests/mobile-results.json
 *.log
+
+# Android release signing is local or restored from GitHub Secrets, never versioned.
+*.jks
+*.keystore
+app/signing.properties

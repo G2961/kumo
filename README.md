@@ -40,7 +40,7 @@ no proot, no Termux, no remote server, no NDK build.
 .
 ├── app/
 │   ├── build.gradle.kts            # SDK 26–35, arm64-v8a, legacy jniLib packaging
-│   ├── opencode.jks                # release keystore (test credentials)
+│   ├── opencode.jks                # local release keystore (gitignored)
 │   └── src/main/
 │       ├── AndroidManifest.xml
 │       ├── java/space/g2961/opencode/
@@ -63,6 +63,20 @@ gradle assembleDebug        # requires app/src/main/jniLibs/arm64-v8a/*.so + ass
 
 The workflow pins: opencode `1.19.3`, Alpine libstdc++/libgcc `3.22.1`, ripgrep `15.1.0` (static musl).
 Bump the `env:` block in `.github/workflows/build.yml` to update.
+
+## Release signing
+
+The existing release key is kept outside Git. GitHub Actions restores it from
+repository secrets `ANDROID_KEYSTORE_BASE64`, `ANDROID_KEYSTORE_PASSWORD`,
+`ANDROID_KEY_ALIAS`, and `ANDROID_KEY_PASSWORD`, and deletes the temporary key
+before publishing the APK. Never put signing files in artifacts or caches.
+
+For local signed builds, keep `app/opencode.jks` and a gitignored
+`app/signing.properties` containing `storeFile`, `storePassword`, `keyAlias`, and
+`keyPassword`. Environment variables override these values; an optional
+`ANDROID_KEYSTORE_PATH` is resolved relative to `app`. Never commit that file.
+Without signing credentials, debug uses the ordinary debug key and release is
+unsigned; it cannot update an installation signed with the owner's release key.
 
 ## Requirements
 

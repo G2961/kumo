@@ -1,7 +1,22 @@
+import java.util.Properties
+
 plugins {
     id("com.android.application")
     id("org.jetbrains.kotlin.android")
 }
+
+val localSigning = Properties().apply {
+    val config = file("signing.properties")
+    if (config.isFile) config.inputStream().use { load(it) }
+}
+fun signingValue(environment: String, property: String): String? =
+    providers.environmentVariable(environment).orNull?.takeIf { it.isNotBlank() }
+        ?: localSigning.getProperty(property)?.takeIf { it.isNotBlank() }
+val releaseStore = file(signingValue("ANDROID_KEYSTORE_PATH", "storeFile") ?: "opencode.jks")
+val releaseStorePassword = signingValue("ANDROID_KEYSTORE_PASSWORD", "storePassword")
+val releaseAlias = signingValue("ANDROID_KEY_ALIAS", "keyAlias")
+val releaseKeyPassword = signingValue("ANDROID_KEY_PASSWORD", "keyPassword")
+val hasReleaseSigning = releaseStore.isFile && releaseStorePassword != null && releaseAlias != null && releaseKeyPassword != null
 
 android {
     namespace = "space.g2961.opencode"
@@ -19,11 +34,13 @@ android {
     }
 
     signingConfigs {
-        create("release") {
-            storeFile = file("opencode.jks")
-            storePassword = "REMOVED_SIGNING_SECRET"
-            keyAlias = "nightcode"
-            keyPassword = "REMOVED_SIGNING_SECRET"
+        if (hasReleaseSigning) {
+            create("release") {
+                storeFile = releaseStore
+                storePassword = releaseStorePassword
+                keyAlias = releaseAlias
+                keyPassword = releaseKeyPassword
+            }
         }
     }
 
@@ -38,10 +55,10 @@ android {
 
     buildTypes {
         debug {
-            signingConfig = signingConfigs.getByName("release")
+            if (hasReleaseSigning) signingConfig = signingConfigs.getByName("release")
         }
         release {
-            signingConfig = signingConfigs.getByName("release")
+            if (hasReleaseSigning) signingConfig = signingConfigs.getByName("release")
             isMinifyEnabled = false
         }
     }
