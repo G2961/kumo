@@ -3373,7 +3373,7 @@ function errorCardHTML(e,mid){
  const body=hu
   ?`<div class="er-diag">${esc(hu.diag)}</div><div class="er-hint">${esc(hu.hint)}</div><details class="er-raw"><summary>Details</summary><pre class="er-body">${esc(msg)}${tail}</pre></details>`
   :`<pre class="er-body" style="${meta.aborted?'color:var(--text-2);background:var(--surface-1)':''}">${esc(msg)}${tail}</pre>`;
- return `<div class="card error-card" ${meta.aborted?'':`data-mid="${esc(mid)}"`}><div class="ch ${meta.aborted?'':'er'}">${meta.aborted?I.bot:'<img src="kumo_sad.png" alt="" class="er-sad">'}<span class="tool-action">${esc(modelName)}</span>${code&&!meta.aborted?`<span class="m er">${esc(code)}</span>`:''}<span class="m ${meta.aborted?'':'er'}">${meta.aborted?'Stopped':'Failed'}</span></div>${body}${meta.aborted?'':`<div class="btns"><button class="btn p" data-erract="retry">Retry</button><button class="btn" data-erract="model">Switch model</button></div>`}</div>`;
+ return `<div class="card error-card" ${meta.aborted?'':`data-mid="${esc(mid)}"`}><div class="ch ${meta.aborted?'':'er'}">${meta.aborted?I.bot:'<img src="kumo_sad.png" alt="" class="er-sad">'}<span class="tool-action">${esc(modelName)}</span>${code&&!meta.aborted?`<span class="m er">${esc(code)}</span>`:''}<span class="m ${meta.aborted?'':'er'}">${meta.aborted?'Stopped':'Failed'}</span></div>${body}${meta.aborted?'':`<div class="btns"><button class="btn p" data-erract="retry">${window.KumoNativeBackend&&S.msgs.get(mid)?.info.nativeResume===true?'Продолжить':'Retry'}</button><button class="btn" data-erract="model">Switch model</button></div>`}</div>`;
 }
 function lastUserText(){
  const list=[...S.msgs.values()].filter(x=>x.info.role==='user').sort((a,b)=>a.info.id<b.info.id?1:-1);
@@ -3390,6 +3390,25 @@ async function resendPrompt(text){
 }
 let retrying=false;
 async function retryFrom(msgId){
+ if(window.KumoNativeBackend){
+  if(!S.sid||S.running||retrying||S.sending||S.pendingUser)return;
+  const sid=S.sid,dir=S.dir,mid=msgId,view=S.view,revision=S.revision,lastErr=S.lastErr;
+  const current=()=>view===S.view&&sid===S.sid&&dir===S.dir;
+  const x=S.msgs.get(mid),latest=[...S.msgs.values()].sort((a,b)=>a.info.id<b.info.id?-1:1).at(-1);
+  const showError=message=>{sheet('<h3>Продолжение</h3><p class="note">'+esc(message)+'</p>');$('#sheet').onclick=null};
+  if(!x||x!==latest||x.info.role!=='assistant'||x.info.sessionID!==sid||!x.info.error||x.info.nativeResume!==true){
+   showError('Для этого сбоя нет безопасной точки продолжения. Отправьте новое сообщение.');return;
+  }
+  retrying=true;
+  try{
+   await api('/session/'+encodeURIComponent(sid)+'/resume',{method:'POST',body:{messageID:mid},directory:dir});
+   if(!current())return;
+   if(S.revision===revision&&S.lastErr===lastErr)S.lastErr=null;
+   await syncSession();
+  }catch(e){if(current()){const message=readableError(e.message);err('resume: '+message);showError(message)}}
+  finally{retrying=false}
+  return;
+ }
  if(retrying||S.sending)return;
  const x=S.msgs.get(msgId);
  const uid=x&&x.info.role==='assistant'?x.info.parentID:null;

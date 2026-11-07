@@ -22,14 +22,16 @@ public struct NativeModelMessage {
     public var toolCalls: [NativeToolCall]
     public var toolCallID: String?
     public var replayItems: [[String: Any]]
+    public var excludedFromContext: Bool
 
     public init(role: String, content: String, toolCalls: [NativeToolCall] = [],
-                toolCallID: String? = nil, replayItems: [[String: Any]] = []) {
+                toolCallID: String? = nil, replayItems: [[String: Any]] = [], excludedFromContext: Bool = false) {
         self.role = role
         self.content = content
         self.toolCalls = toolCalls
         self.toolCallID = toolCallID
         self.replayItems = replayItems
+        self.excludedFromContext = excludedFromContext
     }
 }
 

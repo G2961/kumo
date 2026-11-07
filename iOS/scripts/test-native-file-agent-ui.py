@@ -71,6 +71,7 @@ ROUTES = {'/doc': ['get'], '/global/health': ['get'], '/global/config': ['get', 
           '/session/status': ['get'], '/session/{sessionID}': ['get', 'patch', 'delete'],
           '/session/{sessionID}/message': ['get'], '/session/{sessionID}/prompt_async': ['post'],
           '/session/{sessionID}/abort': ['post'], '/session/{sessionID}/compact': ['post'],
+          '/session/{sessionID}/resume': ['post'],
           '/session/{sessionID}/diff': ['get'],
           '/permission': ['get'], '/permission/{requestID}/reply': ['post']}
 DOC = {'openapi': '3.1.0', 'paths': {p: {m: {} for m in methods} for p, methods in ROUTES.items()}}
@@ -143,6 +144,9 @@ class NativeFixture:
         self.compact_gate = None
         self.compact_result = {'started': True}
         self.expected_compact = None
+        self.resume_gate = None
+        self.resume_result = None
+        self.expected_resume = None
         self.list_context = True
         self.metadata_gate = None
         self.providers = {'providers': [], 'default': {}}
@@ -270,6 +274,11 @@ class NativeFixture:
             if self.compact_gate:
                 await asyncio.wait_for(self.compact_gate.wait(), 10)
             return self.compact_result, []  # Ack only; tests publish lifecycle events independently.
+        if method == 'POST' and path == '/session/' + SID + '/resume':
+            require(data == self.expected_resume, 'Wrong resume payload: ' + repr(data))
+            if self.resume_gate:
+                await asyncio.wait_for(self.resume_gate.wait(), 10)
+            return self.resume_result, []  # Null admission ack; lifecycle events own running state.
         if method == 'POST' and path == '/session/' + SID + '/abort':
             require('body' not in data, 'Stop unexpectedly sent a write/prompt body')
             self.status, self.permissions = 'idle', []
@@ -1457,7 +1466,132 @@ async def manual_stop(page, fixture, expect):
     require(not fixture.calls('backendRequest', '/session/' + SID + '/prompt_async'), 'Stop sent unsent draft')
 
 
-CASES = {'manual_success': manual_success, 'manual_guards': manual_guards,
+async def resume_setup(page, fixture, expect):
+    fixture.messages[-1]['info'].update(nativeResume=True, error={
+        'name': 'UnknownError', 'data': {'message': 'CHECKPOINT_FAILURE'}})
+    fixture.messages[-1]['info']['modelID'] = 'original-checkpoint-model'
+    fixture.expected_resume = {'path': '/session/' + SID + '/resume', 'method': 'POST',
+                               'directory': DIRECTORY, 'body': {'messageID': ASSISTANT}}
+    await page.evaluate('syncSession()')
+    await page.locator('#inp').fill('UNSENT_RESUME_DRAFT')
+    button = page.locator('#main .error-card[data-mid="' + ASSISTANT + '"] [data-erract="retry"]')
+    await expect(button).to_have_text('Продолжить')
+    return button
+
+
+def resume_no_regeneration(fixture, original):
+    requests = fixture.calls('backendRequest')
+    require(not any(q['data']['method'] == 'DELETE' or
+                    q['data']['path'].endswith(('/prompt', '/prompt_async', '/abort')) for q in requests),
+            'Native resume deleted rows, aborted busy work or resubmitted a prompt')
+    require(fixture.messages == original, 'Resume mutated original prompt/prior rows/checkpoint model')
+
+
+async def resume_success(page, fixture, expect):
+    button = await resume_setup(page, fixture, expect)
+    original = deepcopy(fixture.messages)
+    # Changing the picker must not override the model stored in the checkpoint.
+    await page.evaluate("S.model={p:'different-provider',m:'different-model'};S.lastErr='CHECKPOINT_FAILURE'")
+    before = len(fixture.calls('backendRequest', '/session/' + SID + '/message'))
+    await button.click()
+    await page.wait_for_function('!retrying && nativePending.size === 0 && syncing === null')
+    require(len(fixture.calls('backendRequest', '/session/' + SID + '/resume')) == 1, 'Missing single resume')
+    require(len(fixture.calls('backendRequest', '/session/' + SID + '/message')) > before, 'Resume did not syncSession')
+    require(await page.evaluate('S.lastErr === null && !S.running && !S.sending'), 'Null ack fabricated running/error')
+    await expect(page.locator('#inp')).to_have_value('UNSENT_RESUME_DRAFT')
+    require(await page.evaluate('([...S.msgs.values()].map(x=>({info:x.info,parts:[...x.parts.values()]})))') == original,
+            'Resume lost or changed original visible message rows')
+    await expect(page.locator('#main')).to_contain_text('Review this file.')
+    await expect(page.locator('#main')).to_contain_text('FINAL_SNAPSHOT')
+    resume_no_regeneration(fixture, original)
+
+
+async def resume_guards(page, fixture, expect):
+    button = await resume_setup(page, fixture, expect)
+    original = deepcopy(fixture.messages)
+    for state in ('S.running', 'S.sending', 'retrying', 'S.pendingUser'):
+        await page.evaluate(state + '=true')
+        await button.dispatch_event('click')
+        await page.evaluate(state + ('=null' if state == 'S.pendingUser' else '=false'))
+    require(not fixture.calls('backendRequest', '/session/' + SID + '/resume'), 'Busy/pending guard sent resume')
+    fixture.resume_gate = asyncio.Event()
+    await button.evaluate("b=>{b.click();b.dispatchEvent(new MouseEvent('click',{bubbles:true}))}")
+    await wait_calls(page, fixture, 'backendRequest', '/session/' + SID + '/resume')
+    await page.evaluate('renderMsgs()')
+    await button.dispatch_event('click')
+    fixture.resume_gate.set()
+    await page.wait_for_function('!retrying && nativePending.size === 0 && syncing === null')
+    require(len(fixture.calls('backendRequest', '/session/' + SID + '/resume')) == 1,
+            'Double click/re-render bypassed pending resume guard')
+    await expect(page.locator('#inp')).to_have_value('UNSENT_RESUME_DRAFT')
+    resume_no_regeneration(fixture, original)
+
+
+async def resume_unsafe(page, fixture, expect):
+    button = await resume_setup(page, fixture, expect)
+    note = 'Для этого сбоя нет безопасной точки продолжения. Отправьте новое сообщение.'
+    fixture.messages[-1]['info']['nativeResume'] = False
+    await page.evaluate('syncSession()')
+    await expect(button).to_have_text('Retry')
+    await button.click()
+    await expect(page.locator('#sheet')).to_contain_text(note)
+    # Even a retained marker cannot authorize an older failed row after a newer turn.
+    fixture.messages[-1]['info']['nativeResume'] = True
+    fixture.messages.append(message('msg_003_user', 'user', [{'id': 'prt_new', 'type': 'text', 'text': 'NEW_TURN'}]))
+    await page.evaluate('syncSession()')
+    await page.evaluate('retryFrom(' + json.dumps(ASSISTANT) + ')')
+    await expect(page.locator('#sheet')).to_contain_text(note)
+    await page.evaluate("retryFrom('msg_removed_stale')")
+    await expect(page.locator('#sheet')).to_contain_text(note)
+    original = deepcopy(fixture.messages)
+    require(not fixture.calls('backendRequest', '/session/' + SID + '/resume'), 'Unsafe/stale marker sent resume')
+    await expect(page.locator('#inp')).to_have_value('UNSENT_RESUME_DRAFT')
+    resume_no_regeneration(fixture, original)
+
+
+async def resume_stale_error(page, fixture, expect):
+    button = await resume_setup(page, fixture, expect)
+    original = deepcopy(fixture.messages)
+    fixture.resume_gate = asyncio.Event()
+    await page.evaluate("S.lastErr='CHECKPOINT_FAILURE'")
+    await button.click()
+    await wait_calls(page, fixture, 'backendRequest', '/session/' + SID + '/resume')
+    await manual_status(page, fixture, 'busy')
+    await manual_standard_error(page, 'LATE_TERMINAL_FAILURE')
+    fixture.status = 'idle'
+    fixture.resume_gate.set()
+    await page.wait_for_function('!retrying && nativePending.size === 0 && syncing === null')
+    require(await page.evaluate("!S.running && S.lastErr === 'LATE_TERMINAL_FAILURE'"),
+            'Late null ack restarted finished work or cleared a new terminal error')
+    await page.evaluate('S.errors=[]')
+    for result in (None, {'error': 'STALE_RESUME_FAILURE'}):
+        fixture.resume_gate, fixture.resume_result = asyncio.Event(), result
+        before = len(fixture.calls('backendRequest', '/session/' + SID + '/resume'))
+        await button.click()
+        await wait_calls(page, fixture, 'backendRequest', '/session/' + SID + '/resume', before + 1)
+        await page.evaluate("resetThread('ses_other');S.dir='/other';S.lastErr='FOREIGN_ERROR'")
+        reads = len(fixture.calls('backendRequest', '/session/' + SID + '/message'))
+        fixture.resume_gate.set()
+        await page.wait_for_function('!retrying && nativePending.size === 0')
+        require(await page.evaluate("S.lastErr === 'FOREIGN_ERROR' && !S.running && !S.sending"),
+                'Stale resume response changed another view')
+        require(len(fixture.calls('backendRequest', '/session/' + SID + '/message')) == reads,
+                'Stale resume response hydrated another view')
+        await page.evaluate('directory=>{S.dir=directory;resetThread(' + json.dumps(SID) + ')}', DIRECTORY)
+        await page.evaluate('syncSession()')
+    fixture.resume_gate, fixture.resume_result = None, {'error': 'CHECKPOINT_EXPIRED <unsafe>'}
+    await button.click()
+    await page.wait_for_function('!retrying && nativePending.size === 0')
+    await expect(page.locator('#sheet')).to_contain_text('CHECKPOINT_EXPIRED <unsafe>')
+    require(not await page.evaluate('S.running || S.sending'), 'Admission error left composer busy')
+    await expect(page.locator('#inp')).to_have_value('UNSENT_RESUME_DRAFT')
+    await page.evaluate('S.errors=[]')
+    resume_no_regeneration(fixture, original)
+
+
+CASES = {'resume_success': resume_success, 'resume_guards': resume_guards,
+         'resume_unsafe': resume_unsafe, 'resume_stale_error': resume_stale_error,
+         'manual_success': manual_success, 'manual_guards': manual_guards,
          'manual_noop_failure': manual_noop_failure, 'manual_event_error': manual_event_error,
          'manual_retry_start': manual_retry_start, 'manual_error_ownership': manual_error_ownership,
          'manual_stale': manual_stale, 'manual_fallback': manual_fallback, 'manual_stop': manual_stop,
@@ -1541,6 +1675,8 @@ async def run_case(browser, origin, name, output, expect):
                 fixture.reply_gate.set()
             if fixture.compact_gate:
                 fixture.compact_gate.set()
+            if fixture.resume_gate:
+                fixture.resume_gate.set()
             for gate in fixture.fs_gates.values():
                 gate.set()
             result.update(requests=fixture.trace, unexpected=fixture.unexpected, pageErrors=errors, external=external)

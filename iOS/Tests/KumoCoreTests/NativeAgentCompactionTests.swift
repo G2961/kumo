@@ -238,13 +238,15 @@ final class NativeAgentCompactionTests: XCTestCase {
     private func decoded(_ rows: [[String: Any]]) throws -> [NativeModelMessage] {
         try rows.map { row in
             let calls = try XCTUnwrap(row["toolCalls"] as? [[String: String]])
-            return NativeModelMessage(role: try XCTUnwrap(row["role"] as? String),
-                                      content: try XCTUnwrap(row["content"] as? String),
-                                      toolCalls: try calls.map {
-                                          NativeToolCall(id: try XCTUnwrap($0["id"]), name: try XCTUnwrap($0["name"]),
-                                                         arguments: try XCTUnwrap($0["arguments"]))
-                                      }, toolCallID: row["toolCallID"] as? String,
-                                      replayItems: try XCTUnwrap(row["replayItems"] as? [[String: Any]]))
+            var message = NativeModelMessage(role: try XCTUnwrap(row["role"] as? String),
+                                             content: try XCTUnwrap(row["content"] as? String),
+                                             toolCalls: try calls.map {
+                                                 NativeToolCall(id: try XCTUnwrap($0["id"]), name: try XCTUnwrap($0["name"]),
+                                                                arguments: try XCTUnwrap($0["arguments"]))
+                                             }, toolCallID: row["toolCallID"] as? String,
+                                             replayItems: try XCTUnwrap(row["replayItems"] as? [[String: Any]]))
+            message.excludedFromContext = row["excludedFromContext"] as? Bool ?? false
+            return message
         }
     }
 
@@ -1396,8 +1398,9 @@ final class NativeAgentCompactionTests: XCTestCase {
         let saved = try transcript(fixture)
         let final = try XCTUnwrap(try decoded(saved).last, file: file, line: line)
         // The request already contains the active checkpoint projection, if any.
-        // Its completed or interrupted final assistant row is no longer a placeholder.
-        let expectedInput = try budget(request, messages: request.messages + [final]) - Self.reserve
+        // Filter excluded final output without applying that checkpoint again.
+        let active = NativeContextCompaction.activeMessages(request.messages + [final], checkpoint: nil)
+        let expectedInput = try budget(request, messages: active) - Self.reserve
         let info = try await sessionInfo(fixture.backend, fixture.id)
         let context = try XCTUnwrap(info["nativeContext"] as? [String: Any], file: file, line: line)
         XCTAssertEqual(context["input"] as? Int, expectedInput, file: file, line: line)
@@ -1513,7 +1516,7 @@ final class NativeAgentCompactionTests: XCTestCase {
         }
     }
 
-    func testFailedAndCancelledStreamingFinalContextIncludesPersistedPartialOutput() async throws {
+    func testFailedAndCancelledStreamingFinalContextExcludesPersistedPartialOutput() async throws {
         for format in [NativeProviderFormat.responses, .chatCompletions] {
             for mode in ["failed", "truncated", "cancelled"] {
                 let fixture = try await fixture(format: format)
@@ -1552,12 +1555,10 @@ final class NativeAgentCompactionTests: XCTestCase {
                 let final = try XCTUnwrap(try decoded(saved).last)
                 XCTAssertEqual(final.content, partial)
                 XCTAssertEqual(try json(final.replayItems), try json(items))
+                XCTAssertTrue(final.excludedFromContext)
                 let input = try await assertFinalContext(fixture, request: request)
-                XCTAssertGreaterThan(input, try budget(request) - Self.reserve + partial.utf8.count,
-                                     "Failed/cancelled final counters must include the persisted partial assistant row")
-                var withoutPartial = final
-                withoutPartial.content = ""
-                XCTAssertGreaterThan(input, try budget(request, messages: request.messages + [withoutPartial]) - Self.reserve)
+                XCTAssertEqual(input, try budget(request) - Self.reserve,
+                               "Failed/cancelled final counters must exclude the persisted partial assistant row")
                 let info = try await sessionInfo(fixture.backend, fixture.id)
                 XCTAssertEqual((info["nativeContext"] as? [String: Any])?["limit"] as? Int, 100_000)
                 let visible = try await messages(fixture.backend, fixture.id)

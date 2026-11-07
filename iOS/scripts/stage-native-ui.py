@@ -25,6 +25,9 @@ Manual POST /session/{sid}/compact captures directory, model, agent and variant;
 started:true only acknowledges launch. Events own busy/idle and completion.
 started:false/nothing_to_compact uses no model; compactionError is cleared by
 an explicit null at start and survives session hydration when errors occur.
+Native Retry resumes only the latest failed assistant with info.nativeResume=true;
+POST /session/{sid}/resume sends only {messageID}, retaining the checkpoint model.
+The null ack never creates a running state; events and syncSession own lifecycle.
 The parent must use safe HTTPS URLSession requests without secret-bearing redirects.
 Existing auth PUTs use backendRequest; existing history actions use NativePatchLedger.
 Serve parent-owned assets at kumo://app/_ui/index.html; /_ui/ URLs stay unchanged.
@@ -48,6 +51,31 @@ def replace_exact(html, old, new, label):
     if count != 1:
         raise PatchError(f"{label} patch: expected exactly one canonical string, found {count}")
     return html.replace(old, new, 1)
+
+
+RETRY_OLD = """async function retryFrom(msgId){
+ if(retrying||S.sending)return;"""
+RETRY_NEW = """async function retryFrom(msgId){
+ if(window.KumoNativeBackend){
+  if(!S.sid||S.running||retrying||S.sending||S.pendingUser)return;
+  const sid=S.sid,dir=S.dir,mid=msgId,view=S.view,revision=S.revision,lastErr=S.lastErr;
+  const current=()=>view===S.view&&sid===S.sid&&dir===S.dir;
+  const x=S.msgs.get(mid),latest=[...S.msgs.values()].sort((a,b)=>a.info.id<b.info.id?-1:1).at(-1);
+  const showError=message=>{sheet('<h3>Продолжение</h3><p class="note">'+esc(message)+'</p>');$('#sheet').onclick=null};
+  if(!x||x!==latest||x.info.role!=='assistant'||x.info.sessionID!==sid||!x.info.error||x.info.nativeResume!==true){
+   showError('Для этого сбоя нет безопасной точки продолжения. Отправьте новое сообщение.');return;
+  }
+  retrying=true;
+  try{
+   await api('/session/'+encodeURIComponent(sid)+'/resume',{method:'POST',body:{messageID:mid},directory:dir});
+   if(!current())return;
+   if(S.revision===revision&&S.lastErr===lastErr)S.lastErr=null;
+   await syncSession();
+  }catch(e){if(current()){const message=readableError(e.message);err('resume: '+message);showError(message)}}
+  finally{retrying=false}
+  return;
+ }
+ if(retrying||S.sending)return;"""
 
 
 API_OLD = """async function api(path,o={}){
@@ -645,6 +673,9 @@ def patch_html(html):
     """Pure, fail-closed canonical-source transform; never patch the staged output."""
     patches = [
         (API_OLD, API_NEW, "api"),
+        (RETRY_OLD, RETRY_NEW, "native checkpoint resume"),
+        ('data-erract="retry">Retry</button>',
+         'data-erract="retry">${window.KumoNativeBackend&&S.msgs.get(mid)?.info.nativeResume===true?\'Продолжить\':\'Retry\'}</button>', "native resume button label"),
         ("  try{S.spec=await (await fetch('/doc')).json();S.specErr=null}catch(e){S.specErr=String(e.message||e)}", "  try{S.spec=await api('/doc');S.specErr=null}catch(e){S.specErr=String(e.message||e)}", "boot doc"),
         (" ['get','/event'],['get','/config/providers']", " ['get','/config/providers']", "mandatory routes"),
         (EVENTS_OLD, EVENTS_NEW, "event subscription"),

@@ -24,6 +24,17 @@ public actor NativeAgentBackend {
         let agent: String
     }
 
+    private struct ResumeCheckpoint: Codable {
+        let messageID: String
+        let userID: String
+        let transcriptBoundary: Int
+        let providerID: String
+        let modelID: String
+        let agent: String
+        let variant: String?
+        let step: Int
+    }
+
     private struct Approval {
         let payload: [String: Any]
         let token: String
@@ -39,6 +50,7 @@ public actor NativeAgentBackend {
         let context: Int
         let output: Int
         let effort: String?
+        let variant: String?
     }
 
     private let snapshotURL: URL
@@ -111,7 +123,19 @@ public actor NativeAgentBackend {
                     if run["kind"] as? String != "compaction" {
                         Self.interruptMessages(&self.messages, sessionID: sid, userID: run["userID"] as? String,
                                                message: "Interrupted when the app stopped. No file operation was replayed.")
+                        if let value = self.sessions.first(where: { $0["id"] as? String == sid })?["resume"],
+                           let saved = try? JSONDecoder().decode(ResumeCheckpoint.self, from: JSONSerialization.data(withJSONObject: value)) {
+                            self.transcripts[sid]![saved.transcriptBoundary]["excludedFromContext"] = true
+                        }
                         Self.resolveUnansweredCalls(&self.transcripts, sessionID: sid)
+                        if let index = self.sessions.firstIndex(where: { $0["id"] as? String == sid }) {
+                            self.sessions[index].removeValue(forKey: "resume")
+                            for rowIndex in (self.messages[sid] ?? []).indices {
+                                var info = self.messages[sid]![rowIndex]["info"] as! [String: Any]
+                                info.removeValue(forKey: "nativeResume")
+                                self.messages[sid]![rowIndex]["info"] = info
+                            }
+                        }
                     } else if let index = self.sessions.firstIndex(where: { $0["id"] as? String == sid }) {
                         self.sessions[index]["compactionError"] = "Compaction was interrupted when the app stopped. Original history and the last saved summary are unchanged."
                     }
@@ -342,6 +366,9 @@ public actor NativeAgentBackend {
                 case ("GET", "message"): return messages[sid] ?? []
                 case ("POST", "compact"):
                     return try startCompaction(sid, body: body)
+                case ("POST", "resume"):
+                    try resume(sid, body: body)
+                    return NSNull()
                 case ("POST", "prompt_async"):
                     try start(sid, body: body)
                     return NSNull()
@@ -378,7 +405,8 @@ public actor NativeAgentBackend {
         let selection = try select(body)
         let token = id("run")
         let index = try sessionIndex(sid, directory: nil)
-        let oldSession = sessions[index]
+        let oldSession = sessions[index], oldMessages = messages[sid]
+        clearResume(sid)
         runs[sid] = Run(token: token, turn: nil, task: nil, selection: selection, agent: agent)
         sessions[index]["compactionError"] = NSNull()
         do {
@@ -386,6 +414,7 @@ public actor NativeAgentBackend {
                               compacting: true, hasPlaceholder: false)
         } catch {
             sessions[index] = oldSession
+            messages[sid] = oldMessages
             runs.removeValue(forKey: sid)
             throw error
         }
@@ -406,6 +435,69 @@ public actor NativeAgentBackend {
         return ["started": true]
     }
 
+    private func clearResume(_ sid: String) {
+        if let index = sessions.firstIndex(where: { $0["id"] as? String == sid }) {
+            sessions[index].removeValue(forKey: "resume")
+        }
+        for index in (messages[sid] ?? []).indices {
+            var info = messages[sid]![index]["info"] as! [String: Any]
+            info.removeValue(forKey: "nativeResume")
+            messages[sid]![index]["info"] = info
+        }
+    }
+
+    private static func recoverableModelFailure(_ error: Error) -> Bool {
+        if let error = error as? NativeModelClientError {
+            switch error {
+            case .transport, .http, .httpReason, .truncatedStream, .providerFailure: return true
+            default: return false
+            }
+        }
+        return (error as NSError).domain == NSURLErrorDomain && (error as NSError).code != NSURLErrorCancelled
+    }
+
+    private func resume(_ sid: String, body: [String: Any]) throws {
+        guard runs[sid] == nil else { throw Self.failure("This session is busy; wait before continuing.") }
+        guard Set(body.keys) == ["messageID"], let mid = body["messageID"] as? String, !mid.isEmpty,
+              let value = sessions[try sessionIndex(sid, directory: nil)]["resume"] else {
+            throw Self.failure("No safe continuation checkpoint exists for this message. Send a new message instead.")
+        }
+        let saved = try JSONDecoder().decode(ResumeCheckpoint.self, from: JSONSerialization.data(withJSONObject: value))
+        guard saved.messageID == mid, let failedIndex = messageIndex(sid, mid),
+              failedIndex == (messages[sid]?.count ?? 0) - 1,
+              (messages[sid]![failedIndex]["info"] as? [String: Any])?["nativeResume"] as? Bool == true,
+              saved.step >= 0, saved.step < 32,
+              saved.transcriptBoundary >= 0,
+              saved.transcriptBoundary == (transcripts[sid]?.count ?? 0) - 1,
+              transcripts[sid]![saved.transcriptBoundary]["excludedFromContext"] as? Bool == true else {
+            throw Self.failure("This continuation checkpoint is stale; completed work was not replayed.")
+        }
+        var selectionBody: [String: Any] = ["model": ["providerID": saved.providerID, "modelID": saved.modelID]]
+        if let variant = saved.variant { selectionBody["variant"] = variant }
+        let selection = try select(selectionBody)
+        let oldMessages = messages[sid], oldTranscripts = transcripts[sid], oldSessions = sessions
+        let token = id("run"), assistantID = id("msg")
+        clearResume(sid)
+        runs[sid] = Run(token: token, turn: Turn(userID: saved.userID, messageID: assistantID), task: nil,
+                        selection: selection, agent: saved.agent)
+        appendAssistant(sid, id: assistantID, userID: saved.userID, selection: selection, agent: saved.agent)
+        transcripts[sid, default: []].append(Self.encodeMessage(NativeModelMessage(role: "assistant", content: "")))
+        touch(sid)
+        do {
+            try admitContext(sid, selection: selection, system: systemPrompt(sid, agent: saved.agent))
+            try persist()
+        } catch {
+            messages[sid] = oldMessages; transcripts[sid] = oldTranscripts; sessions = oldSessions
+            runs.removeValue(forKey: sid)
+            throw error
+        }
+        // Revoke the old button without changing its saved partial text or error.
+        publishMessage(sid, mid)
+        publishMessage(sid, assistantID)
+        publish("session.status", ["sessionID": sid, "status": ["type": "busy"]])
+        runs[sid]?.task = Task { await self.drive(sid, token: token, selection: selection, agent: saved.agent, startingStep: saved.step) }
+    }
+
     private func start(_ sid: String, body: [String: Any]) throws {
         guard runs[sid] == nil else { throw Self.failure("This session is already busy; stop it before submitting another turn.") }
         guard Set(body.keys).isSubset(of: ["parts", "agent", "model", "variant", "system"]) else {
@@ -424,7 +516,7 @@ public actor NativeAgentBackend {
         let agent = body["agent"] as? String ?? "build"
         guard ["build", "plan"].contains(agent) else { throw Self.failure("Native agents support build and plan only; Auto uses the UI's permission rules.") }
         let selection = try select(body)
-        let callIDs = (transcripts[sid] ?? []).flatMap { $0["toolCalls"] as? [[String: String]] ?? [] }.compactMap { $0["id"] }
+        let callIDs = (transcripts[sid] ?? []).filter { $0["excludedFromContext"] as? Bool != true }.flatMap { $0["toolCalls"] as? [[String: String]] ?? [] }.compactMap { $0["id"] }
         guard Set(callIDs).count == callIDs.count else { throw Self.failure("Saved tool call IDs are not unique; start a new session.") }
         let token = id("run"), userID = id("msg"), assistantID = id("msg")
         let userInfo: [String: Any] = ["id": userID, "sessionID": sid, "role": "user", "time": ["created": Self.now],
@@ -435,6 +527,7 @@ public actor NativeAgentBackend {
              "time": ["start": Self.now, "end": Self.now]]
         }
         let oldMessages = messages[sid], oldTranscript = transcripts[sid], oldSessions = sessions
+        clearResume(sid)
         messages[sid, default: []].append(["info": userInfo, "parts": parts])
         transcripts[sid, default: []].append(Self.encodeMessage(NativeModelMessage(role: "user", content: texts.joined(separator: "\n"))))
         runs[sid] = Run(token: token, turn: Turn(userID: userID, messageID: assistantID), task: nil, selection: selection, agent: agent)
@@ -457,12 +550,12 @@ public actor NativeAgentBackend {
         runs[sid]?.task = task
     }
 
-    private func drive(_ sid: String, token: String, selection: Selection, agent: String) async {
+    private func drive(_ sid: String, token: String, selection: Selection, agent: String, startingStep: Int = 0) async {
         do {
             let system = systemPrompt(sid, agent: agent)
-            for step in 0..<32 {
+            for step in startingStep..<32 {
                 try checkRun(sid, token)
-                if step > 0 {
+                if step > startingStep {
                     let mid = id("msg")
                     runs[sid]?.turn?.messageID = mid
                     appendAssistant(sid, id: mid, userID: runs[sid]!.turn!.userID, selection: selection, agent: agent)
@@ -479,9 +572,16 @@ public actor NativeAgentBackend {
                                                  tools: fileTools.definitions, effort: selection.effort,
                                                  maxOutputTokens: selection.output)
                 let transcriptIndex = transcripts[sid]!.count - 1
+                let resume = ResumeCheckpoint(messageID: mid, userID: runs[sid]!.turn!.userID,
+                    transcriptBoundary: transcriptIndex, providerID: selection.providerID, modelID: selection.modelID,
+                    agent: agent, variant: selection.variant, step: step)
+                sessions[try sessionIndex(sid, directory: nil)]["resume"] = try JSONSerialization.jsonObject(with: JSONEncoder().encode(resume))
+                // The checkpoint precedes deltas; once the response is verified it is
+                // removed before executing tools, so an uncertain write is never replayed.
+                try persist()
                 var calls: [NativeToolCall] = []
                 var previews = Set<String>()
-                let previousCallIDs = Set((transcripts[sid] ?? []).flatMap { $0["toolCalls"] as? [[String: String]] ?? [] }.compactMap { $0["id"] })
+                let previousCallIDs = Set((transcripts[sid] ?? []).filter { $0["excludedFromContext"] as? Bool != true }.flatMap { $0["toolCalls"] as? [[String: String]] ?? [] }.compactMap { $0["id"] })
                 var content = ""
                 var replay: [[String: Any]] = []
                 var segment: (type: String, id: String)?
@@ -539,6 +639,7 @@ public actor NativeAgentBackend {
                 guard previews.isEmpty else { throw Self.failure("Model stream finished with unverified tool previews. No preview was executed.") }
                 try closeSegment(sid, mid: mid, segment: &segment)
                 transcripts[sid]![transcriptIndex] = Self.encodeMessage(NativeModelMessage(role: "assistant", content: content, toolCalls: calls, replayItems: replay))
+                clearResume(sid)
                 try persist()
                 for call in calls {
                     try checkRun(sid, token)
@@ -560,7 +661,8 @@ public actor NativeAgentBackend {
             guard runs[sid]?.token == token else { return }
             let message = error is CancellationError ? "Stopped by the user." : safeError(error, fallback: "Model stream failed. Check provider connectivity and credentials; the turn was not retried.").localizedDescription
             NSLog("[provider] %@", message)
-            try? finish(sid, token: token, error: message)
+            let canResume = Self.recoverableModelFailure(error) && sessions.first(where: { $0["id"] as? String == sid })?["resume"] != nil
+            try? finish(sid, token: token, error: message, resumable: canResume)
         }
     }
 
@@ -724,8 +826,23 @@ public actor NativeAgentBackend {
         try finish(sid, token: run.token, error: message)
     }
 
-    private func finish(_ sid: String, token: String, error: String?) throws {
+    private func finish(_ sid: String, token: String, error: String?, resumable: Bool = false) throws {
         guard let run = runs[sid], run.token == token else { return }
+        if error != nil, let value = sessions.first(where: { $0["id"] as? String == sid })?["resume"] {
+            let saved = try JSONDecoder().decode(ResumeCheckpoint.self, from: JSONSerialization.data(withJSONObject: value))
+            // Failed or interrupted provider output is display history, never verified model input.
+            transcripts[sid]![saved.transcriptBoundary]["excludedFromContext"] = true
+        }
+        if !resumable { clearResume(sid) }
+        if resumable, let turn = run.turn, let value = sessions[try sessionIndex(sid, directory: nil)]["resume"] {
+            let checkpoint = try JSONDecoder().decode(ResumeCheckpoint.self, from: JSONSerialization.data(withJSONObject: value))
+            transcripts[sid]![checkpoint.transcriptBoundary]["excludedFromContext"] = true
+            if let index = messageIndex(sid, turn.messageID) {
+                var info = messages[sid]![index]["info"] as! [String: Any]
+                info["nativeResume"] = true
+                messages[sid]![index]["info"] = info
+            }
+        }
         if let error = error, let turn = run.turn {
             Self.interruptMessages(&messages, sessionID: sid, userID: turn.userID, message: error)
             if let index = messageIndex(sid, turn.messageID) {
@@ -733,7 +850,7 @@ public actor NativeAgentBackend {
                 info["error"] = Self.errorPayload(error)
                 messages[sid]![index]["info"] = info
             }
-            Self.resolveUnansweredCalls(&transcripts, sessionID: sid)
+            if !resumable { Self.resolveUnansweredCalls(&transcripts, sessionID: sid) }
         }
         if run.turn == nil {
             sessions[try sessionIndex(sid, directory: nil)]["compactionError"] = error.map { clean($0) } ?? NSNull()
@@ -957,7 +1074,7 @@ public actor NativeAgentBackend {
             effort = selectedEffort
         }
         return Selection(providerID: pid, modelID: mid, baseURL: url, format: format, key: key,
-                         context: context, output: output, effort: effort)
+                         context: context, output: output, effort: effort, variant: body["variant"] as? String)
     }
 
     private func checkpoint(_ sid: String) throws -> NativeContextCheckpoint? {
@@ -1242,7 +1359,7 @@ public actor NativeAgentBackend {
     private static func resolveUnansweredCalls(_ transcripts: inout [String: [[String: Any]]], sessionID: String) {
         var rows = transcripts[sessionID] ?? []
         let answered = Set(rows.compactMap { $0["toolCallID"] as? String })
-        let calls = rows.flatMap { $0["toolCalls"] as? [[String: Any]] ?? [] }
+        let calls = rows.filter { $0["excludedFromContext"] as? Bool != true }.flatMap { $0["toolCalls"] as? [[String: Any]] ?? [] }
         for call in calls {
             if let id = call["id"] as? String, !answered.contains(id) {
                 rows.append(encodeMessage(NativeModelMessage(role: "tool", content: "Tool interrupted. Its final execution outcome is unknown; inspect the file before proceeding. No operation was replayed.", toolCallID: id)))
@@ -1256,6 +1373,7 @@ public actor NativeAgentBackend {
                                     "toolCalls": message.toolCalls.map { ["id": $0.id, "name": $0.name, "arguments": $0.arguments] },
                                     "replayItems": message.replayItems]
         if let id = message.toolCallID { result["toolCallID"] = id }
+        if message.excludedFromContext { result["excludedFromContext"] = true }
         return result
     }
 
@@ -1263,7 +1381,8 @@ public actor NativeAgentBackend {
         NativeModelMessage(role: value["role"] as? String ?? "assistant", content: value["content"] as? String ?? "",
                            toolCalls: (value["toolCalls"] as? [[String: String]] ?? []).map {
                                NativeToolCall(id: $0["id"] ?? "", name: $0["name"] ?? "", arguments: $0["arguments"] ?? "{}")
-                           }, toolCallID: value["toolCallID"] as? String, replayItems: value["replayItems"] as? [[String: Any]] ?? [])
+                           }, toolCallID: value["toolCallID"] as? String, replayItems: value["replayItems"] as? [[String: Any]] ?? [],
+                           excludedFromContext: value["excludedFromContext"] as? Bool ?? false)
     }
 
     private static func argumentPreview(_ arguments: String) -> [String: Any] {
@@ -1290,6 +1409,21 @@ public actor NativeAgentBackend {
                   let time = session["time"] as? [String: Any], time["created"] is NSNumber, time["updated"] is NSNumber,
                   let rules = session["permission"] else { throw failure("Native session snapshot contains invalid session metadata.") }
             _ = try validateRules(rules)
+            if let value = session["resume"] {
+                guard JSONSerialization.isValidJSONObject(value) else { throw failure("Invalid continuation checkpoint.") }
+                let saved = try JSONDecoder().decode(ResumeCheckpoint.self, from: JSONSerialization.data(withJSONObject: value))
+                let full = transcripts[sid] ?? []
+                let ui = messages[sid] ?? []
+                guard saved.transcriptBoundary >= 0, saved.transcriptBoundary == full.count - 1,
+                      full[saved.transcriptBoundary]["role"] as? String == "assistant",
+                      saved.step >= 0, saved.step < 32, validProviderID(saved.providerID), !saved.modelID.isEmpty,
+                      ["build", "plan"].contains(saved.agent),
+                      (ui.last?["info"] as? [String: Any])?["id"] as? String == saved.messageID,
+                      (ui.last?["info"] as? [String: Any])?["parentID"] as? String == saved.userID,
+                      ui.contains(where: { ($0["info"] as? [String: Any])?["id"] as? String == saved.userID && ($0["info"] as? [String: Any])?["role"] as? String == "user" }) else {
+                    throw failure("Invalid saved continuation boundary; restore from backup rather than replaying tools.")
+                }
+            }
             if let value = session["compaction"] {
                 let checkpoint = try JSONDecoder().decode(NativeContextCheckpoint.self,
                     from: JSONSerialization.data(withJSONObject: value))
@@ -1329,6 +1463,7 @@ public actor NativeAgentBackend {
             for row in rows {
                 guard ["user", "assistant", "tool"].contains(row["role"] as? String ?? ""), row["content"] is String,
                       let calls = row["toolCalls"] as? [[String: String]], row["replayItems"] is [[String: Any]],
+                      (row["excludedFromContext"] == nil || (row["excludedFromContext"] is Bool && row["role"] as? String == "assistant")),
                       calls.allSatisfy({ $0["id"] != nil && $0["name"] != nil && $0["arguments"] != nil }),
                       row["role"] as? String != "tool" || row["toolCallID"] is String else {
                     throw failure("Native session snapshot contains an invalid model transcript.")
@@ -1527,7 +1662,7 @@ public actor NativeAgentBackend {
         "text": true, "fileTools": true, "permissions": true, "stop": true, "persistence": true,
         "events": "bridge-subscribe", "providerFormats": ["responses", "chatCompletions"],
         "attachments": false, "questions": false, "shell": false, "ssh": false, "websearch": false,
-        "mcp": false, "skills": false, "fork": false, "autoCompaction": true, "manualCompaction": true,
+        "mcp": false, "skills": false, "fork": false, "autoCompaction": true, "manualCompaction": true, "resume": true,
                 "contextEstimate": "conservative-utf8-bytes", "compactionPreservesHistory": true
     ]
 
@@ -1539,6 +1674,7 @@ public actor NativeAgentBackend {
             "/session": ["get", "post"], "/experimental/session": ["get"], "/session/status": ["get"],
             "/session/{sessionID}": ["get", "patch", "delete"], "/session/{sessionID}/message": ["get"],
             "/session/{sessionID}/prompt_async": ["post"], "/session/{sessionID}/abort": ["post"],
+            "/session/{sessionID}/resume": ["post"],
             "/session/{sessionID}/compact": ["post"],
             "/session/{sessionID}/diff": ["get"], "/permission": ["get"], "/permission/{requestID}/reply": ["post"]
         ]
