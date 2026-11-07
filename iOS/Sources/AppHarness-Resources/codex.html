@@ -482,6 +482,15 @@ span.ib-right-col{font-size:var(--fs-12);color:var(--text-2)}
 .ctx-ring[hidden]{display:none}
 #ctxPop{position:absolute;bottom:calc(100% + 10px);right:10px;z-index:9;min-width:240px;max-width:300px;background:var(--sheet-bg);border:1px solid var(--border);border-radius:var(--r-16);box-shadow:0 8px 32px rgba(0,0,0,.25);padding:12px 14px;animation:ctxPopIn .16s ease-out}
 #ctxPop[hidden]{display:none!important}
+#nativeContextStatus{padding:0 var(--s-16) var(--s-4);font-size:var(--fs-12);color:var(--text-2);overflow-wrap:anywhere}
+#ctxRing.native-estimate .fg{stroke-dashoffset:1;stroke-linecap:butt}
+#ctxPop.native-estimate h4{text-transform:none;letter-spacing:normal}
+#ctxPop.native-estimate .ctx-row,[data-native-context-details] .ctx-row{flex-wrap:wrap;gap:4px}
+#ctxPop.native-estimate .ctx-row b,[data-native-context-details] .ctx-row b{margin-left:auto}
+[data-sa="context"].native-estimate .r{flex:1;max-width:60%}
+[data-sa="context"].native-estimate [data-context-value]{white-space:normal;overflow-wrap:anywhere;text-align:right}
+#ctxRing:focus-visible{outline:2px solid var(--accent);outline-offset:-2px}
+
 @keyframes ctxPopIn{from{opacity:0;transform:translateY(6px)}to{opacity:1;transform:none}}
 #ctxPop h4{margin:0 0 6px;font-size:var(--fs-12);font-weight:600;color:var(--text-2);text-transform:uppercase;letter-spacing:.04em}
 .ctx-row{display:flex;justify-content:space-between;align-items:center;gap:12px;font-size:var(--fs-13);padding:3px 0;color:var(--text-2)}
@@ -658,6 +667,7 @@ details.activity[data-disclosure-hold]:not([open])>summary{border-bottom-color:v
       <button class="comp-info-btn" id="cPerm"><span>Default permissions</span><svg viewBox="0 0 24 24"><path d="m6 9 6 6 6-6"/></svg></button>
       <button class="comp-info-btn" id="cSearch" hidden></button>
     </div>
+    <div id="nativeContextStatus" role="status" aria-live="polite" aria-atomic="true" hidden></div>
     <div id="ctxPop" hidden></div>
   </footer>
   <template id="kwTpl"><div class="kw-kumo" id="kwKumo"><div class="kw-float"><svg id="kw-sv" viewBox="30 40 460 380" role="img" aria-label="Kumo">
@@ -968,6 +978,7 @@ function onEvent(ev){
    const thTitle=$(`#drawer [data-sid="${CSS.escape(i.id)}"] .th-title`);
    if(thTitle)thTitle.textContent=displaySessionTitle(s);
   }
+  if(window.KumoNativeBackend){nativeContextUI.update(i,false);if(i.id===S.sid){S.revision++;updateCtxRing()}}
  }else if(t==='session.error'){
   if(p.sessionID&&p.sessionID!==S.sid)return;
   const e=p.error;S.lastErr=redact(e&&(e.data&&e.data.message||e.message||e.name)||'session error');err('session.error: '+S.lastErr);
@@ -1004,6 +1015,7 @@ function resetThread(id=null){
  renderAttachments();
  kwReset();
  updateCommitButton();
+ if(window.KumoNativeBackend)updateCtxRing();
 }
 function renderSessionSkeleton(){
  const m=$('#main');if(!m)return;
@@ -1029,9 +1041,11 @@ async function syncSession(){
  if(!S.sid||S.sending||syncing===S.view)return;
  const sid=S.sid,dir=S.dir,view=S.view,revision=S.revision;syncing=view;
  try{
-  const [messages,statuses,permissions,questions]=await Promise.allSettled([
-   api('/session/'+sid+'/message',{directory:dir}),api('/session/status',{directory:dir}),api('/permission',{directory:dir}),api('/question',{directory:dir})]);
+  const [messages,statuses,permissions,questions,metadata]=await Promise.allSettled([
+   api('/session/'+sid+'/message',{directory:dir}),api('/session/status',{directory:dir}),api('/permission',{directory:dir}),api('/question',{directory:dir}),
+   window.KumoNativeBackend?api('/session/'+sid,{directory:dir}):Promise.resolve(null)]);
   if(view!==S.view||sid!==S.sid||dir!==S.dir||revision!==S.revision||S.sending)return;
+  if(metadata.status==='fulfilled'&&metadata.value&&metadata.value.id===sid)nativeContextUI.update(metadata.value,true);
   if(messages.status!=='fulfilled')throw messages.reason;
   const r=messages.value;
   const nm=new Map();
@@ -1918,7 +1932,75 @@ function updateCommitButton(){
  dp.title=add||del?`Changes +${add} −${del}`:'Changes';
 }
 
+const nativeContextUI=(function(){
+ 'use strict';
+ const note='Консервативная оценка входа + резерв ответа, не фактический подсчёт токенизатором. Контекст сжимается автоматически. Полная история переписки сохраняется.';
+ function integer(n){return Number.isSafeInteger(n)&&n>=0}
+ function info(){
+  if(!window.KumoNativeBackend||!S.sid)return null;
+  const session=S.sessions.find(s=>s.id===S.sid)||(S.folderSessions.get(S.dir)||[]).find(s=>s.id===S.sid);
+  const n=session&&session.nativeContext;
+  if(!n||n.estimated!==true||typeof n.compacting!=='boolean'||!integer(n.input)||!integer(n.reserve)||!integer(n.limit)||!n.limit)return null;
+  const used=n.input+n.reserve;if(!integer(used))return null;
+  const c=session.compaction;
+  const count=c&&integer(c.count)&&integer(c.boundary)&&integer(c.created)&&typeof c.summary==='string'?c.count:0;
+  return {used,limit:n.limit,pct:Math.min(100,used/n.limit*100),input:n.input,reserve:n.reserve,estimated:true,compacting:n.compacting,count};
+ }
+ function label(value){
+  if(!value)return 'No data';
+  if(!value.estimated)return Math.round(value.pct)+'%';
+  return (value.compacting?'Сжатие контекста… · ':'')+'Оценка бюджета: ≈'+Math.round(value.pct)+'%'+(value.count?' · Сжатий сохранено: '+value.count:'');
+ }
+ function content(value,details){
+  const row=(name,text)=>'<div class="ctx-row"><span>'+name+'</span><b>'+text+'</b></div>';
+  return '<h'+(details?'3':'4')+'>Оценка бюджета контекста</h'+(details?'3':'4')+'>'
+   +(value.compacting?'<p class="note" role="status">Сжатие контекста…</p>':'')
+   +row('Оценка + резерв','≈'+fmtTok(value.used)+' / '+fmtTok(value.limit)+' · ≈'+Math.round(value.pct)+'%')
+   +row('Оценка входа','≈'+fmtTok(value.input))
+   +row('Резерв ответа',fmtTok(value.reserve))
+   +(value.count?'<p class="note">Сжатий сохранено: '+value.count+'</p>':'')
+   +'<p class="note">'+note+'</p>';
+ }
+ function pop(value){
+  $('#ctxPop').innerHTML=content(value,false)+'<div class="btns"><button class="btn" id="ctxMore">More</button></div>';
+  $('#ctxMore').onclick=ctxMoreSheet;
+ }
+ function showSheet(value){
+  $('#ctxPop').hidden=true;
+  sheet('<div data-native-context-details data-session="'+esc(S.sid)+'">'+content(value,true)+'</div>');
+  $('#sheet').onclick=null;
+ }
+ function refresh(value){
+  const native=!!(value&&value.estimated),status=$('#nativeContextStatus'),ring=$('#ctxRing'),pop=$('#ctxPop');
+  status.hidden=!native;
+  const text=native?label(value):'';if(status.textContent!==text)status.textContent=text;
+  ring.classList.toggle('native-estimate',native);
+  ring.setAttribute('aria-label',native?text:'Context usage');
+  ring.setAttribute('aria-busy',String(native&&value.compacting));
+  if(native)ring.title=text;else ring.removeAttribute('title');
+  pop.classList.toggle('native-estimate',native);
+  const setting=$('[data-sa="context"]');if(setting)setting.classList.toggle('native-estimate',native);
+  const details=$('#sheet.on [data-native-context-details]');
+  if(details){
+   if(details.dataset.session!==S.sid||!native){closeSheet();details.remove()}
+   else{const html=content(value,true);if(details.innerHTML!==html)details.innerHTML=html}
+  }
+ }
+ function update(session,hydrate){
+  if(!window.KumoNativeBackend||!session||typeof session.id!=='string')return;
+  const list=S.folderSessions.get(S.dir)||[];
+  const matches=[...S.sessions,...list].filter(s=>s.id===session.id);
+  if(!matches.length&&session.id===S.sid){const s={id:session.id};S.sessions.push(s);matches.push(s)}
+  for(const s of matches){
+   for(const key of ['nativeContext','compaction']){
+    if(hydrate||Object.prototype.hasOwnProperty.call(session,key))s[key]=session[key]||null;
+   }
+  }
+ }
+ return {info,label,pop,showSheet,refresh,update};
+})();
 function contextInfo(){
+ const native=nativeContextUI.info();if(native)return native;
  const m=currentModel();if(!m)return null;
  const limit=m.limit&&m.limit.context;if(!limit)return null;
  const list=[...S.msgs.values()].filter(x=>x.info.role==='assistant'&&x.info.tokens);
@@ -1931,9 +2013,10 @@ function contextInfo(){
 function fmtTok(n){return n>=1000?(n/1000).toFixed(n>=100000?0:1)+'k':String(n)}
 function updateCtxRing(){
  const value=$('[data-context-value]');
- if(value){const info=contextInfo();value.textContent=info?Math.round(info.pct)+'%':'No data'}
+ if(value){const info=contextInfo();value.textContent=nativeContextUI.label(info)}
  const ring=$('#ctxRing');if(!ring)return;
  const info=contextInfo();
+ nativeContextUI.refresh(info);
  ring.hidden=!info;
  if(!info){const pop=$('#ctxPop');if(pop)pop.hidden=true;return}
  const C=2*Math.PI*8,fg=ring.querySelector('.fg');
@@ -1945,6 +2028,7 @@ function updateCtxRing(){
 function renderCtxPop(){
  const pop=$('#ctxPop'),info=contextInfo();
  if(!info){pop.hidden=true;return}
+ if(info.estimated){nativeContextUI.pop(info);return}
  const m=currentModel(),olim=m&&m.limit&&m.limit.output;
  pop.innerHTML='<h4>Context</h4>'
   +'<div class="ctx-row"><span>Used</span><b>'+fmtTok(info.used)+' / '+fmtTok(info.limit)+' · '+Math.round(info.pct)+'%</b></div>'
@@ -1955,6 +2039,7 @@ function renderCtxPop(){
 }
 function ctxMoreSheet(){
  const info=contextInfo();
+ if(info&&info.estimated){nativeContextUI.showSheet(info);return}
  if(!info){sheet('<h3>Context</h3><p class="note">No context usage yet.</p>');$('#sheet').onclick=null;return}
  const m=currentModel();
  const row=(l,v)=>rowHtml('',l,`<span class="m mono">${v}</span>`);
@@ -1979,7 +2064,9 @@ document.addEventListener('click',e=>{
  if(pop&&!pop.hidden&&!(e.target&&e.target.closest&&(e.target.closest('#ctxPop')||e.target.closest('#ctxRing'))))pop.hidden=true;
 },true);
 function contextSheet(){
- const info=contextInfo();if(!info){sheet('<h3>Context</h3><p class="note">No context usage yet.</p>');return}
+ const info=contextInfo();
+ if(info&&info.estimated){nativeContextUI.showSheet(info);return}
+ if(!info){sheet('<h3>Context</h3><p class="note">No context usage yet.</p>');return}
  const m=currentModel();
  const row=(l,v)=>rowHtml('',l,`<span class="m mono">${v}</span>`);
  sheet(`<h3>Context</h3><p class="note">${m?esc(m.mn):''}</p><div class="set-card">`
@@ -2298,7 +2385,7 @@ function renderSettings(){
    <div class="opt settings-row"><span class="ic-wrap">${I.hapt}</span><span>Haptic feedback</span><span class="r"><label class="switch"><input type="checkbox" id="setHaptics" ${S.haptics?'checked':''}><span class="knob"></span></label></span></div>
   </div>
   <div class="set-sec">Native capabilities</div>
-  <p class="note">Local agent tools: list, read, glob, grep, write and edit. Project files and change history remain available. Terminal, GitHub tokens/Git, SSH agent tools, web search, tasks/subagents, attachments, question tools, plugins and skills are not supported by this backend.</p>
+  <p class="note">Local agent tools: list, read, glob, grep, write and edit. Project files and change history remain available. Automatic context compaction retains the full conversation history. Terminal, GitHub tokens/Git, SSH agent tools, web search, tasks/subagents, attachments, question tools, plugins and skills are not supported by this backend.</p>
   <div class="set-sec">Voice input</div>
   <div class="set-card">
    <button class="opt settings-row" data-sa="voice"><span class="ic-wrap">${I.voice}</span><span>Speech-to-text</span><span class="r"><span class="m">${voiceLbl()}</span>${I.chev}</span></button>
@@ -2312,7 +2399,7 @@ function renderSettings(){
    <div class="opt settings-row"><span class="ic-wrap">${I.bot}</span><span>Native backend</span><span class="r"><span class="m">${esc((S.health&&S.health.version)||'?')} · ${S.live?'events live':'offline'}</span></span></div>
    <button class="opt settings-row" data-sa="errors"><span class="ic-wrap">${I.file}</span><span>Errors</span><span class="r"><span class="m">${S.errors.length}</span>${I.chev}</span></button>
    <button class="opt settings-row" data-sa="serverlog"><span class="ic-wrap">${I.term}</span><span>Native backend log</span><span class="r">${I.chev}</span></button>
-   <button class="opt settings-row" data-sa="context"><span class="ic-wrap">${I.file}</span><span>Context usage</span><span class="r"><span class="m" data-context-value>${contextInfo()?Math.round(contextInfo().pct)+'%':'No data'}</span>${I.chev}</span></button>
+   <button class="opt settings-row" data-sa="context"><span class="ic-wrap">${I.file}</span><span>Context usage</span><span class="r"><span class="m" data-context-value>${esc(nativeContextUI.label(contextInfo()))}</span>${I.chev}</span></button>
    <button class="opt settings-row" data-sa="threadpreview"><span class="ic-wrap">${I.file}</span><span>Thread design preview</span><span class="r"><span class="m">Demo</span>${I.chev}</span></button>
    <button class="opt settings-row" data-sa="copydiag"><span class="ic-wrap">${I.copy}</span><span>Copy diagnostics</span></button>
   </div>
@@ -2321,6 +2408,7 @@ function renderSettings(){
    <button class="opt settings-row" data-sa="reset"><span class="ic-wrap">${I.redo}</span><span class="er" id="resetLabel">Reset app preferences</span></button>
   </div>
   <p class="note">Resets theme, font scale and picks on this device. Projects known to the native backend will re-appear.</p>`;
+ updateCtxRing();
  $('#setHaptics').onchange=e=>{S.haptics=e.target.checked;lset('oc_haptics',S.haptics)};
 }
 function fontSheet(){

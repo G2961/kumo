@@ -38,10 +38,29 @@ jobs:
             iOS/Sources/KumoCore/NativeProviderCompatibility.swift \
             iOS/Sources/KumoCore/NativeModelClient.swift \
             iOS/Sources/KumoCore/NativeFileTools.swift \
+            iOS/Sources/KumoCore/NativeContextCompaction.swift \
             iOS/Sources/KumoCore/NativeAgentBackend.swift \
             iOS/Diagnostics/FileAgentAcceptance.swift \
             -o iOS/.build/Diagnostics/KumoFileAgentAcceptance
           codesign -s - -f --identifier space.g2961.kumo.acceptance iOS/.build/Diagnostics/KumoFileAgentAcceptance
+      - name: Build live context compaction acceptance harness
+        run: |
+          xcrun --sdk iphoneos swiftc -Onone \
+            -target arm64-apple-ios16.0 \
+            -parse-as-library \
+            iOS/Sources/KumoCore/NativeProviderCompatibility.swift \
+            iOS/Sources/KumoCore/NativeModelClient.swift \
+            iOS/Sources/KumoCore/NativeFileTools.swift \
+            iOS/Sources/KumoCore/NativeContextCompaction.swift \
+            iOS/Sources/KumoCore/NativeAgentBackend.swift \
+            iOS/Diagnostics/CompactionAcceptance.swift \
+            -o iOS/.build/Diagnostics/KumoCompactionAcceptance
+          codesign -s - -f --identifier space.g2961.kumo.compaction-acceptance iOS/.build/Diagnostics/KumoCompactionAcceptance
+      - uses: actions/upload-artifact@v4
+        with:
+          name: KumoCompactionAcceptance
+          path: iOS/.build/Diagnostics/KumoCompactionAcceptance
+          if-no-files-found: error
       - uses: actions/upload-artifact@v4
         with:
           name: KumoProviderDiagnostic

@@ -83,9 +83,23 @@ class StageTests(unittest.TestCase):
         self.assertIn("Not supported", self.html)
         self.assertEqual(SOURCE.read_bytes(), self.source_bytes)
 
+    def test_native_context_budget_contract(self):
+        self.assertIn("const nativeContextUI=(function(){\n 'use strict';", self.html)
+        self.assertIn("Оценка бюджета", self.html)
+        self.assertIn("Сжатие контекста…", self.html)
+        self.assertIn("Сжатий сохранено:", self.html)
+        self.assertIn("не фактический подсчёт токенизатором", self.html)
+        self.assertIn("Automatic context compaction retains the full conversation history", self.html)
+        sync = section(self.html, "async function syncSession()", "const loadMessages=")
+        self.assertIn("api('/session/'+sid,{directory:dir})", sync)
+        self.assertNotIn("/compact", sync)
+
     def test_render_events_and_history_are_untouched(self):
+        events = section(self.source, "function onEvent(ev)", "function resetThread(")
+        expected_events = self.stage.replace_exact(events, self.stage.CONTEXT_EVENT_OLD,
+                                                   self.stage.CONTEXT_EVENT_NEW, "context metadata event")
+        self.assertEqual(section(self.html, "function onEvent(ev)", "function resetThread("), expected_events)
         for start, end in (
-            ("function onEvent(ev)", "function resetThread("),
             ("function formatDiff(", "function configuredRules("),
             ("function renderMsgs(", "async function forkSession("),
         ):
@@ -95,7 +109,7 @@ class StageTests(unittest.TestCase):
         self.assertNotIn("x-native-capabilities", self.html)
 
     def test_exact_patches_fail_closed(self):
-        for old in ("async function api(path,o={}){", "function connectSSE(){", "await (await fetch('/doc')).json()", 'id="pmManual" hidden', "let fetched=await fetchProviderModels(url.href,key);"):
+        for old in ("async function api(path,o={}){", "function connectSSE(){", "await (await fetch('/doc')).json()", 'id="pmManual" hidden', "let fetched=await fetchProviderModels(url.href,key);", "function contextInfo(){", "function updateCtxRing(){", "function renderCtxPop(){", "function ctxMoreSheet(){", "function contextSheet(){", "const [messages,statuses,permissions,questions]=", "const i=p.info;if(!i)return;const s=S.sessions.find"):
             with self.subTest(old=old), self.assertRaisesRegex(ValueError, "patch"):
                 self.stage.patch_html(self.source.replace(old, old + " changed", 1))
         with self.assertRaises(ValueError):

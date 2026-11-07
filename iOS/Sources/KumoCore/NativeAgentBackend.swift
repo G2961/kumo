@@ -16,6 +16,8 @@ public actor NativeAgentBackend {
         let userID: String
         var messageID: String
         var task: Task<Void, Never>?
+        let selection: Selection
+        let agent: String
     }
 
     private struct Approval {
@@ -105,6 +107,11 @@ public actor NativeAgentBackend {
                     Self.interruptMessages(&self.messages, sessionID: sid, userID: run["userID"] as? String,
                                            message: "Interrupted when the app stopped. No file operation was replayed.")
                     Self.resolveUnansweredCalls(&self.transcripts, sessionID: sid)
+                    if let index = self.sessions.firstIndex(where: { $0["id"] as? String == sid }),
+                       var context = self.sessions[index]["nativeContext"] as? [String: Any] {
+                        context["compacting"] = false
+                        self.sessions[index]["nativeContext"] = context
+                    }
                 }
                 if !active.isEmpty {
                     let recovered: [String: Any] = ["version": 1, "config": self.config, "sessions": self.sessions,
@@ -201,7 +208,7 @@ public actor NativeAgentBackend {
         let sessionList = method == "GET" && ["/session", "/experimental/session"].contains(route)
         let allowedQuery: Set<String> = sessionList ? ["directory", "search"] : ["directory"]
         guard Set(query.map { $0.name }).isSubset(of: allowedQuery), Set(query.map { $0.name }).count == query.count else {
-            throw Self.failure("Unsupported or duplicate query option. Native snapshots support directory and session title search, not pagination or compaction.")
+            throw Self.failure("Unsupported or duplicate query option. Native snapshots support directory and session title search, not pagination.")
         }
         switch (method, route) {
         case ("GET", "/doc"): return Self.documentation
@@ -371,12 +378,12 @@ public actor NativeAgentBackend {
         let oldMessages = messages[sid], oldTranscript = transcripts[sid], oldSessions = sessions
         messages[sid, default: []].append(["info": userInfo, "parts": parts])
         transcripts[sid, default: []].append(Self.encodeMessage(NativeModelMessage(role: "user", content: texts.joined(separator: "\n"))))
-        runs[sid] = Run(token: token, userID: userID, messageID: assistantID, task: nil)
+        runs[sid] = Run(token: token, userID: userID, messageID: assistantID, task: nil, selection: selection, agent: agent)
         appendAssistant(sid, id: assistantID, userID: userID, selection: selection, agent: agent)
         transcripts[sid, default: []].append(Self.encodeMessage(NativeModelMessage(role: "assistant", content: "")))
         touch(sid)
         do {
-            try checkBudget(sid, selection: selection, system: systemPrompt(sid, agent: agent))
+            try admitContext(sid, selection: selection, system: systemPrompt(sid, agent: agent))
             try persist()
         } catch {
             messages[sid] = oldMessages; transcripts[sid] = oldTranscript; sessions = oldSessions
@@ -405,10 +412,11 @@ public actor NativeAgentBackend {
                     publishMessage(sid, mid)
                 }
                 let mid = runs[sid]!.messageID
-                try checkBudget(sid, selection: selection, system: system)
+                let context = try await prepareContext(sid, token: token, selection: selection, system: system)
+                try checkRun(sid, token)
                 let request = NativeModelRequest(baseURL: selection.baseURL, apiKey: selection.key, format: selection.format,
                                                  model: selection.modelID, system: system,
-                                                 messages: (transcripts[sid] ?? []).dropLast().map(Self.decodeMessage),
+                                                 messages: context,
                                                  tools: fileTools.definitions, effort: selection.effort,
                                                  maxOutputTokens: selection.output)
                 let transcriptIndex = transcripts[sid]!.count - 1
@@ -488,7 +496,7 @@ public actor NativeAgentBackend {
                     return
                 }
             }
-            throw Self.failure("Native agent reached the 32-step limit. Start another turn to continue; no compaction or retry was performed.")
+            throw Self.failure("Native agent reached the 32-step limit. Start another turn to continue; no request was retried.")
         } catch {
             guard runs[sid]?.token == token else { return }
             let message = error is CancellationError ? "Stopped by the user." : safeError(error, fallback: "Model stream failed. Check provider connectivity and credentials; the turn was not retried.").localizedDescription
@@ -669,10 +677,18 @@ public actor NativeAgentBackend {
             Self.resolveUnansweredCalls(&transcripts, sessionID: sid)
         }
         touch(sid)
+        if let index = sessions.firstIndex(where: { $0["id"] as? String == sid }),
+           var context = sessions[index]["nativeContext"] as? [String: Any] {
+            context["compacting"] = false
+            sessions[index]["nativeContext"] = context
+        }
         // The final snapshot removes the active marker before observers can see idle.
         runs.removeValue(forKey: sid)
         var persistenceError: Error?
-        do { try persist() } catch { persistenceError = error }
+        do {
+            try recordContext(sid, selection: run.selection, system: systemPrompt(sid, agent: run.agent),
+                              compacting: false, hasPlaceholder: false)
+        } catch { persistenceError = error }
         for id in Array(approvals.keys) {
             guard let approval = approvals[id], approval.payload["sessionID"] as? String == sid, approval.token == token else { continue }
             approvals.removeValue(forKey: id)
@@ -699,6 +715,7 @@ public actor NativeAgentBackend {
             }
             publish("session.error", ["sessionID": sid, "error": Self.errorPayload(error)])
         }
+        publish("session.updated", ["info": sessions[try sessionIndex(sid, directory: nil)]])
         // UI completion effects need to observe the busy-to-idle transition on session.idle.
         publish("session.idle", ["sessionID": sid])
         publish("session.status", ["sessionID": sid, "status": ["type": "idle"]])
@@ -881,15 +898,128 @@ public actor NativeAgentBackend {
                          context: context, output: output, effort: effort)
     }
 
-    private func checkBudget(_ sid: String, selection: Selection, system: String) throws {
-        let history = transcripts[sid] ?? []
-        let data = try JSONSerialization.data(withJSONObject: ["system": system, "messages": history, "tools": fileTools.definitions])
-        // No tokenizer is supplied. UTF-8 bytes + per-message overhead is deliberately conservative,
-        // not a claim to know the provider's token count. Never silently trim the conversation.
-        let budget = data.count + history.count * 64 + selection.output
-        guard budget < selection.context else {
-            throw Self.failure("Conversation exceeds the conservative native context budget (UTF-8 bytes plus overhead and output reserve). Start a new session or configure a larger supported context window. No history was trimmed; auto-compaction is not implemented.")
+    private func checkpoint(_ sid: String) throws -> NativeContextCheckpoint? {
+        guard let value = sessions[try sessionIndex(sid, directory: nil)]["compaction"] else { return nil }
+        let data = try JSONSerialization.data(withJSONObject: value)
+        return try JSONDecoder().decode(NativeContextCheckpoint.self, from: data)
+    }
+
+    private func contextHistory(_ sid: String) -> [NativeModelMessage] {
+        // The streaming assistant placeholder is not an input message.
+        (transcripts[sid] ?? []).dropLast().map(Self.decodeMessage)
+    }
+
+    private func contextBudget(_ history: [NativeModelMessage], selection: Selection, system: String) throws -> Int {
+        try NativeContextCompaction.budget(system: system, messages: history,
+                                           tools: fileTools.definitions, reserve: selection.output)
+    }
+
+    private func admitContext(_ sid: String, selection: Selection, system: String) throws {
+        let full = contextHistory(sid)
+        let saved = try checkpoint(sid)
+        let active = NativeContextCompaction.activeMessages(full, checkpoint: saved)
+        let budget = try contextBudget(active, selection: selection, system: system)
+        let boundary = NativeContextCompaction.boundary(in: full, after: saved?.boundary ?? 0)
+        let minimum = boundary.map { Array(full.dropFirst($0)) } ?? active
+        guard try contextBudget(minimum, selection: selection, system: system) < selection.context else {
+            throw Self.failure("The current user turn exceeds the conservative native context budget. Shorten the prompt or use a larger supported context window. No history was trimmed; current tool results remain intact.")
         }
+        guard budget < selection.context || boundary != nil else {
+            throw Self.failure("Conversation exceeds the conservative native context budget and has no safe compaction boundary. No history was trimmed.")
+        }
+    }
+
+    private func recordContext(_ sid: String, selection: Selection, system: String, compacting: Bool,
+                               hasPlaceholder: Bool = true) throws {
+        let index = try sessionIndex(sid, directory: nil)
+        let full = hasPlaceholder ? contextHistory(sid) : (transcripts[sid] ?? []).map(Self.decodeMessage)
+        let active = NativeContextCompaction.activeMessages(full, checkpoint: try checkpoint(sid))
+        let total = try contextBudget(active, selection: selection, system: system)
+        sessions[index]["nativeContext"] = ["input": total - selection.output, "reserve": selection.output,
+                                             "limit": selection.context, "estimated": true, "compacting": compacting]
+        try persist()
+        publish("session.updated", ["info": sessions[index]])
+    }
+
+    private func prepareContext(_ sid: String, token: String, selection: Selection, system: String) async throws -> [NativeModelMessage] {
+        let full = contextHistory(sid)
+        let saved = try checkpoint(sid)
+        let active = NativeContextCompaction.activeMessages(full, checkpoint: saved)
+        let before = try contextBudget(active, selection: selection, system: system)
+        let trigger = selection.context - selection.context / 5
+        guard before >= trigger,
+              let boundary = NativeContextCompaction.boundary(in: full, after: saved?.boundary ?? 0) else {
+            guard before < selection.context else { throw Self.failure("Context budget exceeded with no safe compaction boundary. No history was trimmed.") }
+            try recordContext(sid, selection: selection, system: system, compacting: false)
+            return active
+        }
+        let nextCount = (saved?.count ?? 0).addingReportingOverflow(1)
+        guard !nextCount.overflow else { throw Self.failure("Compaction counter is exhausted. Original history remains unchanged.") }
+        try recordContext(sid, selection: selection, system: system, compacting: true)
+        var candidate = saved
+        // Only complete historical user turns may be batched. Never truncate an
+        // oversized turn or split a call/result pair to make a summary request fit.
+        while (candidate?.boundary ?? 0) < boundary {
+            try checkRun(sid, token)
+            let start = candidate?.boundary ?? 0
+            let cap = min(selection.output, 2048)
+            var batch: (boundary: Int, messages: [NativeModelMessage])?
+            for index in (start + 1)...boundary where full[index].role == "user" {
+                await Task.yield()
+                try checkRun(sid, token)
+                guard NativeContextCompaction.boundary(in: Array(full.prefix(index + 1)), after: start) == index else { continue }
+                let input = try NativeContextCompaction.summaryRequestMessages(full: full, checkpoint: candidate, boundary: index)
+                let size = try NativeContextCompaction.budget(system: NativeContextCompaction.summaryInstructions,
+                                                              messages: input, tools: [], reserve: cap)
+                guard size < selection.context else { break }
+                batch = (index, input)
+            }
+            guard let batch else { throw Self.failure("A complete historical turn is too large for a safe compaction request. Use a larger context window; no history was trimmed and no summary was committed.") }
+            let request = NativeModelRequest(baseURL: selection.baseURL, apiKey: selection.key, format: selection.format,
+                                             model: selection.modelID, system: NativeContextCompaction.summaryInstructions,
+                                             messages: batch.messages, tools: [], effort: selection.effort, maxOutputTokens: cap)
+            var summary = ""
+            var finished = false
+            for try await event in modelClient.stream(request: request) {
+                try checkRun(sid, token)
+                switch event {
+                case .text(let delta):
+                    summary += delta
+                    guard summary.utf8.count <= 32 * 1024 else { throw Self.failure("Compaction summary exceeded its bounded size. Original context remains unchanged.") }
+                case .toolCall, .toolStarted:
+                    throw Self.failure("Compaction returned a tool call. No tool was executed and original context remains unchanged.")
+                case .finished: finished = true
+                case .usage, .reasoning: break
+                case .replay(let items):
+                    guard !items.contains(where: { ["function_call", "function_call_output"].contains($0["type"] as? String ?? "") }) else {
+                        throw Self.failure("Compaction returned a replay tool call. No tool was executed and original context remains unchanged.")
+                    }
+                }
+                if finished { break }
+            }
+            try checkRun(sid, token)
+            guard finished, !summary.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty,
+                  !containsCredential(summary) else {
+                throw Self.failure("Compaction did not produce a complete, nonempty, credential-free summary. Original context remains unchanged.")
+            }
+            candidate = NativeContextCheckpoint(boundary: batch.boundary, summary: summary, created: Self.now,
+                                                 count: nextCount.partialValue)
+        }
+        let compacted = NativeContextCompaction.activeMessages(full, checkpoint: candidate)
+        let after = try contextBudget(compacted, selection: selection, system: system)
+        guard after < before, after < selection.context, let candidate else {
+            throw Self.failure("Compaction did not reduce the context enough to continue safely. Original context remains unchanged.")
+        }
+        try checkRun(sid, token)
+        let index = try sessionIndex(sid, directory: nil)
+        let oldSession = sessions[index]
+        sessions[index]["compaction"] = try JSONSerialization.jsonObject(with: JSONEncoder().encode(candidate))
+        sessions[index]["nativeContext"] = ["input": after - selection.output, "reserve": selection.output,
+                                             "limit": selection.context, "estimated": true, "compacting": false]
+        touch(sid)
+        do { try persist() } catch { sessions[index] = oldSession; throw error }
+        publish("session.updated", ["info": sessions[index]])
+        return compacted
     }
 
     private func systemPrompt(_ sid: String, agent: String) -> String {
@@ -1090,6 +1220,18 @@ public actor NativeAgentBackend {
                   let time = session["time"] as? [String: Any], time["created"] is NSNumber, time["updated"] is NSNumber,
                   let rules = session["permission"] else { throw failure("Native session snapshot contains invalid session metadata.") }
             _ = try validateRules(rules)
+            if let value = session["compaction"] {
+                let checkpoint = try JSONDecoder().decode(NativeContextCheckpoint.self,
+                    from: JSONSerialization.data(withJSONObject: value))
+                let full = (transcripts[sid] ?? []).map(decodeMessage)
+                guard checkpoint.boundary > 0, checkpoint.boundary < full.count,
+                      full[checkpoint.boundary].role == "user", checkpoint.count > 0, checkpoint.count < Int.max,
+                      checkpoint.created > 0, !checkpoint.summary.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty,
+                      checkpoint.summary.utf8.count <= 32 * 1024,
+                      NativeContextCompaction.boundary(in: Array(full.prefix(checkpoint.boundary + 1)), after: 0) == checkpoint.boundary else {
+                    throw failure("Native session snapshot contains an invalid compaction boundary. Restore from backup; history was not overwritten.")
+                }
+            }
         }
         guard Set(messages.keys) == sessionIDs, Set(transcripts.keys) == sessionIDs else {
             throw failure("Native session snapshot has inconsistent message history.")
@@ -1315,7 +1457,8 @@ public actor NativeAgentBackend {
         "text": true, "fileTools": true, "permissions": true, "stop": true, "persistence": true,
         "events": "bridge-subscribe", "providerFormats": ["responses", "chatCompletions"],
         "attachments": false, "questions": false, "shell": false, "ssh": false, "websearch": false,
-        "mcp": false, "skills": false, "fork": false, "autoCompaction": false
+        "mcp": false, "skills": false, "fork": false, "autoCompaction": true,
+                "contextEstimate": "conservative-utf8-bytes", "compactionPreservesHistory": true
     ]
 
     private static var documentation: [String: Any] {

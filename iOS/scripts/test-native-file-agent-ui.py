@@ -9,6 +9,8 @@ The complete stage-native-ui.py output boots over a process-owned localhost
 asset server. Only webkit.codexNative's transport endpoint is emulated; nativeCall,
 api, subscription, permission, history, syncSession and renderers are unchanged.
 No model, Swift backend, Git, filesystem mutation, Android build or device runs.
+The stager writes only evidence/assets/codex.html; checked-in iOS resources stay
+parent-owned and need not have been regenerated before these source UI checks.
 "Restore" means restoring session snapshots, NOT undoing native file patches
 (the native ledger has no historyRestore action). Permission previews must render
 only prepared file-modification diffs; input/before/after never fabricate changes.
@@ -134,6 +136,11 @@ class NativeFixture:
         self.fs_errors, self.fs_gates, self.fs_completed = {}, {}, []
         # The session can retain an obsolete container while native's current project exists.
         self.session_directory = DIRECTORY
+        self.native_context = None
+        self.compaction = None
+        self.list_context = True
+        self.metadata_gate = None
+        self.providers = {'providers': [], 'default': {}}
         # Ledger IDs deliberately differ from messageID:callID; no fake Git hashes.
         self.files = [
             {'key': KEY, 'file': FILE, 'source': 'local', 'connectionID': '',
@@ -222,11 +229,20 @@ class NativeFixture:
         method, path = data.get('method'), data.get('path')
         require(data.get('directory') == self.session_directory, 'backendRequest directory mismatch: ' + str(data))
         session = dict(SESSION, directory=self.session_directory)
+        hydrated = deepcopy(session)
+        if self.native_context is not None:
+            hydrated['nativeContext'] = deepcopy(self.native_context)
+        if self.compaction is not None:
+            hydrated['compaction'] = deepcopy(self.compaction)
+        if self.list_context:
+            session = deepcopy(hydrated)
         if method == 'GET':
+            if path == '/session/' + SID and self.metadata_gate:
+                await asyncio.wait_for(self.metadata_gate.wait(), 10)
             values = {'/doc': DOC, '/global/health': {'healthy': True, 'version': 'ui-only-fixture'},
-                      '/config/providers': {'providers': [], 'default': {}}, '/config': {},
+                      '/config/providers': self.providers, '/config': {},
                       '/path': {'directory': DIRECTORY}, '/project': [{'worktree': DIRECTORY}],
-                      '/session': [session], '/experimental/session': [session], '/session/' + SID: session,
+                      '/session': [session], '/experimental/session': [session], '/session/' + SID: hydrated,
                       '/session/' + SID + '/message': self.messages,
                       '/session/status': {SID: {'type': self.status}}, '/permission': self.permissions,
                       # The canonical sync probes this unsupported native route via allSettled.
@@ -842,7 +858,238 @@ async def files_native_default(page, fixture, expect):
     require(not await page.evaluate('S.dir'), 'Files browser changed the session workspace')
 
 
-CASES = {'files_browser': files_browser, 'files_loading': files_loading,
+def budget(input=6000, reserve=2000, limit=10000, compacting=False):
+    return {'input': input, 'reserve': reserve, 'limit': limit, 'estimated': True,
+            'compacting': compacting}
+
+
+async def context_event(page, fixture, native, compact=None, sid=SID):
+    if sid == SID:
+        fixture.native_context, fixture.compaction = deepcopy(native), deepcopy(compact)
+    await publish(page, {'type': 'session.updated', 'properties': {'info': {
+        'id': sid, 'nativeContext': native, 'compaction': compact}}})
+
+
+async def context_popover(page):
+    await page.locator('#ctxRing').click()
+    await page.locator('#ctxPop').wait_for(state='visible')
+    return page.locator('#ctxPop')
+
+
+async def context_metadata_update(page, fixture, expect):
+    await expect(page.locator('#ctxRing')).to_be_hidden()
+    await context_event(page, fixture, budget())
+    await expect(page.locator('#nativeContextStatus')).to_have_text('Оценка бюджета: ≈80%')
+    await expect(page.locator('#ctxRing')).to_have_attribute('aria-label', 'Оценка бюджета: ≈80%')
+    pop = await context_popover(page)
+    await expect(pop.locator('h4')).to_have_text('Оценка бюджета контекста')
+    await expect(pop).to_contain_text('≈8.0k / 10.0k · ≈80%')
+    await expect(pop).to_contain_text('Оценка входа')
+    await expect(pop).to_contain_text('Резерв ответа')
+    await expect(pop).to_contain_text('не фактический подсчёт токенизатором')
+    await expect(pop).not_to_contain_text('Used')
+    await expect(pop).not_to_contain_text('Cache read')
+    # The same session metadata can arrive wrapped in payload.properties.
+    await publish(page, {'type': 'session.updated', 'payload': {'properties': {'info': {
+        'id': SID, 'nativeContext': budget(input=5000)}}}})
+    await expect(pop).to_contain_text('≈70%')
+    # Updates refresh an already-open popover; reserve is part of the conservative budget.
+    await context_event(page, fixture, budget(input=7000))
+    await expect(pop).to_contain_text('≈90%')
+    require(await page.locator('#ctxRing').evaluate("e => e.classList.contains('warn')"),
+            'Budget including reserve did not warn above 80%')
+    await context_event(page, fixture, budget(input=11000))
+    await expect(pop).to_contain_text('≈13.0k / 10.0k · ≈100%')
+    await context_event(page, fixture, budget(input=0, reserve=0))
+    await expect(page.locator('#nativeContextStatus')).to_have_text('Оценка бюджета: ≈0%')
+    # Foreign metadata must not change the active estimate or status.
+    await context_event(page, fixture, budget(compacting=True), sid='ses_foreign')
+    await expect(page.locator('#nativeContextStatus')).to_have_text('Оценка бюджета: ≈0%')
+    await expect(pop).not_to_contain_text('Сжатие контекста…')
+
+
+async def context_compacting(page, fixture, expect):
+    await context_event(page, fixture, budget())
+    pop = await context_popover(page)
+    await pop.locator('#ctxMore').click()
+    details = page.locator('#sheet [data-native-context-details]')
+    await expect(details).to_contain_text('Оценка бюджета контекста')
+    await context_event(page, fixture, budget(input=7000, compacting=True))
+    await expect(page.locator('#nativeContextStatus')).to_contain_text('Сжатие контекста…')
+    await expect(page.locator('#ctxRing')).to_have_attribute('aria-busy', 'true')
+    await expect(details).to_contain_text('Сжатие контекста…')
+    await expect(details).to_contain_text('≈90%')
+    # Native metadata, not generic session busy/idle, owns compaction indication.
+    await publish(page, {'type': 'session.status', 'properties': {'sessionID': SID, 'status': {'type': 'idle'}}})
+    await expect(page.locator('#nativeContextStatus')).to_contain_text('Сжатие контекста…')
+    await expect(details.locator('button')).to_have_count(0)
+    # Restoring while compaction is still active must restore its busy label, too.
+    fixture.list_context = False
+    await page.reload()
+    await page.evaluate('S.bootP')
+    await page.wait_for_function('S.live && S.sessions.length === 1')
+    await open_thread(page)
+    await expect(page.locator('#nativeContextStatus')).to_contain_text('Сжатие контекста…')
+    await expect(page.locator('#ctxRing')).to_have_attribute('aria-busy', 'true')
+
+
+async def context_compacted(page, fixture, expect):
+    await context_event(page, fixture, budget(compacting=True))
+    pop = await context_popover(page)
+    compact = {'boundary': 2, 'summary': '<img src=x onerror="window.contextInjected=true">',
+               'created': 3000, 'count': 2}
+    await context_event(page, fixture, budget(input=1000), compact)
+    await expect(page.locator('#nativeContextStatus')).to_have_text('Оценка бюджета: ≈30% · Сжатий сохранено: 2')
+    await expect(page.locator('#ctxRing')).to_have_attribute('aria-busy', 'false')
+    await expect(pop).to_contain_text('Сжатий сохранено: 2')
+    await expect(pop).not_to_contain_text('Сжатие контекста…')
+    await expect(pop).to_contain_text('Полная история переписки сохраняется')
+    require(not await page.evaluate('window.contextInjected === true'), 'Compaction summary executed markup')
+    require(await page.evaluate('S.msgs.size') == 2, 'Compaction deleted visible history')
+    for invalid in (dict(compact, count='2'), dict(compact, count=-1), dict(compact, boundary=-1)):
+        await context_event(page, fixture, budget(input=1000), invalid)
+        await expect(page.locator('#nativeContextStatus')).to_have_text('Оценка бюджета: ≈30%')
+        await expect(pop).not_to_contain_text('Сжатий сохранено:')
+    await context_event(page, fixture, budget(input=1000), compact)
+    await expect(page.locator('#main')).to_contain_text('Review this file.')
+    await expect(page.locator('#main')).to_contain_text('FINAL_SNAPSHOT')
+    require(not any('/compact' in q.get('data', {}).get('path', '') for q in fixture.trace),
+            'UI requested a manual compaction route')
+
+
+async def context_restored(page, fixture, expect):
+    # Session list deliberately omits metadata: the session GET must hydrate it.
+    require(fixture.calls('backendRequest', '/session/' + SID), 'Hydration did not request session metadata')
+    await expect(page.locator('#nativeContextStatus')).to_have_text('Оценка бюджета: ≈30% · Сжатий сохранено: 3')
+    fixture.native_context = budget(input=2000)
+    fixture.compaction['count'] = 4
+    await page.reload()
+    await page.evaluate('S.bootP')
+    await page.wait_for_function('S.live && S.sessions.length === 1')
+    await open_thread(page)
+    await expect(page.locator('#nativeContextStatus')).to_have_text('Оценка бюджета: ≈40% · Сжатий сохранено: 4')
+    pop = await context_popover(page)
+    await expect(pop).to_contain_text('Сжатий сохранено: 4')
+    # Settings uses the same native estimate and details, not provider token rows.
+    await page.locator('#ctxRing').click()
+    await page.locator('#menu').click()
+    await page.locator('#drawer [data-a="settings"]').click()
+    await expect(page.locator('[data-context-value]')).to_have_text('Оценка бюджета: ≈40% · Сжатий сохранено: 4')
+    await page.locator('[data-sa="context"]').click()
+    await expect(page.locator('#sheet')).to_contain_text('не фактический подсчёт токенизатором')
+    await expect(page.locator('#sheet')).not_to_contain_text('Cache read')
+    await context_event(page, fixture, budget(input=3000), dict(fixture.compaction, count=5))
+    await expect(page.locator('#sheet')).to_contain_text('Сжатий сохранено: 5')
+    await expect(page.locator('[data-context-value]')).to_have_text('Оценка бюджета: ≈50% · Сжатий сохранено: 5')
+    require(await page.evaluate('S.msgs.size') == 2, 'Restored compaction lost full history')
+
+
+async def context_provider_fallback(page, fixture, expect):
+    ring = page.locator('#ctxRing')
+    await expect(ring).to_have_attribute('aria-label', 'Context usage')
+    await expect(page.locator('#nativeContextStatus')).to_be_hidden()
+    pop = await context_popover(page)
+    await expect(pop.locator('h4')).to_have_text('Context')
+    await expect(pop).to_contain_text('Used')
+    await expect(pop).to_contain_text('1.5k / 10.0k · 15%')
+    await expect(pop).to_contain_text('Output')
+    await expect(pop).not_to_contain_text('Оценка бюджета')
+    await context_event(page, fixture, budget())
+    await expect(pop).to_contain_text('Оценка бюджета контекста')
+    # Malformed/missing native metadata fails closed to the existing provider UI.
+    for native in (None, budget(limit=0), budget(input=-1), dict(budget(), estimated=False),
+                   budget(input='6000'), dict(budget(), compacting='true')):
+        await context_event(page, fixture, native)
+        await expect(pop.locator('h4')).to_have_text('Context')
+        await expect(pop).to_contain_text('1.5k / 10.0k · 15%')
+        await expect(page.locator('#nativeContextStatus')).to_be_hidden()
+    await pop.locator('#ctxMore').click()
+    await expect(page.locator('#sheet')).to_contain_text('Cache read')
+    await expect(page.locator('#sheet')).not_to_contain_text('Оценка бюджета контекста')
+    await page.locator('#dim').click()
+    await context_event(page, fixture, budget())
+    await context_popover(page)
+    await page.locator('#ctxMore').click()
+    await context_event(page, fixture, None)
+    await expect(page.locator('#sheet')).not_to_have_class('on')
+    # Even valid metadata cannot change the HTTP/provider path when native mode is off.
+    await context_event(page, fixture, budget())
+    await page.evaluate('window.KumoNativeBackend=false;updateCtxRing()')
+    await expect(page.locator('#nativeContextStatus')).to_be_hidden()
+    await expect(ring).to_have_attribute('aria-label', 'Context usage')
+    pop = await context_popover(page)
+    await expect(pop.locator('h4')).to_have_text('Context')
+
+
+async def context_stale_hydration(page, fixture, expect):
+    fixture.metadata_gate = asyncio.Event()
+    calls = len(fixture.calls('backendRequest', '/session/' + SID))
+    pending = asyncio.create_task(page.evaluate('syncSession()'))
+    try:
+        await wait_calls(page, fixture, 'backendRequest', '/session/' + SID, calls + 1)
+        await context_event(page, fixture, budget(input=7000, compacting=True))
+        fixture.metadata_gate.set()
+        await pending
+        await expect(page.locator('#nativeContextStatus')).to_contain_text('Сжатие контекста…')
+        await expect(page.locator('#nativeContextStatus')).to_contain_text('≈90%')
+        # A new thread has no estimate and cannot inherit the previous compaction.
+        await page.evaluate('resetThread();renderHome()')
+        await expect(page.locator('#nativeContextStatus')).to_be_hidden()
+        await expect(page.locator('#ctxRing')).to_be_hidden()
+    finally:
+        fixture.metadata_gate.set()
+        await pending
+
+
+async def context_stale_session(page, fixture, expect):
+    fixture.native_context = budget(compacting=True)
+    fixture.compaction = {'boundary': 2, 'summary': 'Old session', 'created': 3000, 'count': 7}
+    fixture.metadata_gate = asyncio.Event()
+    calls = len(fixture.calls('backendRequest', '/session/' + SID))
+    pending = asyncio.create_task(page.evaluate('syncSession()'))
+    try:
+        await wait_calls(page, fixture, 'backendRequest', '/session/' + SID, calls + 1)
+        await page.evaluate("resetThread('ses_other')")
+        await expect(page.locator('#nativeContextStatus')).to_be_hidden()
+        fixture.metadata_gate.set()
+        await pending
+        await expect(page.locator('#nativeContextStatus')).to_be_hidden()
+        await expect(page.locator('#ctxRing')).to_be_hidden()
+        await context_event(page, fixture, budget(compacting=True), fixture.compaction)
+        await expect(page.locator('#nativeContextStatus')).to_be_hidden()
+    finally:
+        fixture.metadata_gate.set()
+        await pending
+
+
+async def context_layout(page, fixture, expect):
+    compact = {'boundary': 2, 'summary': 'Saved context', 'created': 3000, 'count': 12}
+    await context_event(page, fixture, budget(compacting=True), compact)
+    await page.evaluate("document.documentElement.style.setProperty('--font-scale','1.4')")
+    for width in (320, 390, 820):
+        await page.set_viewport_size({'width': width, 'height': 700})
+        status = page.locator('#nativeContextStatus')
+        await expect(status).to_be_visible()
+        await expect(status).to_contain_text('Сжатие контекста…')
+        pop = await context_popover(page)
+        await expect(pop).to_contain_text('Сжатий сохранено: 12')
+        for selector in ('#nativeContextStatus', '#ctxRing', '#ctxPop'):
+            bounds = await page.locator(selector).bounding_box()
+            require(bounds and bounds['x'] >= 0 and bounds['x'] + bounds['width'] <= width,
+                    'Context UI overflows viewport at ' + str(width) + ': ' + selector)
+        await pop.locator('#ctxMore').click()
+        details = page.locator('#sheet [data-native-context-details]')
+        await expect(details).to_contain_text('не фактический подсчёт токенизатором')
+        require(await details.evaluate('e => e.scrollWidth <= e.clientWidth'),
+                'Context details overflow at ' + str(width))
+        await page.locator('#dim').click(position={'x': 10, 'y': 10})
+
+
+CASES = {'context_metadata_update': context_metadata_update, 'context_compacting': context_compacting,
+         'context_compacted': context_compacted, 'context_restored': context_restored,
+         'context_provider_fallback': context_provider_fallback, 'context_stale_hydration': context_stale_hydration,
+         'context_stale_session': context_stale_session, 'context_layout': context_layout,
+         'files_browser': files_browser, 'files_loading': files_loading,
          'files_failure': files_failure, 'files_read_failure': files_read_failure,
          'files_stale_navigation': files_stale_navigation, 'files_saved_refresh': files_saved_refresh,
          'files_stale_session': files_stale_session, 'files_native_default': files_native_default,
@@ -857,6 +1104,15 @@ async def run_case(browser, origin, name, output, expect):
     fixture, errors, external = NativeFixture(), [], []
     if name == 'files_stale_session':
         fixture.session_directory = STALE_DIRECTORY
+    if name == 'context_restored':
+        fixture.list_context = False
+        fixture.native_context = budget(input=1000)
+        fixture.compaction = {'boundary': 2, 'summary': 'Saved context', 'created': 3000, 'count': 3}
+    if name == 'context_provider_fallback':
+        fixture.providers = {'providers': [{'id': 'fixture', 'models': {'model': {
+            'id': 'model', 'limit': {'context': 10000, 'output': 2000}}}}], 'default': {'fixture': 'model'}}
+        fixture.messages[-1]['info']['tokens'] = {'input': 1000, 'output': 200, 'reasoning': 100,
+                                                  'cache': {'read': 150, 'write': 50}}
     if name.startswith('permission_') or name in ('allow', 'reject', 'stop'):
         fixture.messages, fixture.status = snapshots(False), 'busy'
     context = await browser.new_context(viewport={'width': 820, 'height': 1180},
@@ -900,6 +1156,8 @@ async def run_case(browser, origin, name, output, expect):
             # A failing assertion/browser timeout must not prevent independent cases.
             result.update(status='FAIL', error=str(error) or type(error).__name__)
         finally:
+            if fixture.metadata_gate:
+                fixture.metadata_gate.set()
             if fixture.reply_gate:
                 fixture.reply_gate.set()
             for gate in fixture.fs_gates.values():
@@ -977,10 +1235,12 @@ def main():
     module = importlib.util.module_from_spec(spec)
     spec.loader.exec_module(module)
     canonical = SOURCE.read_bytes().decode('utf-8').replace('\r\n', '\n')
-    for label, old in (('permission', module.PERMISSION_OLD), ('file manager', module.FILE_MANAGER_OLD)):
+    for label, old in (('permission', module.PERMISSION_OLD), ('file manager', module.FILE_MANAGER_OLD),
+                       ('context', module.CONTEXT_OLD), ('context metadata event', module.CONTEXT_EVENT_OLD),
+                       ('context hydration', module.CONTEXT_SYNC_OLD)):
         require(canonical.count(old) == 1, label + ' patch is not an exact canonical block')
-        for changed in (canonical.replace(old, old + '\n' + old),
-                        canonical.replace(old, old.replace('function ', 'function changed_', 1))):
+        mutated = old.replace('function ', 'function changed_', 1) if 'function ' in old else old.replace('const ', 'const changed_', 1)
+        for changed in (canonical.replace(old, old + '\n' + old), canonical.replace(old, mutated)):
             try:
                 module.patch_html(changed)
             except module.PatchError:
@@ -1007,9 +1267,11 @@ def main():
     require(staged_html.count(module.FILE_MANAGER_BEFORE + module.FILE_MANAGER_NEW + module.FILE_MANAGER_AFTER) == 1,
             'Files IIFE changed its surrounding boundaries')
 
-    require((RESOURCES / 'codex.html').read_bytes() == staged_html.encode('utf-8'),
-            'Generated iOS HTML is stale; run stage-native-ui.py first')
-    print('PASS exact permission/file manager patches and scope boundaries fail closed; generated iOS HTML matches staging', flush=True)
+    require(module.NATIVE_CONTEXT.startswith("const nativeContextUI=(function(){\n 'use strict';\n"),
+            'Context helpers must start a function-local strict scope')
+    require(module.NATIVE_CONTEXT.endswith('\n})();\n'), 'Context helpers must close their IIFE')
+    # Stage into evidence only: generated AppHarness resources belong to parent CI.
+    print('PASS exact permission/file manager/context patches and scope boundaries fail closed', flush=True)
     assets = output / 'assets'
     assets.mkdir(exist_ok=True)
     staged, _ = module.stage(SOURCE, assets)
