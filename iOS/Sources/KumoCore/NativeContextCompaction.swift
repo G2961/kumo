@@ -45,8 +45,11 @@ enum NativeContextCompaction {
             row["replayItems"] = message.replayItems
             return row
         }
-        let data = try JSONSerialization.data(withJSONObject: ["system": system, "messages": rows, "tools": tools],
-                                              options: [.sortedKeys])
+        let value: [String: Any] = ["system": system, "messages": rows, "tools": tools]
+        guard JSONSerialization.isValidJSONObject(value) else {
+            throw NativeModelClientError.invalidRequest("Native context estimate requires valid JSON values.")
+        }
+        let data = try JSONSerialization.data(withJSONObject: value, options: [.sortedKeys])
         // Bytes are deliberately NOT divided by a guessed bytes-per-token ratio.
         let overhead = messages.count.multipliedReportingOverflow(by: 64)
         let input = data.count.addingReportingOverflow(overhead.partialValue)

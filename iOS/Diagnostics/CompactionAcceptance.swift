@@ -8,7 +8,9 @@ import Darwin
 // Usage: KumoCompactionAcceptance <state.json> <providerID> <fresh-absolute-test-root>
 // Requires the owner's existing Keychain entitlement. Reads, never migrates, credentials.
 // One scripted seed, then ONE live AgentRouter summary + continuation (two billable
-// streams maximum, no retry). Only the isolated root is written; leave it for inspection.
+// streams maximum, no retry). Live bytes use the shared request builder/SSE decoder;
+// harness-only transport observation prints fixed failure enums, never provider text.
+// Only the isolated root is written; leave it for inspection.
 // The 20000-byte conservative estimate window is diagnostic-local, not provider metadata.
 // A parent should allow 180s; this process exits nonzero after a 175s hard deadline.
 // Stdout is fixed CHECK categories and counts only. Backend NSLog stderr is suppressed
@@ -36,6 +38,10 @@ struct CompactionAcceptance {
     }
 
     static func main() async {
+        let marker: StaticString = "CHECK startup_enter PASS\n"
+        marker.withUTF8Buffer { bytes in
+            if let base = bytes.baseAddress { _ = Darwin.write(STDOUT_FILENO, base, bytes.count) }
+        }
         // Installed before any disk or Keychain operation, not merely before networking.
         let watchdog = DispatchWorkItem {
             print("CHECK timeout FAIL")
@@ -46,14 +52,14 @@ struct CompactionAcceptance {
         let deadline = ProcessInfo.processInfo.systemUptime + 170
         var active: NativeAgentBackend?
         do {
+            let args = CommandLine.arguments
+            try requireIPad()
+            guard args.count == 4 else { throw Failure.arguments }
             let sink = open("/dev/null", O_WRONLY)
             guard sink >= 0 else { throw Failure.output }
             let redirected = dup2(sink, STDERR_FILENO)
-            close(sink)
+            if sink != STDERR_FILENO { close(sink) }
             guard redirected >= 0 else { throw Failure.output }
-            try requireIPad()
-            let args = CommandLine.arguments
-            guard args.count == 4 else { throw Failure.arguments }
             let source = try Source(statePath: args[1], providerID: args[2])
             let root = try prepareRoot(args[3], source: source)
             let project = root.appendingPathComponent("project", isDirectory: true)
@@ -95,6 +101,7 @@ struct CompactionAcceptance {
 
             try await prompt(backend, sid: sid, project: project, source: source, text: latest)
             try await waitIdle(backend, sid: sid, deadline: deadline)
+            client.printCounts()
             let requests = client.requests
             try check(requests.count == 3 && client.requestCount == 3
                 && client.liveSummary == 1 && client.liveContinuation == 1
@@ -212,6 +219,7 @@ struct CompactionAcceptance {
     private static func check(_ passed: Bool, _ category: Failure, count: Int) throws {
         guard passed else { throw category }
         print("CHECK " + category.rawValue + " PASS count=\(count)")
+        fflush(nil)
     }
 
     private static func requireIPad() throws {
@@ -503,7 +511,7 @@ struct CompactionAcceptance {
 
     private final class LiveModel: NativeModelClient, @unchecked Sendable {
         private let lock = NSLock()
-        private let transport: URLSessionNativeModelClient
+        private let transport = DiagnosticTransport()
         private var stored: [NativeModelRequest] = []
         private var attempts = 0
         private var summaries = 0
@@ -511,17 +519,7 @@ struct CompactionAcceptance {
         private var rejected = false
         private let limit = 2
 
-        init() {
-            let configuration = URLSessionConfiguration.ephemeral
-            configuration.httpShouldSetCookies = false
-            configuration.httpCookieStorage = nil
-            configuration.urlCredentialStorage = nil
-            configuration.urlCache = nil
-            configuration.timeoutIntervalForRequest = 60
-            configuration.timeoutIntervalForResource = 150
-            // No URLProtocol injection or substitute transport: production HTTPS + SSE.
-            transport = URLSessionNativeModelClient(configuration: configuration)
-        }
+
 
         var requests: [NativeModelRequest] { lock.lock(); defer { lock.unlock() }; return stored }
         var requestCount: Int { lock.lock(); defer { lock.unlock() }; return attempts }
@@ -529,6 +527,14 @@ struct CompactionAcceptance {
         var liveContinuation: Int { lock.lock(); defer { lock.unlock() }; return continuations }
         var liveCount: Int { lock.lock(); defer { lock.unlock() }; return summaries + continuations }
         var denied: Bool { lock.lock(); defer { lock.unlock() }; return rejected }
+
+        func printCounts() {
+            lock.lock()
+            let total = attempts, summary = summaries, continuation = continuations, denied = rejected
+            lock.unlock()
+            print("CHECK stream_counts requests=\(total) summary=\(summary) continuation=\(continuation) denied=\(denied ? 1 : 0)")
+            fflush(nil)
+        }
 
         func stream(request: NativeModelRequest) -> AsyncThrowingStream<NativeModelEvent, Error> {
             lock.lock()
@@ -553,9 +559,245 @@ struct CompactionAcceptance {
                 }
             }
             guard live else { return AsyncThrowingStream { $0.finish(throwing: Failure.streams) } }
-            // Returned unchanged. A saved checkpoint and completed visible assistant turn
-            // prove successful terminal events from each delegated URLSession stream.
+            // Observe transport failures before the shared decoder reduces them to
+            // providerFailure; never replace its provider semantics or retry a stream.
+            printCounts()
             return transport.stream(request: request)
+        }
+    }
+
+    // Harness-only copy of the production transport loop. Request construction,
+    // framing, decoding, buffering/backpressure and HTTP error handling remain shared.
+    // The observer cannot authorize events or turn a failed terminal frame into success.
+    private final class DiagnosticTransport: NativeModelClient {
+        func stream(request: NativeModelRequest) -> AsyncThrowingStream<NativeModelEvent, Error> {
+            let phase: TransportEvidence.Phase = request.system == NativeContextCompaction.summaryInstructions ? .summary : .continuation
+            return AsyncThrowingStream(bufferingPolicy: .bufferingOldest(256)) { continuation in
+                let task = Task {
+                    let configuration = URLSessionConfiguration.ephemeral
+                    configuration.httpShouldSetCookies = false
+                    configuration.httpCookieStorage = nil
+                    configuration.urlCredentialStorage = nil
+                    configuration.urlCache = nil
+                    configuration.timeoutIntervalForRequest = 120
+                    configuration.timeoutIntervalForResource = 120
+                    let session = URLSession(configuration: configuration, delegate: NoRedirect(), delegateQueue: nil)
+                    // AsyncBytes keepalives must not extend the resource deadline.
+                    let hardStop = DispatchWorkItem { session.invalidateAndCancel() }
+                    DispatchQueue.global(qos: .utility).asyncAfter(deadline: .now() + 120, execute: hardStop)
+                    defer {
+                        hardStop.cancel()
+                        session.invalidateAndCancel()
+                    }
+                    let started = ProcessInfo.processInfo.systemUptime
+                    var evidence = TransportEvidence(phase: phase)
+                    do {
+                        try await withTaskCancellationHandler(operation: {
+                            try Task.checkCancellation()
+                            let urlRequest = try NativeModelRequestBuilder.makeURLRequest(request)
+                            let (bytes, response) = try await session.bytes(for: urlRequest)
+                            guard let http = response as? HTTPURLResponse else {
+                                throw NativeModelClientError.invalidResponse
+                            }
+                            evidence.httpStatus = http.statusCode
+                            guard (200..<300).contains(http.statusCode) else {
+                                let mimeType = http.mimeType?.lowercased() ?? ""
+                                let isJSON = mimeType == "application/json"
+                                    || (mimeType.hasPrefix("application/") && mimeType.hasSuffix("+json"))
+                                let data = isJSON ? await NativeProviderHTTPDiagnostic.readBody(
+                                    bytes, expectedLength: http.expectedContentLength, session: session
+                                ) : nil
+                                if let data { evidence.observeHTTP(data) }
+                                try Task.checkCancellation()
+                                throw NativeProviderHTTPDiagnostic.error(status: http.statusCode, data: data)
+                            }
+                            guard http.mimeType?.lowercased() == "text/event-stream" else {
+                                throw NativeModelClientError.invalidResponse
+                            }
+                            var parser = NativeSSEParser()
+                            var decoder = NativeModelStreamDecoder(format: request.format)
+                            for try await byte in bytes {
+                                try Task.checkCancellation()
+                                guard let frame = try parser.feed(byte) else { continue }
+                                // Observation precedes consume: failed/incomplete throws
+                                // there, so observing only decoded events loses the cause.
+                                evidence.observe(frame)
+                                let events = try decoder.consume(frame)
+                                for event in events {
+                                    evidence.count(event)
+                                    switch continuation.yield(event) {
+                                    case .enqueued: break
+                                    case .dropped: throw NativeModelClientError.slowConsumer
+                                    case .terminated: throw CancellationError()
+                                    @unknown default: throw NativeModelClientError.slowConsumer
+                                    }
+                                }
+                                if decoder.isFinished {
+                                    evidence.report(.completed)
+                                    continuation.finish()
+                                    return
+                                }
+                            }
+                            try parser.finish()
+                            try decoder.finish()
+                            evidence.report(.completed)
+                            continuation.finish()
+                        }, onCancel: {
+                            session.invalidateAndCancel()
+                        })
+                    } catch {
+                        let underlying = error as NSError
+                        let timedOut = ProcessInfo.processInfo.systemUptime - started >= 120
+                            || (underlying.domain == NSURLErrorDomain && underlying.code == NSURLErrorTimedOut)
+                        evidence.report(timedOut ? .timeout : TransportEvidence.outcome(error))
+                        // Exactly the production error mapping; no diagnostic error text
+                        // or provider-controlled fields enter the backend's error path.
+                        if Task.isCancelled || error is CancellationError {
+                            continuation.finish(throwing: CancellationError())
+                        } else if let safe = error as? NativeModelClientError {
+                            continuation.finish(throwing: safe)
+                        } else {
+                            continuation.finish(throwing: NativeModelClientError.transport((error as NSError).code))
+                        }
+                    }
+                }
+                continuation.onTermination = { @Sendable _ in task.cancel() }
+            }
+        }
+    }
+
+    private final class NoRedirect: NSObject, URLSessionTaskDelegate {
+        func urlSession(_ session: URLSession, task: URLSessionTask,
+                        willPerformHTTPRedirection response: HTTPURLResponse, newRequest request: URLRequest,
+                        completionHandler: @escaping (URLRequest?) -> Void) {
+            completionHandler(nil)
+        }
+    }
+
+    private struct TransportEvidence {
+        enum Phase: String { case summary, continuation }
+        enum Event: String {
+            case none, other, error
+            case failed = "response.failed"
+            case incomplete = "response.incomplete"
+            case cancelled = "response.cancelled"
+            case completed = "response.completed"
+        }
+        enum Status: String { case none, unknown, queued, in_progress, completed, failed, incomplete, cancelled }
+        enum ErrorField: String { case none, null, object, other }
+        enum Code: String {
+            case none, unknown, max_output_tokens, invalid_request_error, unsupported_parameter
+            case invalid_reasoning_effort, provider_error, server_error, content_filter
+            case rate_limit_exceeded, rate_limit_error, invalid_api_key, invalid_api_key_error
+            case unauthorized_client_error, model_not_found, unsupported_model
+        }
+        enum Outcome: String {
+            case completed, cancelled, timeout, http, transport
+            case invalid_request, invalid_response, malformed_stream, truncated_stream
+            case provider_failure, limit_exceeded, slow_consumer
+        }
+
+        let phase: Phase
+        var httpStatus = 0
+        private var frames = 0
+        private var textEvents = 0
+        private var reasoningEvents = 0
+        private var finishedEvents = 0
+        private var event: Event = .none
+        private var status: Status = .none
+        private var code: Code = .none
+        private var errorType: Code = .none
+        private var reason: Code = .none
+        private var topError: ErrorField = .none
+        private var responseError: ErrorField = .none
+
+        init(phase: Phase) { self.phase = phase }
+
+        mutating func observe(_ frame: NativeSSEFrame) {
+            frames += 1
+            // The shared parser already bounds frames to 8 MiB. Decode only to
+            // select enums; never retain/log the object, data, message, param or ID.
+            let object = (try? JSONSerialization.jsonObject(with: Data(frame.data.utf8))) as? [String: Any]
+            let type = object?["type"] as? String ?? frame.event
+            event = type.flatMap(Event.init(rawValue:)) ?? .other
+            if let object { observeFields(object) }
+        }
+
+        mutating func observeHTTP(_ data: Data) {
+            // readBody is shared: known JSON only, at most 8 KiB, one-second EOF.
+            guard let object = (try? JSONSerialization.jsonObject(with: data)) as? [String: Any] else { return }
+            observeFields(object)
+        }
+
+        private mutating func observeFields(_ object: [String: Any]) {
+            let response = object["response"] as? [String: Any]
+            let nestedError = response?["error"] as? [String: Any]
+            let error = object["error"] as? [String: Any]
+            status = .none
+            reason = .none
+            if let value = response?["status"] as? String {
+                status = Status(rawValue: value) ?? .unknown
+            }
+            topError = Self.field(object["error"])
+            responseError = Self.field(response?["error"])
+            // Keep literal code and type separate: a generic known type must not
+            // conceal an unknown specific code. Null is not an invented error code.
+            code = Self.classify([nestedError?["code"], error?["code"], object["code"]])
+            errorType = Self.classify([nestedError?["type"], error?["type"]])
+            let incomplete = response?["incomplete_details"] as? [String: Any]
+                ?? object["incomplete_details"] as? [String: Any]
+            if let value = incomplete?["reason"] as? String {
+                reason = Code(rawValue: value) ?? .unknown
+            }
+        }
+
+        private static func classify(_ fields: [Any?]) -> Code {
+            guard let value = fields.compactMap({ $0 }).first else { return .none }
+            guard let value = value as? String else { return .unknown }
+            return Code(rawValue: value) ?? .unknown
+        }
+
+        private static func field(_ value: Any?) -> ErrorField {
+            guard let value else { return .none }
+            if value is NSNull { return .null }
+            return value is [String: Any] ? .object : .other
+        }
+
+        mutating func count(_ event: NativeModelEvent) {
+            switch event {
+            case .text: textEvents += 1
+            case .reasoning: reasoningEvents += 1
+            case .finished: finishedEvents += 1
+            default: break
+            }
+        }
+
+        static func outcome(_ error: Error) -> Outcome {
+            if error is CancellationError || Task.isCancelled { return .cancelled }
+            guard let native = error as? NativeModelClientError else { return .transport }
+            switch native {
+            case .invalidRequest: return .invalid_request
+            case .http, .httpReason: return .http
+            case .invalidResponse: return .invalid_response
+            case .malformedStream: return .malformed_stream
+            case .truncatedStream: return .truncated_stream
+            case .providerFailure: return .provider_failure
+            case .limitExceeded: return .limit_exceeded
+            case .slowConsumer: return .slow_consumer
+            case .transport: return .transport
+            }
+        }
+
+        func report(_ outcome: Outcome) {
+            // All strings below are enum literals, not sanitized provider text.
+            // At most one report per accepted live request (global limit remains two).
+            print("CHECK live_transport phase=" + phase.rawValue + " outcome=" + outcome.rawValue
+                + " event=" + event.rawValue + " status=" + status.rawValue
+                + " code=" + code.rawValue + " error_type=" + errorType.rawValue + " reason=" + reason.rawValue
+                + " top_error=" + topError.rawValue + " response_error=" + responseError.rawValue
+                + " http=\(httpStatus) frames=\(frames) text_events=\(textEvents)"
+                + " reasoning_events=\(reasoningEvents) finished_events=\(finishedEvents)")
+            fflush(nil)
         }
     }
 
