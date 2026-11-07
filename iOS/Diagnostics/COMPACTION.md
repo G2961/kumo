@@ -61,8 +61,29 @@ provider replay), original transcript/UI rows were preserved, patch history and
 user state stayed unchanged, and reopening made zero model requests.
 This run used a temporary harness-local transport observer sharing the production
 request builder/parser/decoder; the final harness removes that duplicate and
-calls `URLSessionNativeModelClient` directly. A final production-transport run
-and installed IPA verification are recorded separately below.
+calls `URLSessionNativeModelClient` directly.
+
+Final production-transport device gate: `ios-diagnostics` run `42377565503`,
+revision `0aef1be`. Exactly two live streams passed, recovered the synthetic
+fact, and reduced request budget **17894 → 9181** (final estimate 12117).
+Original rows, patch history and user state were unchanged; zero-generation
+reopen passed. Safe count-only evidence is kept locally in
+`.local/compaction-proof-0aef1be/device.log`.
+
+Installed IPA: app build `42377309975` (`e09b245`; subsequent commits changed
+only the harness/docs), signed binary SHA256
+`d7dae399bf77219ed55711a74cfd363fdc13690379965cf432b941f4d27bc83e`.
+Installation and path migration preserved **10 existing sessions** and both
+provider configurations. Physical WKWebView launch passed `didFinish`, DOM
+probe and native bridge smoke (two providers, project files available); no
+JavaScript error appeared in the captured launch log. Context-indicator behavior
+is covered by Chromium scenarios, not by a physical WKWebView interaction probe.
+Screenshots were unavailable because the device screenshot/developer service
+could not start; no UI taps were automated.
+
+Final app/core/browser CI `42377565263` also passed all 234 XCTest and the UI
+job. The temporary standalone helper and its signing-grant file were removed;
+UI-host entitlements remain minimal.
 
 Earlier gates were deliberately treated as failures: invalid JSON in the budget
 needed `isValidJSONObject` to avoid Foundation exceptions; one provider summary
@@ -86,6 +107,10 @@ minimal WebKit-compatible entitlements. Remove the helper/grant after validation
    Android canonical HTML was not modified.
 6. Reviewed cancellation/recovery and fixed batch scanning, crash flags,
    completed/error counters, replay-only estimates and counter overflow.
+7. Added isolated live-device acceptance and its CI build target.
 8. Ran macOS compilation/XCTest, browser CI and physical iPad checks; rejected
    failed model/recall gates, refined exact-fact retention and removed temporary
    transport duplication before final production validation.
+9. Passed the production-client device gate, installed the IPA with data backup
+   and container path remapping, verified physical bridge/DOM launch, and removed
+   the temporary standalone helper/grant.
