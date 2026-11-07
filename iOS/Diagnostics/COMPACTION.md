@@ -63,6 +63,25 @@ The standalone acceptance harness accepts a final `manual` argument: two exact
 scripted turns below 80%, one live summary, a zero-call no-op, and only then an
 explicit live recall request. It uses the unchanged production model transport.
 
+Manual verification (`682834f`): app/core/browser CI `42382215046` passed
+**246 XCTest**, **12 staging/Node tests**, and **38 browser scenarios**.
+Device harness build `42382215257` passed on physical iPad6,11 / iOS 16.7.12:
+manual compaction started at budget **18031 / 100000**, reduced it to **9335**,
+and issued one summary with zero automatic continuations. Repeating the action
+made zero requests/writes; an explicitly requested continuation recalled the
+synthetic fact. Original messages/transcripts, patch history and user state
+stayed unchanged; reopen made zero requests.
+
+IPA from `42382215046` was installed with all **11 existing sessions** and both
+provider configurations preserved. Signed binary SHA256:
+`10a16ba0e8ebaab10c780a159833f17d699ffc06b4ab586f94c823044d544c61`.
+Post-install foreground launch was **not verified**: SpringBoard explicitly
+rejected it because the iPad was locked, despite `uiopen` returning exit 0.
+Thus button interaction is browser-fixture coverage, not physical WKWebView
+proof. Unlock and open Kumo to use Context → **Сжать сейчас**. Temporary device
+helper and its signing-grant file were removed; app entitlements stay minimal.
+Count-only live and launch evidence: `.local/compaction-proof-manual-682834f/`.
+
 ## Verification
 
 - `NativeContextCompactionTests`: pure budget, safe call/result boundaries,
