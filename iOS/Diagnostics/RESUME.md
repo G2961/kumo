@@ -35,6 +35,15 @@ New prompts/manual compaction invalidate old continuation buttons. Stale,
 busy, foreign-directory and malformed resume requests fail without writes.
 
 Validation:
+- CI `42390076595` (`015af07`): **255 XCTest**, 12 staging/Node tests,
+  42 browser scenarios and unsigned iOS app build passed. Initial run caught an
+  obsolete crash-test expectation; the updated test checks both retained disk
+  text and its absence from recovered model input.
+- Installed on iPad6,11 / iOS 16.7.12 with all **11 sessions** and both provider
+  configurations preserved. Signed binary SHA256:
+  `821e4f8412722c6357f337393529cf9be61b281101cc228ce074b9546977b33d`.
+  Foreground launch requested; no live generation or physical UI retry was
+  automated. The old opt-in compaction probe was not included in this build.
 - `NativeAgentResumeTests`: both provider formats; completed write followed by
   TLS failure and resume; manual file edit is not overwritten; exact retained
   tool pair; saved partial/repeated failure/reopen; selection; rejection guards;
